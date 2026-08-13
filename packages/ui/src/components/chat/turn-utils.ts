@@ -51,17 +51,6 @@ export interface AssistantTurn {
   timestamp: number
   /** Extracted from TodoWrite tool - latest todo state in this turn */
   todos?: TodoItem[]
-  /**
-   * Assistant text still streaming inside a turn that has already done work.
-   *
-   * Its verdict is pending: text_complete decides whether it was the answer or
-   * a remark between tool calls. It renders at the tail of the step list — the
-   * spot a remark settles into — so the common outcome costs no movement at
-   * all, it just contracts to a single line. Text in a turn with no steps yet
-   * skips this and streams straight into `response`, since there is nothing for
-   * it to be a remark between.
-   */
-  streamingText?: string
 }
 
 /** Represents a user message */
@@ -152,12 +141,6 @@ export function deriveTurnPhase(turn: AssistantTurn): TurnPhase {
   // Check if final response is streaming
   // Note: turn.response only exists for final responses, not intermediate text
   if (turn.response && turn.response.isStreaming) {
-    return 'streaming'
-  }
-
-  // Text streaming at the tail of the step list counts too — it is visible
-  // output, so the turn is not waiting on anything.
-  if (turn.streamingText) {
     return 'streaming'
   }
 
@@ -626,19 +609,10 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
         continue
       }
 
-      // Text still streaming into a turn that has already produced steps is
-      // most often a remark before the next tool call, so it streams at the
-      // tail of the step list instead of in the chat column — see
-      // AssistantTurn.streamingText. Once text_complete rules, it either
-      // contracts into a step (no movement) or moves down into the answer.
-      if (message.isPending && currentTurn && currentTurn.activities.length > 0) {
-        currentTurn.streamingText = message.content
-        currentTurn.isComplete = false
-        currentTurn.isStreaming = true
-        continue
-      }
-
       // Non-intermediate assistant message = visible AI text for this user turn.
+      // Text whose verdict is still pending (isPending) takes this path too: it
+      // streams in the chat column, where the answer lives, and only moves if
+      // text_complete rules it was a remark between tool calls.
       // Do not flush: later tools / later finals belong to the same Q&A card.
       if (!currentTurn) {
         currentTurn = {

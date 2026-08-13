@@ -140,6 +140,40 @@ function getStreamingTail(text: string, maxChars = 120): string {
 }
 
 /**
+ * Streamed text, held back to at most one update per CONTENT_THROTTLE_MS.
+ *
+ * Rendering markdown per delta is what makes a fast stream stutter; a small
+ * lag still reads as continuous growth. The last value lands immediately when
+ * the stream ends, so the settled block is never a frame behind.
+ */
+function useThrottledStreamText(text: string, isStreaming: boolean): string {
+  const [displayed, setDisplayed] = useState(text)
+  const lastUpdateRef = useRef(Date.now())
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setDisplayed(text)
+      return
+    }
+
+    const elapsed = Date.now() - lastUpdateRef.current
+    if (elapsed >= CONTENT_THROTTLE_MS) {
+      setDisplayed(text)
+      lastUpdateRef.current = Date.now()
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      setDisplayed(text)
+      lastUpdateRef.current = Date.now()
+    }, CONTENT_THROTTLE_MS - elapsed)
+    return () => clearTimeout(timeout)
+  }, [text, isStreaming])
+
+  return displayed
+}
+
+/**
  * Compute diff stats for Edit/Write tool inputs.
  * Uses @pierre/diffs for accurate line-by-line diff calculation.
  *
@@ -343,8 +377,6 @@ export interface TurnCardProps {
   hasEditOrWriteActivities?: boolean
   /** TodoWrite tool state - shown at bottom of turn */
   todos?: TodoItem[]
-  /** Assistant text streaming at the tail of the step list - see AssistantTurn.streamingText */
-  streamingText?: string
   /** Optional render prop for actions menu (Electron provides dropdown) */
   renderActionsMenu?: () => React.ReactNode
   /** Callback when user accepts the plan (plan responses only) */
@@ -795,18 +827,53 @@ function TextActivityRow({
   const isReasoning = kind === 'thinking'
   const isStreaming = activity.status === 'running'
   const body = activity.content?.trim() ?? ''
+  // The expanded body re-parses markdown on every change, so it follows the
+  // throttled stream rather than each delta.
+  const renderedBody = useThrottledStreamText(body, isStreaming)
+
+  const liveLabel = isReasoning ? i18n.t('turnCard.thinking') : i18n.t('turnCard.responding')
 
   // While deltas arrive the tail is the moving edge worth watching; once the
-  // block settles, the head of the flattened text reads as a summary.
+  // block settles, the head of the flattened text reads as a summary. Expanded,
+  // the body below is the thing being read, so the row holds a steady label
+  // instead of scrolling text past the reader.
   const flattened = stripMarkdown(body)
-  const summary = (isStreaming ? getStreamingTail(flattened) : flattened) || 'Thinking...'
+  const streamingSummary = isExpanded ? liveLabel : getStreamingTail(flattened)
+  const summary = (isStreaming ? streamingSummary : flattened) || liveLabel
 
-  // A short block with nothing folded away already fits on the summary row —
-  // offering to expand it would just repeat the same sentence underneath.
+  // A short settled block with nothing folded away already fits on the summary
+  // row — offering to expand it would just repeat the same sentence underneath.
+  // While streaming there is always more than the single tail line shows, so
+  // the row opens from the first delta rather than only once the block lands.
   const settled = !isStreaming && body.length > 0
-  const canExpand = settled && (flattened !== body || body.length > SUMMARY_ROW_MAX_CHARS)
+  const canExpand = body.length > 0
+    && (isStreaming || flattened !== body || body.length > SUMMARY_ROW_MAX_CHARS)
   const Icon = isReasoning ? Brain : MessageCircleDashed
   const toneClass = isReasoning ? 'text-muted-foreground' : 'text-foreground/75'
+
+  // A block opened mid-stream can settle into one short line, which the summary
+  // row already shows in full — drop the now-redundant expansion.
+  useEffect(() => {
+    if (!canExpand) setIsExpanded(false)
+  }, [canExpand])
+
+  // Model prose, so it carries the model's markdown — lists and emphasis
+  // render rather than showing their syntax. Tool output keeps its monospace
+  // treatment; see InlineToolDetail.
+  const expandedBody = (
+    <div
+      className={cn(
+        'ml-5 mb-1 pl-2 border-l-2 border-muted break-words',
+        toneClass,
+        isReasoning && 'italic',
+        SIZE_CONFIG.fontSize
+      )}
+    >
+      <Markdown mode="minimal" onUrlClick={onOpenUrl} onFileClick={onOpenFile}>
+        {renderedBody}
+      </Markdown>
+    </div>
+  )
 
   return (
     <div className="flex items-stretch">
@@ -875,36 +942,28 @@ function TextActivityRow({
           )}
         </div>
 
-        <AnimatePresence initial={false}>
-          {isExpanded && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{
-                height: { duration: 0.2, ease: [0.4, 0, 0.2, 1] },
-                opacity: { duration: 0.15 },
-              }}
-              className="overflow-hidden"
-            >
-              <div
-                className={cn(
-                  'ml-5 mb-1 pl-2 border-l-2 border-muted break-words',
-                  toneClass,
-                  isReasoning && 'italic',
-                  SIZE_CONFIG.fontSize
-                )}
+        {/* A live block grows with every delta, so it renders unanimated — a
+            height tween would restart on each token and clip the new text. */}
+        {isStreaming ? (
+          isExpanded && expandedBody
+        ) : (
+          <AnimatePresence initial={false}>
+            {isExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{
+                  height: { duration: 0.2, ease: [0.4, 0, 0.2, 1] },
+                  opacity: { duration: 0.15 },
+                }}
+                className="overflow-hidden"
               >
-                {/* Model prose, so it carries the model's markdown — lists and
-                    emphasis render rather than showing their syntax. Tool
-                    output keeps its monospace treatment; see InlineToolDetail. */}
-                <Markdown mode="minimal" onUrlClick={onOpenUrl} onFileClick={onOpenFile}>
-                  {body}
-                </Markdown>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                {expandedBody}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        )}
       </div>
     </div>
   )
@@ -1738,9 +1797,7 @@ export function ResponseCard({
   annotationInteractionMode = 'interactive',
 }: ResponseCardProps) {
   const { t } = useTranslation()
-  // Throttled content for display - updates every CONTENT_THROTTLE_MS during streaming
-  const [displayedText, setDisplayedText] = useState(text)
-  const lastUpdateRef = useRef(Date.now())
+  const displayedText = useThrottledStreamText(text, isStreaming)
   // Copy to clipboard state
   const [copied, setCopied] = useState(false)
   // Fullscreen state
@@ -2455,32 +2512,6 @@ export function ResponseCard({
     />
   )
 
-  // Throttle content updates during streaming for performance
-  // Updates immediately when streaming ends to show final content
-  useEffect(() => {
-    if (!isStreaming) {
-      // Streaming ended - show final content immediately
-      setDisplayedText(text)
-      return
-    }
-
-    const now = Date.now()
-    const elapsed = now - lastUpdateRef.current
-
-    if (elapsed >= CONTENT_THROTTLE_MS) {
-      // Enough time passed - update immediately
-      setDisplayedText(text)
-      lastUpdateRef.current = now
-    } else {
-      // Schedule update for remaining time
-      const timeout = setTimeout(() => {
-        setDisplayedText(text)
-        lastUpdateRef.current = Date.now()
-      }, CONTENT_THROTTLE_MS - elapsed)
-      return () => clearTimeout(timeout)
-    }
-  }, [text, isStreaming])
-
   const isCompleted = !isStreaming
 
   // Completed response or plan — expand fully in the chat column (no clipped card)
@@ -2795,7 +2826,6 @@ export const TurnCard = React.memo(function TurnCard({
   onOpenMultiFileDiff,
   hasEditOrWriteActivities,
   todos,
-  streamingText,
   renderActionsMenu,
   onAcceptPlan,
   onAcceptPlanWithCompact,
@@ -2819,14 +2849,13 @@ export const TurnCard = React.memo(function TurnCard({
   // replacing the old ad-hoc boolean combinations.
   const turnPhase = useMemo(() => {
     // Construct a minimal turn-like object for deriveTurnPhase
-    const turnData: Pick<AssistantTurn, 'isComplete' | 'response' | 'activities' | 'streamingText'> = {
+    const turnData: Pick<AssistantTurn, 'isComplete' | 'response' | 'activities'> = {
       isComplete,
       response,
       activities,
-      streamingText,
     }
     return deriveTurnPhase(turnData as AssistantTurn)
-  }, [isComplete, response, activities, streamingText])
+  }, [isComplete, response, activities])
 
   // Use local state if no controlled state provided
   const [localExpandedTurns, setLocalExpandedTurns] = useState<Set<string>>(() => defaultExpanded ? new Set([turnId]) : new Set())
@@ -2930,6 +2959,35 @@ export const TurnCard = React.memo(function TurnCard({
     [sortedActivities, hasTaskSubagents]
   )
 
+  // Only count non-plan activities for the collapsible section
+  const hasActivities = sortedActivities.length > 0
+
+  // A turn in flight keeps its step list open, then collapses once it settles.
+  //
+  // Assistant text streams into the chat column before anyone knows whether it
+  // was the answer or a remark between tool calls. When text_complete says
+  // "commentary", the paragraph is filed into the step list — and behind a
+  // collapsed header that reads as the text vanishing mid-sentence. Open while
+  // the turn runs, the same move reads as the paragraph folding into a step.
+  //
+  // A user who works the disclosure themselves owns it from then on.
+  //
+  // Declared above the early returns below: a turn that renders nothing now can
+  // render content on the next delta, and hooks may not appear or disappear
+  // between renders of the same card.
+  const autoExpanded = useRef(false)
+  useEffect(() => {
+    if (hasUserToggled.current) return
+    const running = turnPhase !== 'complete' && hasActivities
+    if (running && !isExpanded) {
+      autoExpanded.current = true
+      setExpanded(true)
+    } else if (!running && autoExpanded.current) {
+      autoExpanded.current = false
+      setExpanded(false)
+    }
+  }, [turnPhase, hasActivities, isExpanded, setExpanded])
+
   // Don't render if nothing to show and turn is complete
   if (activities.length === 0 && !response && isComplete) {
     return null
@@ -2957,32 +3015,6 @@ export const TurnCard = React.memo(function TurnCard({
   if (hasNoMeaningfulWork) {
     return null
   }
-
-  // Only count non-plan activities for the collapsible section
-  const hasActivities = sortedActivities.length > 0
-
-  // A turn in flight keeps its step list open, then collapses once it settles.
-  //
-  // Assistant text streams into the chat column before anyone knows whether it
-  // was the answer or a remark between tool calls. When text_complete says
-  // "commentary", the paragraph is filed into the step list — and behind a
-  // collapsed header that reads as the text vanishing mid-sentence. Open while
-  // the turn runs, the same move reads as the paragraph folding into a step.
-  //
-  // A user who works the disclosure themselves owns it from then on.
-  const autoExpanded = useRef(false)
-  useEffect(() => {
-    if (hasUserToggled.current) return
-    const running = turnPhase !== 'complete' && hasActivities
-    if (running && !isExpanded) {
-      autoExpanded.current = true
-      setExpanded(true)
-    } else if (!running && autoExpanded.current) {
-      autoExpanded.current = false
-      setExpanded(false)
-    }
-  }, [turnPhase, hasActivities, isExpanded, setExpanded])
-
 
   // Determine if thinking indicator should show using the phase-based state machine.
   // This properly handles the "gap" state (awaiting) between tool completion and next action,
@@ -3137,21 +3169,6 @@ export const TurnCard = React.memo(function TurnCard({
                         />
                       </motion.div>
                     ))
-                  )}
-                  {/* Text streaming at the tail of the list, verdict still pending.
-                      Rendered as prose rather than a step row so it stays
-                      readable; if it turns out to be commentary it contracts
-                      into a step right here, without moving. */}
-                  {streamingText && (
-                    <div
-                      key="streaming-text"
-                      className={cn(
-                        'py-0.5 whitespace-pre-wrap break-words text-foreground/75',
-                        SIZE_CONFIG.fontSize
-                      )}
-                    >
-                      {streamingText}
-                    </div>
                   )}
                   {/* Thinking/Buffering indicator - shown while waiting for response */}
                   {isThinking && !animateResponse && (

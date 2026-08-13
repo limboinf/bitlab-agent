@@ -876,6 +876,7 @@
   "turnCard.responding": "回复中...",
   "turnCard.starting": "启动中...",
   "turnCard.stepsCompleted": "步骤已完成",
+  "turnCard.thinking": "思考中...",
   "webui.connectingToServer": "正在连接服务器...",
   "webui.connectionFailed": "连接失败",
   "webui.logOut": "退出登录",

@@ -1734,7 +1734,6 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                         expandedActivityGroups={expandedActivityGroups}
                         onExpandedActivityGroupsChange={setExpandedActivityGroups}
                         todos={turn.todos}
-                        streamingText={turn.streamingText}
                         onOpenFile={onOpenFile}
                         onOpenUrl={onOpenUrl}
                         isLastResponse={isLastResponse}

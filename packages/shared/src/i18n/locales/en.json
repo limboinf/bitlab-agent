@@ -876,6 +876,7 @@
   "turnCard.responding": "Responding...",
   "turnCard.starting": "Starting...",
   "turnCard.stepsCompleted": "Steps Completed",
+  "turnCard.thinking": "Thinking...",
   "webui.connectingToServer": "Connecting to server...",
   "webui.connectionFailed": "Connection Failed",
   "webui.logOut": "Log Out",

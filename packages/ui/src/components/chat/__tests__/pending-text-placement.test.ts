@@ -2,18 +2,12 @@
  * Where assistant text goes while its verdict is still pending.
  *
  * Text arriving via text_delta is flagged isPending because nobody yet knows
- * whether it is the answer or a remark between tool calls. That flag used to
- * route it into `activities` as a single truncated line, so the answer only
- * appeared once text_complete landed — it never grew, it popped in whole.
+ * whether it is the answer or a remark between tool calls. It streams in the
+ * chat column either way — the answer is what it usually turns out to be, and
+ * the answer is worth reading as it is written, in the spot it will keep.
  *
- * It now streams, and where it streams depends on what the turn has already
- * done:
- *
- * - no steps yet    → `response`, the chat column. Nothing for it to be a
- *                     remark between, so it is treated as the answer.
- * - steps already   → `streamingText`, the tail of the step list. That is the
- *                     spot a remark settles into, so the common outcome costs
- *                     no movement — the paragraph just contracts to one line.
+ * The verdict only moves it in the losing case: text_complete calling it
+ * commentary contracts the paragraph into a step row in the list above.
  */
 
 import { describe, it, expect } from 'bun:test'
@@ -62,7 +56,6 @@ describe('a turn with no steps yet', () => {
 
     expect(turn.response?.text).toBe('闭包是指一个函数能够')
     expect(turn.response?.isStreaming).toBe(true)
-    expect(turn.streamingText).toBeUndefined()
     expect(turn.activities).toHaveLength(0)
     expect(deriveTurnPhase(turn)).toBe('streaming')
   })
@@ -91,23 +84,22 @@ describe('a turn with no steps yet', () => {
 
     expect(turn.response?.text).toBe('闭包是指一个函数能够记住其定义环境。')
     expect(turn.response?.isStreaming).toBe(false)
-    expect(turn.streamingText).toBeUndefined()
     expect(turn.activities).toHaveLength(0)
   })
 })
 
 describe('a turn that has already produced steps', () => {
-  it('streams the text at the tail of the step list, not in the chat column', () => {
+  it('streams the text in the chat column, below the step list', () => {
     const turn = assistantTurn([userMessage(), completedTool(), pendingText('这个文件里', 'pi-turn-1__m1')])
 
-    expect(turn.streamingText).toBe('这个文件里')
-    expect(turn.response).toBeUndefined()
+    expect(turn.response?.text).toBe('这个文件里')
+    expect(turn.response?.isStreaming).toBe(true)
     expect(turn.activities).toHaveLength(1)
     expect(turn.activities[0].type).toBe('tool')
     expect(deriveTurnPhase(turn)).toBe('streaming')
   })
 
-  it('counts an open reasoning block as a step', () => {
+  it('streams in the chat column even behind an open reasoning block', () => {
     const reasoning: Message = {
       id: 'a0',
       role: 'assistant',
@@ -121,8 +113,7 @@ describe('a turn that has already produced steps', () => {
 
     const turn = assistantTurn([userMessage(), reasoning, pendingText('A closure is', 'pi-turn-1__m1')])
 
-    expect(turn.streamingText).toBe('A closure is')
-    expect(turn.response).toBeUndefined()
+    expect(turn.response?.text).toBe('A closure is')
     expect(turn.activities).toHaveLength(1)
     expect(turn.activities[0].type).toBe('thinking')
   })
@@ -141,15 +132,14 @@ describe('a turn that has already produced steps', () => {
 
     const turn = assistantTurn([userMessage(), completedTool(), commentary])
 
-    // Same place it was streaming — the tail of the list — now as one row
-    expect(turn.streamingText).toBeUndefined()
+    // The one case the verdict moves text: out of the chat column, into a row
     expect(turn.response).toBeUndefined()
     expect(turn.activities).toHaveLength(2)
     expect(turn.activities[1].type).toBe('intermediate')
     expect(turn.activities[1].status).toBe('completed')
   })
 
-  it('moves down into the answer when text_complete says it was final', () => {
+  it('stays put when text_complete says it was final', () => {
     const final: Message = {
       id: 'a1',
       role: 'assistant',
@@ -163,7 +153,7 @@ describe('a turn that has already produced steps', () => {
 
     const turn = assistantTurn([userMessage(), completedTool(), final])
 
-    expect(turn.streamingText).toBeUndefined()
+    // Where it was already streaming — no movement
     expect(turn.response?.text).toBe('这个文件里定义了棋盘逻辑。')
     expect(turn.activities).toHaveLength(1)
     expect(deriveTurnPhase(turn)).toBe('complete')
@@ -184,7 +174,6 @@ describe('a turn that has already produced steps', () => {
     const turn = assistantTurn([userMessage(), reasoning])
 
     expect(turn.response).toBeUndefined()
-    expect(turn.streamingText).toBeUndefined()
     expect(turn.activities).toHaveLength(1)
     expect(turn.activities[0].type).toBe('thinking')
     expect(turn.activities[0].status).toBe('running')
