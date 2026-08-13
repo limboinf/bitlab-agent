@@ -5,9 +5,14 @@ import type {
   FileAttachment,
   PermissionModeState,
   PermissionResponseOptions,
+  ModelCatalogFailure,
+  ModelCatalogModel,
+  ModelConnectionGroup,
+  SelectModelResult,
   SendMessageOptions,
   Session,
   SessionEvent,
+  SessionModels,
   UnreadSummary,
 } from '@bitlab/shared/protocol'
 import type { ISessionManager, IBrowserPaneManager } from '@bitlab/server-core/handlers'
@@ -21,6 +26,7 @@ import type {
   ActiveSessionInfo,
   AgentEvent,
   AnnotationV1,
+  ContextUsageReading,
   Message,
   StoredAttachment,
   Workspace,
@@ -40,13 +46,16 @@ import {
 } from '@bitlab/shared/agent'
 import {
   ConfigWatcher,
+  getLlmConnections,
   getMiniModel,
   getWorkspaces,
+  modelSupportsImages,
   resolveTitleLanguageName,
   type ConfigWatcherCallbacks,
 } from '@bitlab/shared/config'
+import { getCredentialManager } from '@bitlab/shared/credentials'
 import type { LoadedSkill } from '@bitlab/shared/skills'
-import { loadWorkspaceConfig } from '@bitlab/shared/workspaces'
+import { loadWorkspaceConfig, setWorkspaceModelDefaults } from '@bitlab/shared/workspaces'
 import {
   clearPendingPlanExecution as clearStoredPendingPlanExecution,
   createSession as createStoredSession,
@@ -75,7 +84,13 @@ import { readFileAttachment } from '@bitlab/shared/utils'
 import { getWorkspaceAllowedDirs, validateFilePath } from '@bitlab/server-core/handlers'
 import { normalizeThinkingLevel, type ThinkingLevel } from '@bitlab/shared/agent/thinking-levels'
 import type { PermissionMode } from '@bitlab/shared/agent/mode-types'
-import { buildBackendRuntimeSignature, buildRestartRequiredSignature } from './runtime-config'
+import { buildBackendRuntimeSignature, buildRestartRequiredSignature, isImageAttachment } from './runtime-config'
+import {
+  crossesConnection,
+  currentSelection,
+  effectiveSelection,
+  type SessionModelSelection,
+} from './model-selection'
 import { rollbackFailedBranchCreation, sanitizeForTitle } from '@bitlab/server-core/domain'
 import { applyTranscriptEvent } from './persist-transcript'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -209,6 +224,8 @@ interface ManagedSession extends SessionConfig {
   workspace: Workspace
   messages: Message[]
   tokenUsage: SessionTokenUsage
+  /** Live context-meter reading; runtime-only, never persisted (it goes stale). */
+  contextUsage?: ContextUsageReading
   messagesLoaded: boolean
   isProcessing: boolean
   agent: AgentBackend | null
@@ -218,6 +235,14 @@ interface ManagedSession extends SessionConfig {
   backendRuntimeSignature?: string
   backendRestartSignature?: string
   runtimeRefreshPromise?: Promise<void>
+  /**
+   * Selection made in this process — the top tier of `currentSelection()`.
+   * Deliberately NOT persisted: after a restart the transcript is the record,
+   * so a selection that never reached a dispatched turn does not outlive it.
+   */
+  pickedSelection?: SessionModelSelection
+  /** Selection the running turn captured when it entered assembly. */
+  assembledSelection?: SessionModelSelection
   currentStatus?: Session['currentStatus']
   preview?: string
   messageCount?: number
@@ -251,7 +276,6 @@ export function createManagedSession(
     sdkSessionId: session.sdkSessionId,
     model: session.model,
     llmConnection: session.llmConnection,
-    connectionLocked: session.connectionLocked,
     thinkingLevel: normalizeThinkingLevel(session.thinkingLevel),
     pendingPlanExecution: session.pendingPlanExecution,
     isArchived: session.isArchived,
@@ -380,9 +404,11 @@ export class SessionManager implements ISessionManager {
       backgroundTaskRegistry: _backgroundTaskRegistry,
       runtimeRefreshPromise: _refresh, backendRuntimeSignature: _runtimeSignature,
       backendRestartSignature: _restartSignature, currentStatus: _status,
+      pickedSelection: _picked, assembledSelection: _assembled,
       preview: _preview, messageCount: _messageCount,
       lastFinalMessageId: _lastFinalMessageId, lastMessageRole: _lastMessageRole,
       pendingExternalHeader: _pendingExternalHeader,
+      contextUsage: _contextUsage,
       messages, tokenUsage, ...config } = managed
     return { ...config, messages: messages.map(messageToStored), tokenUsage }
   }
@@ -445,6 +471,7 @@ export class SessionManager implements ISessionManager {
       createdAt: managed.createdAt,
       messageCount: managed.messageCount ?? managed.messages.length,
       tokenUsage: managed.tokenUsage,
+      contextUsage: managed.contextUsage,
       hidden: managed.hidden,
       isArchived: managed.isArchived,
       archivedAt: managed.archivedAt,
@@ -644,7 +671,6 @@ export class SessionManager implements ISessionManager {
     }
     managed.lastMessageAt = now
     managed.lastUsedAt = now
-    managed.connectionLocked = true
 
     if (managed.isProcessing) {
       const redirected = managed.agent?.redirect(message) ?? false
@@ -697,7 +723,7 @@ export class SessionManager implements ISessionManager {
         }
       }
     }
-    await this.runTurn(managed, message, attachments)
+    await this.runTurn(managed, message, attachments, userMessage)
     if (shouldGenerateTitle) void this.generateTitle(managed, message)
   }
 
@@ -712,11 +738,52 @@ export class SessionManager implements ISessionManager {
     } catch { return }
   }
 
+  /**
+   * The session's selection for its next assembled turn.
+   *
+   * @param managed - the session.
+   * @returns the selection resolved through the three tiers.
+   */
+  private selectionOf(managed: ManagedSession): SessionModelSelection {
+    const workspaceConfig = loadWorkspaceConfig(managed.workspace.dataRoot)
+    return currentSelection(managed, workspaceConfig?.defaults?.defaultLlmConnection)
+  }
+
+  /**
+   * The selection a backend must be resolved under right now: the running
+   * turn's snapshot, or the current selection when no turn is running.
+   *
+   * @param managed - the session.
+   * @returns the selection to build a backend context from.
+   */
+  private routeOf(managed: ManagedSession): SessionModelSelection {
+    const workspaceConfig = loadWorkspaceConfig(managed.workspace.dataRoot)
+    return effectiveSelection(
+      managed,
+      managed.assembledSelection,
+      workspaceConfig?.defaults?.defaultLlmConnection,
+    )
+  }
+
   private async runTurn(
     managed: ManagedSession,
     message: string,
     attachments?: FileAttachment[],
+    userMessage?: Message,
   ): Promise<void> {
+    // The assembly boundary: this turn commits to the selection that is current
+    // NOW, and every later read of the route during the turn sees this snapshot.
+    // A switch that lands mid-turn therefore takes effect on the next turn
+    // rather than splitting this one — the reason no lock is needed.
+    const assembled = this.selectionOf(managed)
+    managed.assembledSelection = assembled
+    if (userMessage) {
+      userMessage.modelSelection = {
+        connection: assembled.connection,
+        model: assembled.model,
+        thinkingLevel: assembled.thinkingLevel,
+      }
+    }
     managed.isProcessing = true
     runtimeHooks.onSessionStarted()
     let stopReason: SessionCompletionEvent['stopReason'] = 'complete'
@@ -740,6 +807,9 @@ export class SessionManager implements ISessionManager {
     } finally {
       managed.isProcessing = false
       managed.currentStatus = undefined
+      // Release the snapshot: the turn is over, so the next read of the route
+      // resolves through the tiers again and picks up any switch made meanwhile.
+      managed.assembledSelection = undefined
       if (managed.pendingExternalHeader) {
         this.applyExternalSessionMetadata(managed, managed.pendingExternalHeader)
         managed.pendingExternalHeader = undefined
@@ -867,6 +937,10 @@ export class SessionManager implements ISessionManager {
         managed.tokenUsage.inputTokens = event.usage.inputTokens
         if (event.usage.contextWindow) managed.tokenUsage.contextWindow = event.usage.contextWindow
         this.emit(managed.workspace.id, { type: 'usage_update', sessionId, tokenUsage: event.usage })
+        break
+      case 'context_usage':
+        managed.contextUsage = event.contextUsage
+        this.emit(managed.workspace.id, { type: 'context_usage', sessionId, contextUsage: event.contextUsage })
         break
       case 'task_backgrounded':
         managed.backgroundTaskRegistry.set(event.taskId, {
@@ -1036,10 +1110,11 @@ export class SessionManager implements ISessionManager {
     }
     if (!platform) throw new Error('Session platform has not been initialized')
     const workspaceConfig = loadWorkspaceConfig(managed.workspace.dataRoot)
+    const route = this.routeOf(managed)
     const context = resolveBackendContext({
-      sessionConnectionSlug: managed.llmConnection,
+      sessionConnectionSlug: route.connection,
       workspaceDefaultConnectionSlug: workspaceConfig?.defaults?.defaultLlmConnection,
-      managedModel: managed.model,
+      managedModel: route.model,
     })
     const agent = createBackendFromResolvedContext({
       context,
@@ -1204,9 +1279,16 @@ export class SessionManager implements ISessionManager {
     return agent
   }
 
+  /** Push changed web_search settings to every live agent. */
+  async refreshSearchConfig(): Promise<void> {
+    await Promise.all([...this.sessions.values()]
+      .map(managed => managed.agent?.refreshSearchConfig?.())
+      .filter(Boolean))
+  }
+
   async refreshConnectionRuntime(connectionSlug: string): Promise<void> {
     await Promise.all([...this.sessions.values()]
-      .filter(managed => managed.llmConnection === connectionSlug && managed.agent)
+      .filter(managed => managed.agent && this.selectionOf(managed).connection === connectionSlug)
       .map(managed => this.refreshManagedRuntime(managed)))
   }
 
@@ -1222,7 +1304,8 @@ export class SessionManager implements ISessionManager {
     const agent = managed.agent
     if (!agent || agent.isProcessing()) return
     const workspaceConfig = loadWorkspaceConfig(managed.workspace.dataRoot)
-    const context = resolveBackendContext({ sessionConnectionSlug: managed.llmConnection, workspaceDefaultConnectionSlug: workspaceConfig?.defaults?.defaultLlmConnection, managedModel: managed.model })
+    const route = this.routeOf(managed)
+    const context = resolveBackendContext({ sessionConnectionSlug: route.connection, workspaceDefaultConnectionSlug: workspaceConfig?.defaults?.defaultLlmConnection, managedModel: route.model })
     const runtimeSignature = buildBackendRuntimeSignature({ connection: context.connection, provider: context.provider, authType: context.authType, resolvedModel: context.resolvedModel })
     if (runtimeSignature === managed.backendRuntimeSignature) return
     const restartSignature = buildRestartRequiredSignature({ connection: context.connection, provider: context.provider, authType: context.authType, resolvedModel: context.resolvedModel })
@@ -1371,23 +1454,208 @@ export class SessionManager implements ISessionManager {
     this.persistSession(managed)
   }
 
+  /**
+   * Select the complete route for this session's next assembled turn.
+   *
+   * There is deliberately no "locked after the first message" check. A running
+   * turn already snapshotted its own selection, so a switch cannot split it;
+   * what the old lock protected against is handled by the snapshot instead.
+   *
+   * What IS refused is a route that cannot serve this session: an unknown or
+   * unauthenticated connection, and a text-only model for a session whose
+   * transcript already contains images. Those are real incompatibilities —
+   * "you already sent a message" is not.
+   *
+   * @param sessionId - the session to re-route.
+   * @param selection - the complete selection; unset fields follow the defaults.
+   * @returns the selection that landed.
+   * @throws when no adapter can serve the route, or images make it unusable.
+   */
+  async selectModel(
+    sessionId: string,
+    selection: SessionModelSelection,
+  ): Promise<SelectModelResult> {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) throw new Error(`Session not found: ${sessionId}`)
+    this.ensureMessagesLoaded(managed)
+
+    const previous = this.selectionOf(managed)
+    const workspaceConfig = loadWorkspaceConfig(managed.workspace.dataRoot)
+    const context = resolveBackendContext({
+      sessionConnectionSlug: selection.connection,
+      workspaceDefaultConnectionSlug: workspaceConfig?.defaults?.defaultLlmConnection,
+      managedModel: selection.model,
+    })
+
+    // Compare the RESOLVED slug, not just "did anything resolve": connection
+    // resolution falls back to the workspace/global default for an unknown
+    // slug, so a bare null-check would silently route the user somewhere they
+    // did not choose. A selection that cannot be honored must fail, not drift.
+    if (selection.connection && context.connection?.slug !== selection.connection) {
+      throw new Error(`No connection serves "${selection.connection}"; pick another model.`)
+    }
+
+    // Image admission: a session that already contains images cannot continue
+    // on a text-only model, because its own history would stop being sendable.
+    if (context.connection && !modelSupportsImages(context.connection, context.resolvedModel)) {
+      const hasImages = managed.messages.some(item =>
+        item.attachments?.some(attachment => isImageAttachment(attachment)),
+      )
+      if (hasImages) {
+        throw new Error(
+          `Model "${context.resolvedModel}" does not accept image input, but this session already contains images; select an image-capable model.`,
+        )
+      }
+    }
+
+    const next: SessionModelSelection = {
+      connection: context.connection?.slug ?? selection.connection,
+      model: selection.model,
+      thinkingLevel: selection.thinkingLevel ?? previous.thinkingLevel,
+    }
+
+    managed.pickedSelection = next
+    // The persisted projection of the same choice, so it survives a restart
+    // that happens before the next turn records it.
+    managed.llmConnection = next.connection
+    managed.model = next.model
+    if (next.thinkingLevel) {
+      managed.thinkingLevel = next.thinkingLevel
+      managed.agent?.setThinkingLevel(next.thinkingLevel)
+    }
+
+    // Same connection: the live backend can just retarget its model. A
+    // different connection needs new credential/provider routing, which the
+    // runtime refresh resolves by restarting the backend on the next turn.
+    if (!crossesConnection(previous, next) && next.model && managed.agent) {
+      managed.agent.setModel(next.model)
+    }
+
+    // Remember it for the next session in this workspace. A failure here must
+    // not fail the switch: the selection already applies to THIS session, and
+    // losing the default is strictly less bad than rejecting a valid choice.
+    try {
+      setWorkspaceModelDefaults(managed.workspace.dataRoot, next)
+    } catch (error) {
+      log.warn(
+        `the model switch applies to this session but was not saved as the workspace default: ${String(error)}`,
+      )
+    }
+
+    await this.flushSession(sessionId)
+    this.emit(managed.workspace.id, { type: 'connection_changed', sessionId, connectionSlug: next.connection ?? '' })
+    this.emit(managed.workspace.id, {
+      type: 'session_model_changed',
+      sessionId,
+      model: next.model ?? null,
+      ...(next.thinkingLevel ? { thinkingLevel: next.thinkingLevel } : {}),
+    })
+    return { selected: next }
+  }
+
+  /**
+   * Read the session's model directory.
+   *
+   * `groups` is advisory and `routable` is the gate. They are computed from
+   * different things on purpose: a connection can serve a model it no longer
+   * advertises (absent from groups, perfectly usable), while a connection with
+   * no credentials can serve nothing however complete its catalog looks. A UI
+   * that blocks its composer must read `routable`.
+   *
+   * @param sessionId - the session whose directory to read.
+   * @returns the directory snapshot.
+   */
+  async getSessionModels(sessionId: string): Promise<SessionModels> {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) throw new Error(`Session not found: ${sessionId}`)
+    this.ensureMessagesLoaded(managed)
+
+    const current = this.selectionOf(managed)
+    const workspaceConfig = loadWorkspaceConfig(managed.workspace.dataRoot)
+    const context = resolveBackendContext({
+      sessionConnectionSlug: current.connection,
+      workspaceDefaultConnectionSlug: workspaceConfig?.defaults?.defaultLlmConnection,
+      managedModel: current.model,
+    })
+
+    const credentials = getCredentialManager()
+    const groups: ModelConnectionGroup[] = []
+    const failures: ModelCatalogFailure[] = []
+    let routable = false
+
+    for (const connection of getLlmConnections()) {
+      let authenticated = false
+      try {
+        authenticated = await credentials.hasLlmCredentials(connection.slug, connection.authType)
+      } catch (error) {
+        failures.push({
+          slug: connection.slug,
+          name: connection.name,
+          message: error instanceof Error ? error.message : String(error),
+        })
+        continue
+      }
+      // A connection with no credentials is not a "failure" to report — it is
+      // simply not offerable yet, and listing it as an error row would put
+      // noise above the models the user can actually pick. `failures` stays
+      // reserved for connections that should have worked and did not.
+      if (!authenticated) continue
+      if (connection.slug === context.connection?.slug) routable = true
+
+      // Dedupe by id: a connection's model list legitimately repeats an id when
+      // the provider exposes fewer models than the setup wizard's tiers
+      // (best/balanced/fast), which would otherwise render the same row twice —
+      // and check both copies.
+      const seen = new Set<string>()
+      const models: ModelCatalogModel[] = []
+      for (const model of connection.models ?? []) {
+        const id = typeof model === 'string' ? model : model.id
+        if (seen.has(id)) continue
+        seen.add(id)
+        models.push({
+          id,
+          name: typeof model === 'string' ? model : (model.name ?? model.id),
+          supportsImages: modelSupportsImages(connection, id),
+          ...(typeof model !== 'string' && model.supportsThinking !== undefined
+            ? { supportsThinking: model.supportsThinking }
+            : {}),
+        })
+      }
+
+      groups.push({
+        slug: connection.slug,
+        name: connection.name,
+        providerType: connection.providerType,
+        models,
+      })
+    }
+
+    return {
+      current,
+      resolvedModel: context.resolvedModel,
+      routable,
+      groups,
+      failures,
+    }
+  }
+
+  /** @deprecated Use {@link selectModel}; kept for callers that only set a connection. */
   async setSessionConnection(sessionId: string, connectionSlug: string): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (!managed) return
-    if (managed.connectionLocked) throw new Error('Connection cannot be changed after the first message')
-    managed.llmConnection = connectionSlug
-    await this.flushSession(sessionId)
-    this.emit(managed.workspace.id, { type: 'connection_changed', sessionId, connectionSlug })
+    await this.selectModel(sessionId, { ...this.selectionOf(managed), connection: connectionSlug, model: undefined })
   }
 
+  /** @deprecated Use {@link selectModel}; kept for the existing model-only wire. */
   async updateSessionModel(sessionId: string, _workspaceId: string, model: string | null, connection?: string): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (!managed) return
-    managed.model = model ?? undefined
-    if (connection) managed.llmConnection = connection
-    if (model && managed.agent) managed.agent.setModel(model)
-    await this.flushSession(sessionId)
-    this.emit(managed.workspace.id, { type: 'session_model_changed', sessionId, model })
+    const previous = this.selectionOf(managed)
+    await this.selectModel(sessionId, {
+      connection: connection ?? previous.connection,
+      model: model ?? undefined,
+      thinkingLevel: previous.thinkingLevel,
+    })
   }
 
   setActiveViewingSession(sessionId: string | null, workspaceId: string): void {

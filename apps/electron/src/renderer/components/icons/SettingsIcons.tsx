@@ -7,6 +7,7 @@
  */
 
 import {
+  Blocks,
   Building2,
   Keyboard,
   Palette,
@@ -25,6 +26,7 @@ export const AppearanceIcon = ({ className }: IconProps) => <Palette className={
 export const InputIcon = ({ className }: IconProps) => <Keyboard className={className} />
 export const WorkspaceIcon = ({ className }: IconProps) => <Building2 className={className} />
 export const PermissionsIcon = ({ className }: IconProps) => <ShieldCheck className={className} />
+export const PluginsIcon = ({ className }: IconProps) => <Blocks className={className} />
 export const ShortcutsIcon = ({ className }: IconProps) => <Keyboard className={className} />
 export const PreferencesIcon = ({ className }: IconProps) => <UserCircle className={className} />
 
@@ -39,6 +41,7 @@ export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconPro
   input: InputIcon,
   workspace: WorkspaceIcon,
   permissions: PermissionsIcon,
+  plugins: PluginsIcon,
   shortcuts: ShortcutsIcon,
   preferences: PreferencesIcon,
 }

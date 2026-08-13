@@ -30,6 +30,7 @@ import type {
   UserMessageEvent,
   MessageAnnotationsUpdatedEvent,
   UsageUpdateEvent,
+  ContextUsageEvent,
   Effect,
 } from '../types'
 import type { Message } from '../../../shared/types'
@@ -445,7 +446,11 @@ export function handleSessionModelChanged(
 
   return {
     state: {
-      session: { ...session, model: event.model ?? undefined },
+      session: {
+        ...session,
+        model: event.model ?? undefined,
+        ...(event.thinkingLevel !== undefined && { thinkingLevel: event.thinkingLevel }),
+      },
       streaming,
     },
     effects: [],
@@ -702,6 +707,28 @@ export function handlePlanSubmitted(
   return {
     state: {
       session: appendMessage(session, event.message),
+      streaming,
+    },
+    effects: [],
+  }
+}
+
+/**
+ * Handle context_usage - the context meter's reading.
+ *
+ * Stored whole and last-wins: occupancy is already anchored by the backend,
+ * and the breakdown is an independent heuristic that must not be merged with
+ * the billing figures in `tokenUsage`.
+ */
+export function handleContextUsage(
+  state: SessionState,
+  event: ContextUsageEvent
+): ProcessResult {
+  const { session, streaming } = state
+
+  return {
+    state: {
+      session: { ...session, contextUsage: event.contextUsage },
       streaming,
     },
     effects: [],

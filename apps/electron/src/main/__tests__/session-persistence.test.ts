@@ -83,12 +83,11 @@ describe('model resolution with null connection', () => {
 // ============================================================================
 
 describe('orphaned llmConnection detection', () => {
-  it('should clear llmConnection and connectionLocked when connection is orphaned', () => {
+  it('should clear llmConnection when connection is orphaned', () => {
     // Simulate a managed session with an orphaned connection
-    const managed: { id: string; llmConnection: string | undefined; connectionLocked: boolean } = {
+    const managed: { id: string; llmConnection: string | undefined } = {
       id: 'test-session',
       llmConnection: 'deleted-connection-slug',
-      connectionLocked: true,
     }
 
     // Simulate resolveSessionConnection returning null for orphaned slug
@@ -96,18 +95,15 @@ describe('orphaned llmConnection detection', () => {
 
     if (managed.llmConnection && !conn) {
       managed.llmConnection = undefined
-      managed.connectionLocked = false
     }
 
     expect(managed.llmConnection).toBeUndefined()
-    expect(managed.connectionLocked).toBe(false)
   })
 
   it('should preserve valid llmConnection', () => {
-    const managed: { id: string; llmConnection: string | undefined; connectionLocked: boolean } = {
+    const managed: { id: string; llmConnection: string | undefined } = {
       id: 'test-session',
       llmConnection: 'valid-connection',
-      connectionLocked: true,
     }
 
     // Simulate resolveSessionConnection returning a valid connection
@@ -115,18 +111,15 @@ describe('orphaned llmConnection detection', () => {
 
     if (managed.llmConnection && !conn) {
       managed.llmConnection = undefined
-      managed.connectionLocked = false
     }
 
     expect(managed.llmConnection).toBe('valid-connection')
-    expect(managed.connectionLocked).toBe(true)
   })
 
   it('should not touch sessions without llmConnection', () => {
     const managed = {
       id: 'test-session',
       llmConnection: undefined as string | undefined,
-      connectionLocked: false,
     }
 
     // The migration check should skip sessions without llmConnection
@@ -134,11 +127,9 @@ describe('orphaned llmConnection detection', () => {
       const conn = null
       if (!conn) {
         managed.llmConnection = undefined
-        managed.connectionLocked = false
       }
     }
 
     expect(managed.llmConnection).toBeUndefined()
-    expect(managed.connectionLocked).toBe(false)
   })
 })

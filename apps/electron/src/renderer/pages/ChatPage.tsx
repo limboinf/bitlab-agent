@@ -25,7 +25,7 @@ import { deriveSessionMessagesLoadState, formatSessionLoadFailure } from '@/lib/
 import { ensureSessionMessagesLoadedAtom, forceSessionMessagesReloadAtom, loadedSessionsAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 import { getSessionTitle } from '@/utils/session'
 // Model resolution: connection.defaultModel (no hardcoded defaults)
-import { resolveEffectiveConnectionSlug, isSessionConnectionUnavailable } from '@config/llm-connections'
+import { resolveEffectiveConnectionSlug } from '@config/llm-connections'
 import type { PermissionMode } from '@bitlab/shared/agent/modes'
 
 export interface ChatPageProps {
@@ -283,43 +283,17 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     onAttachmentsChange(sessionId, attachments)
   }, [sessionId, onAttachmentsChange])
 
-  // Session model change handler - persists per-session model and connection
-  const handleModelChange = React.useCallback((model: string, connection?: string) => {
-    if (activeWorkspaceId) {
-      window.electronAPI.setSessionModel(sessionId, activeWorkspaceId, model, connection)
-    }
-  }, [sessionId, activeWorkspaceId])
-
-  // Session connection change handler - can only change before first message
-  const handleConnectionChange = React.useCallback(async (connectionSlug: string) => {
-    try {
-      await window.electronAPI.sessionCommand(sessionId, { type: 'setConnection', connectionSlug })
-    } catch (error) {
-      // Connection change may fail if session already started or connection is invalid
-      console.error('Failed to change connection:', error)
-    }
-  }, [sessionId])
-
-  // Check if session's locked connection has been removed
-  const connectionUnavailable = React.useMemo(() =>
-    isSessionConnectionUnavailable(session?.llmConnection, llmConnections),
-    [session?.llmConnection, llmConnections]
-  )
-
-  // Effective model for this session (session-specific or global fallback)
+  // A first-paint label for the model, good enough until the composer's model
+  // directory answers. Selection itself no longer routes through here: the
+  // picker submits to the host and the host is the single fact source.
   const effectiveModel = React.useMemo(() => {
     if (session?.model) return session.model
-
-    // When connection is unavailable, don't resolve through a different connection
-    if (connectionUnavailable) return session?.model ?? ''
-
     const connectionSlug = resolveEffectiveConnectionSlug(
       session?.llmConnection, workspaceDefaultLlmConnection, llmConnections
     )
     const connection = connectionSlug ? llmConnections.find(c => c.slug === connectionSlug) : null
-
     return connection?.defaultModel ?? ''
-  }, [session?.id, session?.model, session?.llmConnection, workspaceDefaultLlmConnection, llmConnections, connectionUnavailable])
+  }, [session?.model, session?.llmConnection, workspaceDefaultLlmConnection, llmConnections])
 
   const activeWorkspace = React.useMemo(
     () => workspaces.find((w) => w.id === activeWorkspaceId) || null,
@@ -567,12 +541,8 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
                 onOpenFile={handleOpenFile}
                 onOpenUrl={handleOpenUrl}
                 currentModel={effectiveModel}
-                onModelChange={handleModelChange}
-                onConnectionChange={handleConnectionChange}
                 pendingPermission={undefined}
                 onRespondToPermission={onRespondToPermission}
-                thinkingLevel={sessionOpts.thinkingLevel}
-                onThinkingLevelChange={(level) => setOption('thinkingLevel', level)}
                 permissionMode={sessionOpts.permissionMode}
                 onPermissionModeChange={handlePermissionModeChange}
                 enabledModes={enabledModes}
@@ -590,7 +560,6 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
                 searchQuery={sessionListSearchQuery}
                 isSearchModeActive={isSearchModeActive}
                 onMatchInfoChange={onChatMatchInfoChange}
-                connectionUnavailable={connectionUnavailable}
                 compactMode={!!isCompactMode}
                 enableCompactModelPicker={!!isCompactMode}
               />
@@ -655,12 +624,8 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             onOpenFile={handleOpenFile}
             onOpenUrl={handleOpenUrl}
             currentModel={effectiveModel}
-            onModelChange={handleModelChange}
-            onConnectionChange={handleConnectionChange}
             pendingPermission={pendingPermission}
             onRespondToPermission={onRespondToPermission}
-            thinkingLevel={sessionOpts.thinkingLevel}
-            onThinkingLevelChange={(level) => setOption('thinkingLevel', level)}
             permissionMode={sessionOpts.permissionMode}
             onPermissionModeChange={handlePermissionModeChange}
             enabledModes={enabledModes}
@@ -679,7 +644,6 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             searchQuery={sessionListSearchQuery}
             isSearchModeActive={isSearchModeActive}
             onMatchInfoChange={onChatMatchInfoChange}
-            connectionUnavailable={connectionUnavailable}
             compactMode={!!isCompactMode}
             enableCompactModelPicker={!!isCompactMode}
           />

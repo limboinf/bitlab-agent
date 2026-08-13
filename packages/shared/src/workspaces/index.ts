@@ -21,6 +21,7 @@ export {
   // Config operations
   loadWorkspaceConfig,
   saveWorkspaceConfig,
+  setWorkspaceModelDefaults,
   // Create/Delete operations
   generateSlug,
   createWorkspaceAtPath,

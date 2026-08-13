@@ -3,6 +3,7 @@ import { dirname } from 'path'
 import { RPC_CHANNELS } from '@bitlab/shared/protocol'
 import { getPreferencesPath, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getWorkspaceByNameOrId, getDefaultThinkingLevel, setDefaultThinkingLevel, renameWorkspace } from '@bitlab/shared/config'
 import { isValidThinkingLevel, normalizeThinkingLevel, THINKING_LEVEL_IDS } from '@bitlab/shared/agent/thinking-levels'
+import type { SearchConfig } from '@bitlab/shared/config'
 
 const VALID_THINKING_LEVELS_LIST = THINKING_LEVEL_IDS.map(id => `'${id}'`).join(', ')
 import { getWorkspaceOrThrow } from '@bitlab/server-core/handlers'
@@ -38,6 +39,11 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.settings.SET_DEFAULT_THINKING_LEVEL,
   RPC_CHANNELS.tools.GET_BROWSER_TOOL_ENABLED,
   RPC_CHANNELS.tools.SET_BROWSER_TOOL_ENABLED,
+  RPC_CHANNELS.search.GET_CONFIG,
+  RPC_CHANNELS.search.SET_CONFIG,
+  RPC_CHANNELS.search.GET_API_KEY,
+  RPC_CHANNELS.search.SET_API_KEY,
+  RPC_CHANNELS.search.DELETE_API_KEY,
   RPC_CHANNELS.settings.GET_NETWORK_PROXY,
   RPC_CHANNELS.dialog.OPEN_FOLDER,
   RPC_CHANNELS.rtk.GET_ENABLED,
@@ -342,6 +348,44 @@ export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): 
   server.handle(RPC_CHANNELS.tools.SET_BROWSER_TOOL_ENABLED, async (_ctx, enabled: boolean) => {
     const { setBrowserToolEnabled } = await import('@bitlab/shared/config/storage')
     setBrowserToolEnabled(enabled)
+  })
+
+  // ============================================================
+  // Web Search Settings (Settings → Plugins)
+  //
+  // Keys go straight into the encrypted credential store — never config.json —
+  // and running sessions are refreshed so a change takes effect on the next
+  // search instead of on restart.
+  // ============================================================
+
+  server.handle(RPC_CHANNELS.search.GET_CONFIG, async () => {
+    const { getSearchConfig } = await import('@bitlab/shared/config')
+    return getSearchConfig()
+  })
+
+  server.handle(RPC_CHANNELS.search.SET_CONFIG, async (_ctx, searchConfig: SearchConfig) => {
+    const { setSearchConfig } = await import('@bitlab/shared/config')
+    setSearchConfig(searchConfig)
+    await deps.sessionManager.refreshSearchConfig()
+  })
+
+  server.handle(RPC_CHANNELS.search.GET_API_KEY, async (_ctx, providerId: string) => {
+    const { getCredentialManager } = await import('@bitlab/shared/credentials')
+    return getCredentialManager().getMaskedSearchApiKey(providerId)
+  })
+
+  server.handle(RPC_CHANNELS.search.SET_API_KEY, async (_ctx, providerId: string, apiKey: string) => {
+    const { getCredentialManager, isMaskedCredentialValue } = await import('@bitlab/shared/credentials')
+    // The UI shows a masked key; echoing it back must not overwrite the real one.
+    if (!apiKey || isMaskedCredentialValue(apiKey)) return
+    await getCredentialManager().setSearchApiKey(providerId, apiKey)
+    await deps.sessionManager.refreshSearchConfig()
+  })
+
+  server.handle(RPC_CHANNELS.search.DELETE_API_KEY, async (_ctx, providerId: string) => {
+    const { getCredentialManager } = await import('@bitlab/shared/credentials')
+    await getCredentialManager().deleteSearchApiKey(providerId)
+    await deps.sessionManager.refreshSearchConfig()
   })
 
   // ============================================================

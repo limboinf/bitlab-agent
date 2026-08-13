@@ -222,11 +222,35 @@ export interface StoredAttachment {
 /**
  * Runtime message type (includes transient fields like isStreaming)
  */
+/**
+ * The route a dispatched message actually ran under, recorded on the message
+ * itself. This is what lets "which model is this session using" be DERIVED
+ * from the transcript instead of stored in a session field that drifts out of
+ * sync with it — the same role dsh's request header plays.
+ *
+ * `thinkingLevel` stays an opaque string here: the level vocabulary belongs to
+ * the agent layer, and persisted values may predate the current one. Consumers
+ * normalize it when they read it.
+ */
+export interface MessageModelSelection {
+  /** Connection slug the turn ran under. */
+  connection?: string;
+  /** Model id the turn ran under. */
+  model?: string;
+  /** Thinking level the turn ran under, unnormalized. */
+  thinkingLevel?: string;
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
   content: string;
   timestamp: number;
+  /**
+   * Route this message was dispatched under. Set on user messages when the
+   * turn snapshots its selection; absent on messages that never drove a turn.
+   */
+  modelSelection?: MessageModelSelection;
   // Tool-specific fields
   toolName?: string;
   toolUseId?: string;
@@ -351,6 +375,8 @@ export interface StoredMessage {
   planPath?: string;
   // Queued: user message that is waiting to be processed (persisted for recovery)
   isQueued?: boolean;
+  /** Route this message was dispatched under (persisted; derives the session's selection) */
+  modelSelection?: MessageModelSelection;
 }
 
 /**
@@ -474,6 +500,43 @@ export interface AgentEventUsage {
 }
 
 /**
+ * Heuristic composition of the context: what the prompt is made of, not what
+ * it costs.
+ *
+ * All three figures use a fixed chars/4 density, so they will NOT sum to
+ * {@link ContextUsageReading.tokens} — that figure is anchored to the
+ * provider, while this estimate systematically underprices CJK text and JSON
+ * schemas. Present these as approximate composition, never as a total.
+ */
+export interface ContextBreakdown {
+  /** Heuristic tokens of the system prompt in force. */
+  systemTokens: number;
+  /** Heuristic tokens of the active tool schemas. */
+  toolsTokens: number;
+  /** Heuristic tokens of the model-visible conversation. */
+  messageTokens: number;
+}
+
+/**
+ * Context-window occupancy for the meter.
+ *
+ * `tokens` is the backend's provider-anchored occupancy: the last response's
+ * reported context size plus an estimate of everything appended since. It is
+ * `null` right after a compaction — until a fresh response lands, the true
+ * size is genuinely unknown and a stale number would be worse than none.
+ */
+export interface ContextUsageReading {
+  /** Occupied tokens, or null while unknown (immediately post-compaction). */
+  tokens: number | null;
+  /** The active model's context window. */
+  contextWindow: number;
+  /** Occupancy percent, or null whenever `tokens` is null. */
+  percent: number | null;
+  /** Independent heuristic composition; does not sum to `tokens`. */
+  breakdown: ContextBreakdown;
+}
+
+/**
  * Events emitted by an agent backend during chat
  * turnId: Correlation ID from the API's message.id, groups all events in an assistant turn
  */
@@ -512,6 +575,7 @@ export type AgentEvent =
   | { type: 'workflow_agent_completed'; workflowId: string; agentId: string; turnId?: string }
   | { type: 'shell_killed'; shellId: string; turnId?: string }
   | { type: 'usage_update'; usage: Pick<AgentEventUsage, 'inputTokens' | 'contextWindow'> }
+  | { type: 'context_usage'; contextUsage: ContextUsageReading }
   | { type: 'steer_undelivered'; message: string };
 
 /**

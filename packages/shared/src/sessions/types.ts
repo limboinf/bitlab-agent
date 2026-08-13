@@ -13,7 +13,7 @@ export const SESSION_PERSISTENT_FIELDS = [
   'name', 'isFlagged', 'hidden',
   'lastReadMessageId', 'hasUnread',
   'permissionMode', 'previousPermissionMode', 'workingDirectory',
-  'model', 'llmConnection', 'connectionLocked', 'thinkingLevel',
+  'model', 'llmConnection', 'thinkingLevel',
   'pendingPlanExecution',
   'isArchived', 'archivedAt',
   'branchFromMessageId', 'branchFromSdkSessionId', 'branchFromSessionPath',
@@ -60,7 +60,6 @@ export interface SessionConfig {
   sdkCwd?: string;
   model?: string;
   llmConnection?: string;
-  connectionLocked?: boolean;
   thinkingLevel?: ThinkingLevel;
   pendingPlanExecution?: PendingPlanExecution;
   hidden?: boolean;

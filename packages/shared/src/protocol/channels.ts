@@ -248,6 +248,13 @@ export const RPC_CHANNELS = {
     GET_BROWSER_TOOL_ENABLED: 'tools:getBrowserToolEnabled',
     SET_BROWSER_TOOL_ENABLED: 'tools:setBrowserToolEnabled',
   },
+  search: {
+    GET_CONFIG: 'search:getConfig',
+    SET_CONFIG: 'search:setConfig',
+    GET_API_KEY: 'search:getApiKey',      // returns a masked key, never the secret
+    SET_API_KEY: 'search:setApiKey',
+    DELETE_API_KEY: 'search:deleteApiKey',
+  },
   caching: {
     GET_EXTENDED_PROMPT_CACHE: 'caching:getExtendedPromptCache',
     SET_EXTENDED_PROMPT_CACHE: 'caching:setExtendedPromptCache',

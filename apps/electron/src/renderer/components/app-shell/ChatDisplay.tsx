@@ -134,10 +134,8 @@ interface ChatDisplayProps {
   onOpenUrl: (url: string) => void
   // Model selection
   currentModel: string
-  onModelChange: (model: string, connection?: string) => void
   // Connection selection (locked after first message)
   /** Callback when LLM connection changes (only works when session is empty) */
-  onConnectionChange?: (connectionSlug: string) => void
   /** Ref for the input, used for external focus control */
   textareaRef?: React.RefObject<RichTextInputHandle>
   /** When true, disables input (e.g., when agent needs activation) */
@@ -154,9 +152,7 @@ interface ChatDisplayProps {
   ) => void
   // Thinking level (session-level setting)
   /** Current thinking level ('off', 'think', 'max') */
-  thinkingLevel?: ThinkingLevel
   /** Callback when thinking level changes */
-  onThinkingLevelChange?: (level: ThinkingLevel) => void
   // Advanced options
   /** Current permission mode */
   permissionMode?: PermissionMode
@@ -216,7 +212,6 @@ interface ChatDisplayProps {
   /** Label shown as empty state in compact mode (e.g., "Permission Settings") */
   emptyStateLabel?: string
   /** When true, the session's locked connection has been removed - disables send and shows unavailable state */
-  connectionUnavailable?: boolean
 }
 
 import {
@@ -419,15 +414,11 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   onOpenFile,
   onOpenUrl,
   currentModel,
-  onModelChange,
-  onConnectionChange,
   textareaRef: externalTextareaRef,
   disabled = false,
   pendingPermission,
   onRespondToPermission,
   // Thinking level
-  thinkingLevel = 'medium',
-  onThinkingLevelChange,
   // Advanced options
   permissionMode = 'ask',
   onPermissionModeChange,
@@ -460,7 +451,6 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   placeholder,
   emptyStateLabel,
   // Connection unavailable
-  connectionUnavailable = false,
 }, ref) {
   const { t } = useTranslation()
 
@@ -1247,7 +1237,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   }) => {
     if (!session) return
 
-    if (isInputDisabled || disableSend || connectionUnavailable) {
+    if (isInputDisabled || disableSend) {
       toast.error(t('toast.cannotSendRightNow'), {
         description: 'Sending is currently disabled for this session.',
       })
@@ -1260,7 +1250,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
         detail: { sessionId: session.id },
       }))
     }, 0)
-  }, [session, isInputDisabled, disableSend, connectionUnavailable])
+  }, [session, isInputDisabled, disableSend])
 
   // Handle stop request from InputContainer
   // silent=true when redirecting (sending new message), silent=false when user clicks Stop button
@@ -1472,9 +1462,6 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
         onStop: handleStop,
         textareaRef,
         currentModel,
-        onModelChange,
-        thinkingLevel,
-        onThinkingLevelChange,
         enabledModes,
         enableCompactModelPicker,
         structuredInput,
@@ -1486,15 +1473,14 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
         skills,
         workspaceId,
         workingDirectory,
-        disableSend: disableSend || connectionUnavailable,
-        connectionUnavailable,
+        disableSend,
         isEmptySession: session.messages.length === 0,
         currentConnection: session.llmConnection,
-        onConnectionChange,
         contextStatus: {
           isCompacting: session.currentStatus?.statusType === 'compacting',
           inputTokens: session.tokenUsage?.inputTokens,
           contextWindow: session.tokenUsage?.contextWindow,
+          contextUsage: session.contextUsage,
         },
         followUpItems: followUpInputItems,
         onFollowUpClick: handleFollowUpChipClick,

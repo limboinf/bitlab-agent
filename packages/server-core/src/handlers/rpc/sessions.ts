@@ -320,10 +320,17 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
       case 'refreshTitle':
         log.info(`IPC: refreshTitle received for session ${sessionId}`)
         return sessionManager.refreshTitle(sessionId)
-      // Connection selection (locked after first message)
+      // Route selection. There is no first-message lock: a running turn holds
+      // its own snapshot, so a switch lands on the next turn instead of
+      // splitting the running one.
       case 'setConnection':
         log.info(`IPC: setConnection received for session ${sessionId}, connection: ${command.connectionSlug}`)
         return sessionManager.setSessionConnection(sessionId, command.connectionSlug)
+      case 'selectModel':
+        log.info(`IPC: selectModel received for session ${sessionId}: ${JSON.stringify(command.selection)}`)
+        return sessionManager.selectModel(sessionId, command.selection)
+      case 'models':
+        return sessionManager.getSessionModels(sessionId)
       // Pending plan execution (Accept & Compact flow)
       case 'setPendingPlanExecution':
         return sessionManager.setPendingPlanExecution(sessionId, command.planPath, command.draftInputSnapshot)

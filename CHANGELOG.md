@@ -13,6 +13,39 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.2.1] - 2026-08-13
+
+### Added
+
+- **A context meter next to the send button.** A ring shows how full the
+  model's context window is at a glance, and opens a panel breaking the prompt
+  down into system prompt, tool schemas, and conversation — so it is obvious
+  when tools, rather than the conversation, are what fills the window. The
+  headline figure is anchored to what the provider reported for the last
+  response, so it stays honest; it reads as unknown right after a compaction
+  until the next response, rather than showing a stale number. The breakdown is
+  an estimate of composition and does not add up to the headline total.
+- **A Plugins settings page for web search.** Choose which backend the agent's
+  web search uses — automatic, DeepSeek, Tavily, Exa, or DuckDuckGo — and store
+  the provider's API key encrypted, with an optional base URL and model. With
+  no key set, searches fall back to DuckDuckGo.
+
+### Changed
+
+- **One model picker, and it remembers.** The model and connection pickers are
+  now a single menu that selects a whole route — connection, model, and
+  thinking level together, because a model id only means anything inside the
+  connection that offers it. The route you pick becomes the default for the
+  next session in that workspace. Switching mid-turn now applies to the next
+  turn instead of splitting the one in flight, and a session that already
+  contains images will not switch to a model that cannot accept them.
+
+### Removed
+
+- **The separate context-usage warning badge.** The percentage badge that
+  appeared only near the compaction threshold is replaced by the always-visible
+  context ring, which offers the same one-click compaction from its panel.
+
 ## [0.2.0] - 2026-08-13
 
 ### Removed
@@ -76,5 +109,6 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.2.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.1
 [0.2.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.0
 [0.1.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.1.0

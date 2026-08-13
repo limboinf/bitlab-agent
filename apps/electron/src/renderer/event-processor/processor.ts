@@ -39,6 +39,7 @@ import {
   handleUserMessage,
   handleMessageAnnotationsUpdated,
   handleUsageUpdate,
+  handleContextUsage,
 } from './handlers/session'
 
 /**
@@ -183,6 +184,9 @@ export function processEvent(
 
     case 'usage_update':
       return handleUsageUpdate(state, event)
+
+    case 'context_usage':
+      return handleContextUsage(state, event)
 
     default: {
       // Unknown event type - return state unchanged but as new reference
