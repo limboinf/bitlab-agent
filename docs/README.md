@@ -21,6 +21,7 @@ This directory is the English-language user documentation. A Chinese translation
 | Features | [featues.md](./featues.md) |
 | Network proxy | [network-proxy.md](./network-proxy.md) |
 | Ollama | [ollama.md](./ollama.md) |
+| Pi SDK upgrade research (0.80.6 → 0.84.1) | [pi-sdk-upgrade.md](./pi-sdk-upgrade.md) |
 | Permissions | [permissions.md](./permissions.md) |
 | Releases, updates, and telemetry | [releases.md](./releases.md) |
 | Sessions | [sessions.md](./sessions.md) |
