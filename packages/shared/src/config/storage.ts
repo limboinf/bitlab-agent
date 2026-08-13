@@ -30,6 +30,7 @@ import {
 } from '../agent/mode-types.ts';
 import { type ConfigDefaults } from './config-defaults-schema.ts';
 import { isValidThemeFile } from './validators.ts';
+import { type SearchConfig, DEFAULT_SEARCH_CONFIG, normalizeSearchConfig } from './search.ts';
 
 // Re-export CONFIG_DIR for convenience (centralized in paths.ts)
 export { CONFIG_DIR, getConfigDir } from './paths.ts';
@@ -79,6 +80,7 @@ export interface StoredConfig {
   richToolDescriptions?: boolean;  // Add intent/action metadata to all tool calls (default: true)
   // Tools
   browserToolEnabled?: boolean;  // Enable built-in browser tool (default: true). Disable for Playwright/Puppeteer.
+  searchConfig?: SearchConfig;  // web_search provider selection. Absent = DEFAULT_SEARCH_CONFIG ('auto').
   // Prompt caching & context
   extendedPromptCache?: boolean;  // Use 1h prompt cache TTL instead of 5m (default: false)
   enable1MContext?: boolean;  // Enable 1M context window for supported models (default: false — opt-in; requires Anthropic Tier 4+)
@@ -515,6 +517,27 @@ export function setBrowserToolEnabled(enabled: boolean): void {
   const config = loadStoredConfig();
   if (!config) return;
   config.browserToolEnabled = enabled;
+  saveConfig(config);
+}
+
+/**
+ * Get the web_search provider configuration.
+ * Defaults to `{ provider: 'auto' }` — search follows the LLM connection.
+ */
+export function getSearchConfig(): SearchConfig {
+  const config = loadStoredConfig();
+  if (!config?.searchConfig) return DEFAULT_SEARCH_CONFIG;
+  return normalizeSearchConfig(config.searchConfig);
+}
+
+/**
+ * Set the web_search provider configuration.
+ * API keys are stored separately in the encrypted credential store.
+ */
+export function setSearchConfig(searchConfig: SearchConfig): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+  config.searchConfig = normalizeSearchConfig(searchConfig);
   saveConfig(config);
 }
 

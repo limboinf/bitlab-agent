@@ -1,12 +1,17 @@
+/**
+ * The compact (drawer) model seat for narrow layouts.
+ *
+ * Same two-level Model / Effort structure as the desktop {@link ModelSelect},
+ * over the SAME per-session directory — a switch made here is what the desktop
+ * menu shows next, because both submit through one host-backed fact.
+ *
+ * It carries the same two rules as the desktop seat: no synthesized row for a
+ * selection the catalog lacks, and no lock while the composer is blocked,
+ * since picking a model is what clears the block.
+ */
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  AlertCircle,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Image as ImageIcon,
-} from 'lucide-react'
+import { AlertCircle, Check, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react'
 import { Spinner } from '@bitlab/ui'
 import {
   Drawer,
@@ -14,46 +19,20 @@ import {
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
-  DrawerClose,
 } from '@/components/ui/drawer'
 import { cn } from '@/lib/utils'
-import * as storage from '@/lib/local-storage'
 import { navigate, routes } from '@/lib/navigate'
-import { useOptionalAppShellContext } from '@/context/AppShellContext'
-import {
-  ANTHROPIC_MODELS,
-  getModelDisplayName,
-  getModelShortName,
-} from '@config/models'
-import {
-  isCompatProvider,
-  modelSupportsImages,
-  resolveEffectiveConnectionSlug,
-  type LlmConnectionWithStatus,
-} from '@config/llm-connections'
-import {
-  THINKING_LEVELS,
-  type ThinkingLevel,
-} from '@bitlab/shared/agent/thinking-levels'
-import { ConnectionIcon } from '@/components/icons/ConnectionIcon'
+import type { SessionModelSelectionDto } from '@bitlab/shared/protocol'
+import { THINKING_LEVELS, type ThinkingLevel } from '@bitlab/shared/agent/thinking-levels'
 import { derivePickerMode } from './picker-mode'
-import {
-  dedupeModelsById,
-  formatTokenCount,
-  groupConnectionsByProvider,
-  stripPiPrefixForDisplay,
-} from './model-picker-helpers'
+import { formatTokenCount, stripPiPrefixForDisplay } from './model-picker-helpers'
+import type { ModelDirectory } from './useModelDirectory'
 import { useModelVisionToggle } from './useModelVisionToggle'
 
+type Pane = 'root' | 'model' | 'effort'
+
 interface CompactModelSelectorProps {
-  currentModel: string
-  currentConnection?: string
-  onModelChange: (model: string, connection?: string) => void
-  onConnectionChange?: (connectionSlug: string) => void
-  thinkingLevel?: ThinkingLevel
-  onThinkingLevelChange?: (level: ThinkingLevel) => void
-  isEmptySession?: boolean
-  connectionUnavailable?: boolean
+  directory: ModelDirectory
   contextStatus?: {
     isCompacting?: boolean
     inputTokens?: number
@@ -62,158 +41,119 @@ interface CompactModelSelectorProps {
 }
 
 export function CompactModelSelector({
-  currentModel,
-  currentConnection,
-  onModelChange,
-  onConnectionChange,
-  thinkingLevel = 'medium',
-  onThinkingLevelChange,
-  isEmptySession = false,
-  connectionUnavailable = false,
+  directory,
   contextStatus,
 }: CompactModelSelectorProps) {
   const { t } = useTranslation()
+  const { state, load, select } = directory
   const [open, setOpen] = React.useState(false)
-  const [expandedConnection, setExpandedConnection] = React.useState<string | null>(null)
-
-  const appShellCtx = useOptionalAppShellContext()
-  const llmConnections = appShellCtx?.llmConnections ?? []
-  const workspaceDefaultConnection = appShellCtx?.workspaceDefaultLlmConnection
-
+  const [pane, setPane] = React.useState<Pane>('root')
   const toggleVision = useModelVisionToggle()
 
-  const effectiveConnection = resolveEffectiveConnectionSlug(
-    currentConnection,
-    workspaceDefaultConnection,
-    llmConnections,
-  )
-
-  const effectiveConnectionDetails = React.useMemo(() => {
-    if (!effectiveConnection) return null
-    return llmConnections.find(c => c.slug === effectiveConnection) ?? null
-  }, [llmConnections, effectiveConnection])
-
-  const connectionDefaultModel = React.useMemo(() => {
-    const conn = effectiveConnectionDetails
-    if (!conn) return null
-    if (!isCompatProvider(conn.providerType)) return null
-    if (conn.models && conn.models.length > 1) return null
-    return conn.defaultModel ?? null
-  }, [effectiveConnectionDetails])
-
-  const pickerMode = derivePickerMode({
-    connectionUnavailable,
-    connectionDefaultModel,
-    isEmptySession,
-    connectionCount: llmConnections.length,
+  const mode = derivePickerMode({
+    groupCount: state.groups.length,
+    loaded: state.status !== 'idle' && state.status !== 'loading',
   })
 
-  const availableModels = React.useMemo(() => {
-    if (connectionUnavailable) return []
-    if (!effectiveConnectionDetails) return ANTHROPIC_MODELS
-    return dedupeModelsById(effectiveConnectionDetails.models || ANTHROPIC_MODELS)
-  }, [effectiveConnectionDetails, connectionUnavailable])
+  const currentRow = React.useMemo(() => {
+    const { current } = state
+    if (!current) return undefined
+    for (const group of state.groups) {
+      if (group.slug !== current.connection) continue
+      const model = group.models.find(item => item.id === (current.model ?? state.resolvedModel))
+      if (model) return { group, model }
+    }
+    return undefined
+  }, [state])
 
-  const currentModelDisplayName = React.useMemo(() => {
-    const modelToDisplay = connectionDefaultModel ?? currentModel
-    const model = availableModels.find(m =>
-      typeof m === 'string' ? m === modelToDisplay : m.id === modelToDisplay,
-    )
-    if (!model) return stripPiPrefixForDisplay(getModelDisplayName(modelToDisplay))
-    if (typeof model === 'string') return stripPiPrefixForDisplay(model)
-    return model.name ?? stripPiPrefixForDisplay(model.id)
-  }, [availableModels, currentModel, connectionDefaultModel])
+  // The `pi/` prefix is routing detail, not something a user picked; strip it
+  // everywhere a name is shown, while ids stay intact for submission.
+  const modelLabel = currentRow
+    ? stripPiPrefixForDisplay(currentRow.model.name)
+    : state.resolvedModel
+      ? stripPiPrefixForDisplay(state.resolvedModel)
+      : t('chat.modelPicker.selectModel')
 
-  const thinkingDisabled = React.useMemo(() => {
-    const model = availableModels.find(
-      m => typeof m !== 'string' && m.id === currentModel,
-    )
-    return typeof model !== 'string' && model?.supportsThinking === false
-  }, [availableModels, currentModel])
+  const thinkingLevel = state.current?.thinkingLevel
+  const thinkingSupported = currentRow?.model.supportsThinking !== false
+  const effortLabel = thinkingLevel ? t(`thinking.${thinkingLevel}`) : undefined
+  const busy = state.status === 'selecting'
 
-  const connectionsByProvider = React.useMemo(
-    () => groupConnectionsByProvider(llmConnections),
-    [llmConnections],
-  )
-
-  const showConnectionIcon =
-    !!effectiveConnectionDetails &&
-    llmConnections.length > 1 &&
-    storage.get(storage.KEYS.showConnectionIcons, true)
-
-  // Reset accordion state when the drawer closes so re-open shows top-level switcher.
   React.useEffect(() => {
-    if (!open) setExpandedConnection(null)
+    if (!open) setPane('root')
   }, [open])
 
-  const handlePickFlatModel = React.useCallback(
-    (modelId: string) => {
-      onModelChange(modelId, effectiveConnection)
-      setOpen(false)
-    },
-    [onModelChange, effectiveConnection],
-  )
+  const submit = React.useCallback(async (selection: SessionModelSelectionDto) => {
+    const result = await select(selection)
+    if (!result) return
+    setOpen(false)
+  }, [select])
 
-  const handlePickSwitcherModel = React.useCallback(
-    (connSlug: string, modelId: string) => {
-      const isCurrentConnection = effectiveConnection === connSlug
-      if (!isCurrentConnection && onConnectionChange) {
-        onConnectionChange(connSlug)
-      }
-      onModelChange(modelId, connSlug)
+  const chooseModel = (connectionSlug: string, modelId: string) => {
+    if (state.current?.connection === connectionSlug && state.current.model === modelId) {
       setOpen(false)
-    },
-    [onModelChange, onConnectionChange, effectiveConnection],
-  )
+      return
+    }
+    void submit({ connection: connectionSlug, model: modelId, thinkingLevel })
+  }
+
+  const chooseEffort = (level: ThinkingLevel) => {
+    if (thinkingLevel === level) {
+      setOpen(false)
+      return
+    }
+    void submit({
+      connection: state.current?.connection,
+      model: state.current?.model,
+      thinkingLevel: level,
+    })
+  }
 
   return (
-    <Drawer open={open} onOpenChange={setOpen}>
+    <Drawer
+      open={open}
+      onOpenChange={next => {
+        setOpen(next)
+        if (next) load()
+      }}
+    >
       <DrawerTrigger asChild>
         <button
           type="button"
-          aria-label={connectionUnavailable
-            ? t('common.unavailable')
-            : `${t('common.model')}: ${currentModelDisplayName}`}
-          className={cn(
-            'h-7 pl-2 pr-2 text-xs font-medium rounded-[6px] flex items-center gap-1.5 shadow-tinted outline-none select-none min-w-[64px] shrink',
-            connectionUnavailable
-              ? 'bg-destructive/10 text-destructive'
-              : 'bg-foreground/5 text-foreground/70',
-          )}
+          aria-label={t('chat.modelPicker.triggerAria', { model: modelLabel })}
+          className="h-7 pl-2 pr-2 text-xs font-medium rounded-[6px] flex items-center gap-1.5 shadow-tinted outline-none select-none min-w-[64px] shrink bg-foreground/5 text-foreground/70"
           style={{ '--shadow-color': 'var(--foreground-rgb)' } as React.CSSProperties}
         >
-          {connectionUnavailable ? (
-            <>
-              <AlertCircle className="h-3.5 w-3.5" />
-              <span>{t('common.unavailable')}</span>
-            </>
-          ) : (
-            <>
-              {showConnectionIcon && effectiveConnectionDetails && (
-                <ConnectionIcon connection={effectiveConnectionDetails} size={14} />
-              )}
-              <span className="truncate min-w-0">{currentModelDisplayName}</span>
-              {pickerMode !== 'locked-single' && (
-                <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
-              )}
-            </>
+          <span className="truncate min-w-0">{modelLabel}</span>
+          {effortLabel !== undefined && thinkingSupported && (
+            <span className="text-muted-foreground truncate">{effortLabel}</span>
           )}
+          <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
         </button>
       </DrawerTrigger>
 
       <DrawerContent>
-        <DrawerHeader>
-          <DrawerTitle>{t('common.model')}</DrawerTitle>
+        <DrawerHeader className="flex flex-row items-center gap-2">
+          {pane !== 'root' && (
+            <button
+              type="button"
+              aria-label={t('common.back')}
+              className="inline-flex items-center justify-center p-1 rounded hover:bg-foreground/5"
+              onClick={() => setPane('root')}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+          <DrawerTitle>
+            {pane === 'effort' ? t('chat.modelPicker.thinkingSection') : t('common.model')}
+          </DrawerTitle>
         </DrawerHeader>
 
         <div className="px-2 pb-4 flex flex-col gap-0.5 max-h-[55vh] overflow-y-auto">
-          {/* === Models section === */}
-          {pickerMode === 'unavailable' ? (
+          {mode === 'unavailable' ? (
             <div className="flex flex-col items-center justify-center py-6 px-4 text-center">
               <AlertCircle className="h-8 w-8 text-destructive mb-2" />
-              <div className="font-medium text-sm mb-1">
-                {t('chat.connectionUnavailable')}
-              </div>
+              <div className="font-medium text-sm mb-1">{t('chat.connectionUnavailable')}</div>
               <div className="text-xs text-muted-foreground mb-3">
                 {t('chat.connectionUnavailableDescription')}
               </div>
@@ -228,295 +168,139 @@ export function CompactModelSelector({
                 {t('chat.modelPicker.openAiSettings')}
               </button>
             </div>
-          ) : pickerMode === 'locked-single' && connectionDefaultModel ? (
-            <LockedSingleRow
-              modelId={connectionDefaultModel}
-              connection={effectiveConnectionDetails}
-              onToggleVision={toggleVision}
-            />
-          ) : pickerMode === 'switcher' ? (
-            connectionsByProvider.map(([providerName, connections]) => (
-              <React.Fragment key={providerName}>
-                <div className="px-3 pt-3 pb-1 text-xs font-medium text-foreground/60 uppercase tracking-wide select-none">
-                  {providerName}
+          ) : mode === 'empty' ? (
+            <div className="px-3 py-4 text-xs text-muted-foreground text-center select-none">
+              {t('common.loading')}
+            </div>
+          ) : pane === 'root' ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setPane('model')}
+                className="flex items-center justify-between w-full px-3 py-2.5 rounded-lg text-left hover:bg-foreground/5 transition-colors"
+              >
+                <span className="text-sm font-medium">{t('common.model')}</span>
+                <span className="flex items-center gap-1.5 ml-3 shrink-0 text-muted-foreground">
+                  <span className="text-sm truncate max-w-[160px]">{modelLabel}</span>
+                  <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+                </span>
+              </button>
+              {thinkingSupported && (
+                <button
+                  type="button"
+                  onClick={() => setPane('effort')}
+                  className="flex items-center justify-between w-full px-3 py-2.5 rounded-lg text-left hover:bg-foreground/5 transition-colors"
+                >
+                  <span className="text-sm font-medium">{t('chat.modelPicker.thinkingSection')}</span>
+                  <span className="flex items-center gap-1.5 ml-3 shrink-0 text-muted-foreground">
+                    <span className="text-sm">{effortLabel ?? t('chat.modelPicker.providerDefault')}</span>
+                    <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+                  </span>
+                </button>
+              )}
+              {contextStatus?.inputTokens != null && contextStatus.inputTokens > 0 && (
+                <div className="flex items-center justify-between px-3 py-2 mt-1 text-xs text-muted-foreground select-none">
+                  <span>{t('chat.context')}</span>
+                  <span className="flex items-center gap-1.5">
+                    {contextStatus.isCompacting && <Spinner className="h-3 w-3" />}
+                    {t('chat.tokensUsed', { displayCount: formatTokenCount(contextStatus.inputTokens) })}
+                  </span>
                 </div>
-                {connections.map(conn => {
-                  const isCurrentConnection = effectiveConnection === conn.slug
-                  const isAuthenticated = conn.isAuthenticated
-                  const isExpanded = expandedConnection === conn.slug
-                  return (
-                    <React.Fragment key={conn.slug}>
+              )}
+            </>
+          ) : pane === 'model' ? (
+            <>
+              {state.error !== null && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-destructive">
+                  <span className="truncate">{state.error}</span>
+                  <button type="button" className="underline shrink-0" onClick={load}>
+                    {t('common.retry')}
+                  </button>
+                </div>
+              )}
+              {state.groups.map(group => (
+                <React.Fragment key={group.slug}>
+                  <div className="px-3 pt-3 pb-1 text-xs font-medium text-foreground/60 select-none">
+                    {group.name}
+                  </div>
+                  {group.models.map(model => {
+                    const selected = state.current?.connection === group.slug
+                      && (state.current.model ?? state.resolvedModel) === model.id
+                    const showVision = group.providerType === 'pi_compat'
+                    return (
                       <button
+                        key={`${group.slug}/${model.id}`}
                         type="button"
-                        disabled={!isAuthenticated}
-                        onClick={() =>
-                          setExpandedConnection(prev => (prev === conn.slug ? null : conn.slug))
-                        }
+                        disabled={busy}
+                        onClick={() => chooseModel(group.slug, model.id)}
                         className={cn(
-                          'flex items-center gap-2 w-full px-3 py-2 rounded-lg text-left transition-colors',
-                          !isAuthenticated && 'opacity-50 cursor-not-allowed',
-                          isAuthenticated && 'hover:bg-foreground/5',
-                          isCurrentConnection && !isExpanded && 'bg-foreground/5',
+                          'flex items-center justify-between w-full px-3 py-2 rounded-lg text-left transition-colors',
+                          selected ? 'bg-foreground/5' : 'hover:bg-foreground/5',
                         )}
                       >
-                        <ConnectionIcon connection={conn} size={14} />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate">{conn.name}</div>
-                          {!isAuthenticated && (
-                            <div className="text-xs text-muted-foreground">
-                              {t('settings.ai.notAuthenticated')}
-                            </div>
+                        <span className="text-sm font-medium truncate">
+                          {stripPiPrefixForDisplay(model.name)}
+                        </span>
+                        <div className="flex items-center gap-1 ml-3 shrink-0">
+                          {showVision && (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              aria-label={model.supportsImages
+                                ? t('chat.modelPicker.supportsImagesOn')
+                                : t('chat.modelPicker.supportsImagesOff')}
+                              className="inline-flex items-center justify-center p-2 rounded hover:bg-foreground/5 cursor-pointer"
+                              onClick={event => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                void toggleVision(group.slug, model.id, !model.supportsImages).then(load)
+                              }}
+                            >
+                              <ImageIcon className={cn(
+                                'h-3.5 w-3.5',
+                                model.supportsImages ? 'text-foreground/70' : 'text-foreground/30',
+                              )} />
+                            </span>
                           )}
+                          {selected && <Check className="h-3 w-3 text-foreground/60" />}
                         </div>
-                        {isCurrentConnection && (
-                          <Check className="h-3 w-3 text-foreground/60 shrink-0" />
-                        )}
-                        {isAuthenticated && (
-                          <ChevronRight
-                            className={cn(
-                              'h-3 w-3 opacity-60 shrink-0 transition-transform',
-                              isExpanded && 'rotate-90',
-                            )}
-                          />
-                        )}
                       </button>
-                      {isAuthenticated && isExpanded && (
-                        <div className="pl-6 flex flex-col gap-0.5">
-                          {dedupeModelsById(conn.models || ANTHROPIC_MODELS).map(model => {
-                            const modelId = typeof model === 'string' ? model : model.id
-                            const modelName = typeof model === 'string'
-                              ? stripPiPrefixForDisplay(getModelShortName(model))
-                              : (model.name ?? stripPiPrefixForDisplay(model.id))
-                            const isSelectedModel =
-                              isCurrentConnection && currentModel === modelId
-                            const showVision = isCompatProvider(conn.providerType)
-                            const visionOn = showVision && modelSupportsImages(conn, modelId)
-                            return (
-                              <DrawerClose asChild key={modelId}>
-                                <button
-                                  type="button"
-                                  onClick={() => handlePickSwitcherModel(conn.slug, modelId)}
-                                  className={cn(
-                                    'flex items-center justify-between w-full px-3 py-2 rounded-lg text-left transition-colors',
-                                    isSelectedModel
-                                      ? 'bg-foreground/5'
-                                      : 'hover:bg-foreground/5',
-                                  )}
-                                >
-                                  <span className="text-sm font-medium truncate">{modelName}</span>
-                                  <div className="flex items-center gap-1 ml-3 shrink-0">
-                                    {showVision && (
-                                      <VisionToggle
-                                        visionOn={visionOn}
-                                        onToggle={(e) => {
-                                          e.preventDefault()
-                                          e.stopPropagation()
-                                          toggleVision(conn.slug, modelId, !visionOn)
-                                        }}
-                                      />
-                                    )}
-                                    {isSelectedModel && (
-                                      <Check className="h-3 w-3 text-foreground/60" />
-                                    )}
-                                  </div>
-                                </button>
-                              </DrawerClose>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </React.Fragment>
-                  )
-                })}
-              </React.Fragment>
-            ))
-          ) : (
-            // 'flat' — list models of the active connection
-            availableModels.map(model => {
-              const modelId = typeof model === 'string' ? model : model.id
-              const modelName = typeof model === 'string'
-                ? stripPiPrefixForDisplay(getModelShortName(model))
-                : (model.name ?? stripPiPrefixForDisplay(model.id))
-              const isSelected = currentModel === modelId
-              const descriptionKey =
-                typeof model !== 'string' && 'descriptionKey' in model
-                  ? (model.descriptionKey as string)
-                  : undefined
-              const description = descriptionKey
-                ? t(descriptionKey)
-                : (typeof model !== 'string' && 'description' in model
-                    ? (model.description as string)
-                    : '')
-              const showVision =
-                !!effectiveConnectionDetails &&
-                isCompatProvider(effectiveConnectionDetails.providerType)
-              const visionOn =
-                showVision && modelSupportsImages(effectiveConnectionDetails!, modelId)
-              return (
-                <DrawerClose asChild key={modelId}>
-                  <button
-                    type="button"
-                    onClick={() => handlePickFlatModel(modelId)}
-                    className={cn(
-                      'flex items-center justify-between w-full px-3 py-2 rounded-lg text-left transition-colors',
-                      isSelected ? 'bg-foreground/5' : 'hover:bg-foreground/5',
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{modelName}</div>
-                      {description && (
-                        <div className="text-xs text-foreground/50 truncate">
-                          {description}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 ml-3 shrink-0">
-                      {showVision && effectiveConnectionDetails && (
-                        <VisionToggle
-                          visionOn={visionOn}
-                          onToggle={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            toggleVision(
-                              effectiveConnectionDetails.slug,
-                              modelId,
-                              !visionOn,
-                            )
-                          }}
-                        />
-                      )}
-                      {isSelected && (
-                        <Check className="h-3 w-3 text-foreground/60" />
-                      )}
-                    </div>
-                  </button>
-                </DrawerClose>
-              )
-            })
-          )}
-
-          {/* === Thinking section === */}
-          {THINKING_LEVELS.length > 0 && pickerMode !== 'unavailable' && (
-            <>
-              <div className="px-3 pt-4 pb-1 text-xs font-medium text-foreground/60 uppercase tracking-wide select-none">
-                {t('chat.modelPicker.thinkingSection')}
-              </div>
-              {THINKING_LEVELS.map(({ id, nameKey, descriptionKey }) => {
-                const isSelected = thinkingLevel === id
-                return (
-                  <DrawerClose asChild key={id}>
-                    <button
-                      type="button"
-                      disabled={thinkingDisabled}
-                      onClick={() => onThinkingLevelChange?.(id)}
-                      className={cn(
-                        'flex items-center justify-between w-full px-3 py-2 rounded-lg text-left transition-colors',
-                        thinkingDisabled && 'opacity-50 cursor-not-allowed',
-                        !thinkingDisabled && isSelected && 'bg-foreground/5',
-                        !thinkingDisabled && !isSelected && 'hover:bg-foreground/5',
-                      )}
-                    >
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">{t(nameKey)}</div>
-                        <div className="text-xs text-foreground/50">
-                          {t(descriptionKey)}
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <Check className="h-3 w-3 text-foreground/60 shrink-0 ml-3" />
-                      )}
-                    </button>
-                  </DrawerClose>
-                )
-              })}
-            </>
-          )}
-
-          {/* === Context section === */}
-          {contextStatus?.inputTokens != null && contextStatus.inputTokens > 0 && (
-            <>
-              <div className="px-3 pt-4 pb-1 text-xs font-medium text-foreground/60 uppercase tracking-wide select-none">
-                {t('chat.modelPicker.contextSection')}
-              </div>
-              <div className="flex items-center justify-between px-3 py-2 text-xs text-foreground/60 select-none">
-                <span>{t('chat.context')}</span>
-                <span className="flex items-center gap-1.5">
-                  {contextStatus.isCompacting && <Spinner className="h-3 w-3" />}
-                  {t('chat.tokensUsed', {
-                    displayCount: formatTokenCount(contextStatus.inputTokens),
+                    )
                   })}
-                </span>
-              </div>
+                </React.Fragment>
+              ))}
+              {/* Below the usable groups, never above. */}
+              {state.failures.map(failure => (
+                <div
+                  key={failure.slug}
+                  className="px-3 py-2 text-xs text-muted-foreground select-none truncate"
+                >
+                  {failure.name} · {failure.message}
+                </div>
+              ))}
             </>
+          ) : (
+            THINKING_LEVELS.map(({ id, nameKey, descriptionKey }) => (
+              <button
+                key={id}
+                type="button"
+                disabled={busy}
+                onClick={() => chooseEffort(id)}
+                className={cn(
+                  'flex items-center justify-between w-full px-3 py-2 rounded-lg text-left transition-colors',
+                  thinkingLevel === id ? 'bg-foreground/5' : 'hover:bg-foreground/5',
+                )}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{t(nameKey)}</div>
+                  <div className="text-xs text-foreground/50">{t(descriptionKey)}</div>
+                </div>
+                {thinkingLevel === id && <Check className="h-3 w-3 text-foreground/60 shrink-0 ml-3" />}
+              </button>
+            ))
           )}
         </div>
       </DrawerContent>
     </Drawer>
-  )
-}
-
-function LockedSingleRow({
-  modelId,
-  connection,
-  onToggleVision,
-}: {
-  modelId: string
-  connection: LlmConnectionWithStatus | null
-  onToggleVision: (connectionSlug: string, modelId: string, enabled: boolean) => Promise<void>
-}) {
-  const { t } = useTranslation()
-  const showVision = !!connection && isCompatProvider(connection.providerType)
-  const visionOn = !!(showVision && connection && modelSupportsImages(connection, modelId))
-  return (
-    <div className="flex items-center justify-between px-3 py-2 rounded-lg opacity-80 select-none">
-      <div className="min-w-0">
-        <div className="text-sm font-medium truncate">{stripPiPrefixForDisplay(modelId)}</div>
-        <div className="text-xs text-foreground/50">{t('chat.connectionDefault')}</div>
-      </div>
-      <div className="flex items-center gap-1 ml-3 shrink-0">
-        {showVision && connection && (
-          <VisionToggle
-            visionOn={visionOn}
-            onToggle={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onToggleVision(connection.slug, modelId, !visionOn)
-            }}
-          />
-        )}
-        <Check className="h-3 w-3 text-foreground/60" />
-      </div>
-    </div>
-  )
-}
-
-function VisionToggle({
-  visionOn,
-  onToggle,
-}: {
-  visionOn: boolean
-  onToggle: (e: React.MouseEvent | React.KeyboardEvent) => void
-}) {
-  const { t } = useTranslation()
-  return (
-    <span
-      role="button"
-      tabIndex={0}
-      aria-label={visionOn
-        ? t('chat.modelPicker.supportsImagesOn')
-        : t('chat.modelPicker.supportsImagesOff')}
-      className="inline-flex items-center justify-center p-2 rounded hover:bg-foreground/5 cursor-pointer"
-      onClick={onToggle}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') onToggle(e)
-      }}
-    >
-      <ImageIcon
-        className={cn(
-          'h-3.5 w-3.5',
-          visionOn ? 'text-foreground/70' : 'text-foreground/30',
-        )}
-      />
-    </span>
   )
 }

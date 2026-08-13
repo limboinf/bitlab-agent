@@ -78,8 +78,11 @@ import { getDefaultSummarizationModel } from '../../shared/src/config/models.ts'
 import { createWebFetchTool } from './tools/web-fetch.ts';
 import { resolveSearchProvider } from './tools/search/resolve-provider.ts';
 import { createSearchTool } from './tools/search/create-search-tool.ts';
+import type { KeyedSearchProviderId, SearchConfig } from './tools/search/types.ts';
 import { allowBitlabMetadataProperties, stripBitlabMetadata } from './bitlab-metadata-schema.ts';
 import { applySystemPromptOverride } from './system-prompt-override.ts';
+import { computeContextBreakdown } from './context-breakdown.ts';
+import type { ContextBreakdown, ToolWireShape } from './context-breakdown.ts';
 
 // ============================================================
 // Types — JSONL Protocol
@@ -117,6 +120,13 @@ interface InitMessage {
   customEndpoint?: { api: CustomEndpointApi; supportsImages?: boolean; supportsThinking?: boolean };
   customModels?: Array<string | { id: string; contextWindow?: number; supportsImages?: boolean; supportsThinking?: boolean }>;
   piAuth?: { provider: string; credential: PiCredential };
+  /** web_search provider selection (Settings → Plugins). Absent = 'auto'. */
+  searchConfig?: SearchConfig;
+  /**
+   * Search API keys resolved by the main process. The credential store lives in
+   * the main process only — this subprocess just holds what it was handed.
+   */
+  searchApiKeys?: Partial<Record<KeyedSearchProviderId, string>>;
 }
 
 interface RuntimeConfigUpdateMessage {
@@ -148,6 +158,7 @@ type InboundMessage =
   | RuntimeConfigUpdateMessage
   | { type: 'steer'; message: string }
   | { type: 'token_update'; piAuth: { provider: string; credential: PiCredential } }
+  | { type: 'search_config_update'; searchConfig: SearchConfig; searchApiKeys: Partial<Record<KeyedSearchProviderId, string>> }
   | { type: 'shutdown' };
 
 /** Proxy tool definition from main process */
@@ -173,6 +184,19 @@ type OutboundAgentEvent = AgentSessionEvent | EnrichedToolExecutionStartEvent;
 /** Messages to main process (stdout) */
 interface OutboundReady { type: 'ready'; sessionId: string | null; callbackPort: number }
 interface OutboundEvent { type: 'event'; event: OutboundAgentEvent }
+/**
+ * Context-meter reading. `tokens`/`percent` are the SDK's provider-anchored
+ * occupancy (null right after a compaction, until a fresh response lands);
+ * `breakdown` is the independent heuristic composition and does NOT sum to
+ * `tokens` — see context-breakdown.ts.
+ */
+interface OutboundContextUsage {
+  type: 'context_usage';
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+  breakdown: ContextBreakdown;
+}
 interface OutboundPreToolUseReq {
   type: 'pre_tool_use_request';
   requestId: string;
@@ -228,6 +252,7 @@ interface OutboundError { type: 'error'; message: string; code?: string }
 type OutboundMessage =
   | OutboundReady
   | OutboundEvent
+  | OutboundContextUsage
   | OutboundPreToolUseReq
   | OutboundToolExecReq
   | OutboundSessionToolCompleted
@@ -322,6 +347,14 @@ function isPrefetchableTool(toolName: string): boolean {
 // Flag: proxy tools changed since last session creation — session needs recreation
 let toolsChanged = false;
 
+// Context-meter inputs. The wire shapes are captured at session creation (the
+// only moment the full tool set is assembled) and the system prompt at every
+// prompt, because the main process rebuilds it per turn.
+let activeToolWireShapes: ToolWireShape[] = [];
+let activeSystemPrompt: string | undefined;
+// Last payload sent, so an unchanged reading costs no IPC.
+let lastContextUsageLine: string | null = null;
+
 // Callback server for call_llm
 let callbackServer: http.Server | null = null;
 let callbackPort = 0;
@@ -338,6 +371,38 @@ function send(msg: OutboundMessage): void {
 function debugLog(message: string): void {
   // Write debug messages to stderr so they don't interfere with JSONL protocol
   process.stderr.write(`[pi-server] ${message}\n`);
+}
+
+/**
+ * Publish the current context-meter reading, skipping unchanged ones.
+ *
+ * Occupancy comes from the SDK, which anchors on the last assistant's provider
+ * usage and only estimates the messages appended since — so a compaction shows
+ * up immediately rather than waiting for the next request to report usage.
+ * The breakdown is computed independently and is composition only.
+ */
+function sendContextUsage(): void {
+  if (!piSession) return;
+  const usage = piSession.getContextUsage();
+  // Omitted when no model or context window is known; nothing to meter yet.
+  if (!usage) return;
+
+  const payload: OutboundContextUsage = {
+    type: 'context_usage',
+    tokens: usage.tokens,
+    contextWindow: usage.contextWindow,
+    percent: usage.percent,
+    breakdown: computeContextBreakdown(
+      activeSystemPrompt,
+      activeToolWireShapes,
+      piSession.messages,
+    ),
+  };
+
+  const line = JSON.stringify(payload);
+  if (line === lastContextUsageLine) return;
+  lastContextUsageLine = line;
+  send(payload);
 }
 
 /** Find the most recent .jsonl session file in a directory. */
@@ -578,19 +643,22 @@ async function ensureSession(): Promise<AgentSession> {
   piModelRegistry = modelRegistry;
 
   // Build tools: coding tools + web tools wrapped with permission hooks + proxy tools.
-  // Search provider is selected based on the user's LLM connection:
-  //   - OpenAI/OpenRouter → Responses API built-in web_search
-  //   - Google → Gemini API with googleSearch grounding
-  //   - Others → DuckDuckGo fallback
+  // Search provider comes from the user's explicit selection, or — under the
+  // default 'auto' — from the LLM connection (see resolve-provider.ts).
   //
-  // IMPORTANT: resolve dynamically on each search call so token_update refreshes
-  // are used without recreating the session.
+  // IMPORTANT: resolve dynamically on each search call so token_update and
+  // search_config_update refreshes are used without recreating the session.
+  const currentSearchOptions = () => ({
+    piAuth: initConfig?.piAuth,
+    searchConfig: initConfig?.searchConfig,
+    resolveKey: (id: KeyedSearchProviderId) => initConfig?.searchApiKeys?.[id] ?? null,
+  });
   const searchProvider = {
     get name() {
-      return resolveSearchProvider(initConfig?.piAuth).name;
+      return resolveSearchProvider(currentSearchOptions()).name;
     },
     async search(query: string, count: number) {
-      return resolveSearchProvider(initConfig?.piAuth).search(query, count);
+      return resolveSearchProvider(currentSearchOptions()).search(query, count);
     },
   };
   const searchTool = createSearchTool(searchProvider);
@@ -721,6 +789,11 @@ async function ensureSession(): Promise<AgentSession> {
   piSession = session;
 
   toolsChanged = false;
+  activeToolWireShapes = wrappedAll.map(tool => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+  }));
   debugLog(`Created Pi session: ${session.sessionId} (${wrappedAll.length} tools)`);
 
   // Notify main process of session ID
@@ -1288,6 +1361,13 @@ function handleSessionEvent(event: AgentSessionEvent): void {
 
   // Forward all events to main process
   send({ type: 'event', event: forwardedEvent });
+
+  // Republish the meter after anything that changes the conversation. The
+  // SDK appends the message AFTER message_end fires, so read on the next
+  // microtask to include the message that just settled.
+  if (event.type === 'message_end' || event.type === 'tool_execution_end') {
+    queueMicrotask(sendContextUsage);
+  }
 }
 
 // ============================================================
@@ -1374,6 +1454,7 @@ async function handlePrompt(msg: Extract<InboundMessage, { type: 'prompt' }>): P
     // SDK (see system-prompt-override.ts).
     if (msg.systemPrompt) {
       applySystemPromptOverride(session, msg.systemPrompt);
+      activeSystemPrompt = msg.systemPrompt;
     }
 
     // Wire up event handler
@@ -1529,6 +1610,9 @@ async function handleCompact(msg: Extract<InboundMessage, { type: 'compact' }>):
         tokensBefore: result.tokensBefore,
       },
     });
+    // Compaction reports no usage of its own, so publish the drop now rather
+    // than leaving a stale reading until the next response.
+    sendContextUsage();
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     debugLog(`[compact] Failed: ${errorMsg}`);
@@ -1789,6 +1873,16 @@ async function processMessage(msg: InboundMessage): Promise<void> {
         debugLog(`Updated ${credential.type} credential for provider: ${provider}`);
       } else {
         debugLog('token_update received but no authStorage initialized');
+      }
+      break;
+
+    case 'search_config_update':
+      if (initConfig) {
+        initConfig.searchConfig = msg.searchConfig;
+        initConfig.searchApiKeys = msg.searchApiKeys;
+        debugLog(`Updated search config: provider=${msg.searchConfig.provider}`);
+      } else {
+        debugLog('search_config_update received before init');
       }
       break;
 

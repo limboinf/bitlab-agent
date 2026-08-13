@@ -1,6 +1,8 @@
 /** Credential storage types for model connections. */
 
-export type CredentialType = 'llm_api_key' | 'llm_oauth';
+export type CredentialType = 'llm_api_key' | 'llm_oauth' | 'web_search_api_key';
+
+const CREDENTIAL_TYPES: readonly CredentialType[] = ['llm_api_key', 'llm_oauth', 'web_search_api_key'];
 
 const CREDENTIAL_DELIMITER = '::';
 
@@ -32,12 +34,22 @@ export interface CredentialHealthStatus {
   issues: CredentialHealthIssue[];
 }
 
+/** Mask a secret for display — same shape the LLM connection settings use. */
+export function maskCredentialValue(value: string): string {
+  return value.length > 15 ? `${value.slice(0, 7)}••••••••${value.slice(-4)}` : '••••••••';
+}
+
+/** True when a UI-supplied value is a mask placeholder rather than a real secret. */
+export function isMaskedCredentialValue(value: string): boolean {
+  return value.includes('••');
+}
+
 export function credentialIdToAccount(id: CredentialId): string {
   return [id.type, id.connectionSlug].join(CREDENTIAL_DELIMITER);
 }
 
 export function accountToCredentialId(account: string): CredentialId | null {
   const [type, connectionSlug, ...rest] = account.split(CREDENTIAL_DELIMITER);
-  if ((type !== 'llm_api_key' && type !== 'llm_oauth') || !connectionSlug || rest.length > 0) return null;
-  return { type, connectionSlug };
+  if (!CREDENTIAL_TYPES.includes(type as CredentialType) || !connectionSlug || rest.length > 0) return null;
+  return { type: type as CredentialType, connectionSlug };
 }

@@ -361,6 +361,13 @@ export interface AgentBackend {
    */
   disposeForRestart?(): Promise<void>;
 
+  /**
+   * Re-read the web_search provider settings (provider choice + API key) and
+   * push them to the backend, so a settings change reaches running sessions
+   * without a restart. Backends without a configurable search tool skip this.
+   */
+  refreshSearchConfig?(): Promise<void>;
+
   /** Get current thinking level */
   getThinkingLevel(): ThinkingLevel;
 

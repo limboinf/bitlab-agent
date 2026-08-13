@@ -1,6 +1,7 @@
 import type {
   AnnotationV1,
   ContentBadge,
+  ContextUsageReading,
   Message,
   PermissionRequest as BasePermissionRequest,
   StoredAttachment,
@@ -48,6 +49,8 @@ export interface Session {
     cacheCreationTokens?: number;
     contextWindow?: number;
   };
+  /** Live context-meter reading; absent until the backend reports one. */
+  contextUsage?: ContextUsageReading;
   hidden?: boolean;
   isArchived?: boolean;
   archivedAt?: number;
@@ -110,10 +113,11 @@ export type SessionEvent =
   | { type: 'session_archived'; sessionId: string }
   | { type: 'session_unarchived'; sessionId: string }
   | { type: 'name_changed'; sessionId: string; name?: string }
-  | { type: 'session_model_changed'; sessionId: string; model: string | null }
+  | { type: 'session_model_changed'; sessionId: string; model: string | null; thinkingLevel?: ThinkingLevel }
   | { type: 'session_deleted'; sessionId: string }
   | { type: 'session_created'; sessionId: string }
   | { type: 'usage_update'; sessionId: string; tokenUsage: { inputTokens: number; contextWindow?: number } }
+  | { type: 'context_usage'; sessionId: string; contextUsage: ContextUsageReading }
   | { type: 'message_annotations_updated'; sessionId: string; messageId: string; annotations: AnnotationV1[] }
   | { type: 'working_directory_error'; sessionId: string; error: string };
 
@@ -122,6 +126,71 @@ export interface SendMessageOptions {
   badges?: ContentBadge[];
   optimisticMessageId?: string;
   hidden?: boolean;
+}
+
+/**
+ * A complete route for one session: which connection, which model, and how
+ * hard to think. Submitted and echoed as a whole, because a model id only
+ * means something inside the connection that advertises it.
+ */
+export interface SessionModelSelectionDto {
+  connection?: string;
+  model?: string;
+  thinkingLevel?: ThinkingLevel;
+}
+
+/** One model inside its connection group. */
+export interface ModelCatalogModel {
+  id: string;
+  name: string;
+  description?: string;
+  supportsImages?: boolean;
+  supportsThinking?: boolean;
+}
+
+/** One connection and the models it advertises. */
+export interface ModelConnectionGroup {
+  /** Connection slug, used to submit a selection. */
+  slug: string;
+  name: string;
+  providerType: string;
+  models: ModelCatalogModel[];
+}
+
+/** A connection that cannot currently be selected, listed for visibility. */
+export interface ModelCatalogFailure {
+  slug: string;
+  name: string;
+  message: string;
+}
+
+/**
+ * The session's model directory — everything a picker needs to render.
+ *
+ * `groups` is ADVISORY: a connection may serve a model it stopped advertising,
+ * so a selection missing from the catalog is not the same as an unusable one.
+ * A surface that blocks input must read `routable`, never catalog membership.
+ */
+export interface SessionModels {
+  /** The selection the next assembled turn will use. */
+  current: SessionModelSelectionDto;
+  /** The resolved model id, after connection defaults are applied. */
+  resolvedModel: string;
+  /**
+   * Whether an authenticated connection serves `current`, and therefore
+   * whether this session can start a turn at all.
+   */
+  routable: boolean;
+  /** Connections that loaded, in display order. */
+  groups: ModelConnectionGroup[];
+  /** Connections that could not be offered; the rest stay usable. */
+  failures: ModelCatalogFailure[];
+}
+
+/** Outcome of a model selection. */
+export interface SelectModelResult {
+  /** The selection that landed. */
+  selected: SessionModelSelectionDto;
 }
 
 export type SessionCommand =
@@ -139,6 +208,8 @@ export type SessionCommand =
   | { type: 'copyPath' }
   | { type: 'refreshTitle' }
   | { type: 'setConnection'; connectionSlug: string }
+  | { type: 'selectModel'; selection: SessionModelSelectionDto }
+  | { type: 'models' }
   | { type: 'setPendingPlanExecution'; planPath: string; draftInputSnapshot?: string }
   | { type: 'markCompactionComplete' }
   | { type: 'markPendingPlanExecutionDispatched' }

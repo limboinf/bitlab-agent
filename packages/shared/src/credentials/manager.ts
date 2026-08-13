@@ -10,6 +10,7 @@ import type {
   CredentialId,
   StoredCredential,
 } from './types.ts';
+import { maskCredentialValue } from './types.ts';
 
 export class CredentialManager {
   private backends: CredentialBackend[] = [];
@@ -107,6 +108,27 @@ export class CredentialManager {
 
   async deleteLlmApiKey(connectionSlug: string): Promise<boolean> {
     return this.delete({ type: 'llm_api_key', connectionSlug });
+  }
+
+  // --- Web search provider keys (connectionSlug === provider id) ---
+
+  async getSearchApiKey(providerId: string): Promise<string | null> {
+    const credential = await this.get({ type: 'web_search_api_key', connectionSlug: providerId });
+    return credential?.value ?? null;
+  }
+
+  async setSearchApiKey(providerId: string, apiKey: string): Promise<void> {
+    await this.set({ type: 'web_search_api_key', connectionSlug: providerId }, { value: apiKey });
+  }
+
+  async deleteSearchApiKey(providerId: string): Promise<boolean> {
+    return this.delete({ type: 'web_search_api_key', connectionSlug: providerId });
+  }
+
+  /** Masked key for the settings UI — proves a key exists without exposing it. */
+  async getMaskedSearchApiKey(providerId: string): Promise<string | null> {
+    const key = await this.getSearchApiKey(providerId);
+    return key ? maskCredentialValue(key) : null;
   }
 
   async getLlmOAuth(connectionSlug: string): Promise<{

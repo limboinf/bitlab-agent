@@ -5,7 +5,8 @@
  * All agent events flow through a single pure function for consistent state transitions.
  */
 
-import type { Session, Message, PermissionRequest, TypedError, PermissionMode, ToolDisplayMeta } from '../../shared/types'
+import type { Session, Message, PermissionRequest, TypedError, PermissionMode, ToolDisplayMeta, ContextUsageReading } from '../../shared/types'
+import type { ThinkingLevel } from '@bitlab/shared/agent/thinking-levels'
 
 /**
  * Streaming state for a session - replaces streamingTextRef
@@ -308,6 +309,8 @@ export interface SessionModelChangedEvent {
   type: 'session_model_changed'
   sessionId: string
   model: string | null
+  /** Carried so the renderer's session mirror stays exact after a switch. */
+  thinkingLevel?: ThinkingLevel
 }
 
 /**
@@ -423,6 +426,16 @@ export interface UsageUpdateEvent {
 }
 
 /**
+ * Context-meter reading — occupancy plus its heuristic composition.
+ * Distinct from {@link UsageUpdateEvent}, which is the billing fact.
+ */
+export interface ContextUsageEvent {
+  type: 'context_usage'
+  sessionId: string
+  contextUsage: ContextUsageReading
+}
+
+/**
  * Union of all agent events
  */
 export type AgentEvent =
@@ -460,6 +473,7 @@ export type AgentEvent =
   | UserMessageEvent
   | MessageAnnotationsUpdatedEvent
   | UsageUpdateEvent
+  | ContextUsageEvent
 
 /**
  * Side effects that need to be handled outside the pure processor

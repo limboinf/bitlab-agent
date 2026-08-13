@@ -12,8 +12,11 @@ import type {
   FileAttachment,
   PermissionModeState,
   PermissionResponseOptions,
+  SelectModelResult,
   SendMessageOptions,
   Session,
+  SessionModels,
+  SessionModelSelectionDto,
   UnreadSummary,
 } from '@bitlab/shared/protocol'
 import type { DispatchMode, SessionBundle } from '@bitlab/shared/sessions'
@@ -57,6 +60,10 @@ export interface ISessionManager {
     model: string | null,
     connection?: string,
   ): Promise<void>
+  /** Select the complete route for the session's next assembled turn. */
+  selectModel(sessionId: string, selection: SessionModelSelectionDto): Promise<SelectModelResult>
+  /** Read the session's advisory model directory plus its routable gate. */
+  getSessionModels(sessionId: string): Promise<SessionModels>
 
   sendMessage(
     sessionId: string,
@@ -131,4 +138,6 @@ export interface ISessionManager {
 
   reinitializeAuth(connectionSlug?: string): Promise<void>
   refreshConnectionRuntime(connectionSlug: string): Promise<void>
+  /** Push changed web_search settings (provider/key) to running sessions. */
+  refreshSearchConfig(): Promise<void>
 }

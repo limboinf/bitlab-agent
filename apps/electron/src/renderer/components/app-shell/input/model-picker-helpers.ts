@@ -1,8 +1,3 @@
-import {
-  isLocalConnection,
-  type LlmConnection,
-} from '@config/llm-connections'
-
 /**
  * Format token count for display (e.g., 1500 -> "1.5k", 200000 -> "200k").
  * Shared by the desktop model dropdown and the compact (drawer) model picker.
@@ -39,30 +34,4 @@ export function dedupeModelsById<T extends string | { id: string }>(models: read
     seen.add(id)
     return true
   })
-}
-
-export type ConnectionGroup = [groupName: string, connections: LlmConnection[]]
-
-/**
- * Group connections by provider type for hierarchical picker rendering.
- * Each provider section can contain multiple API-key connections.
- * Order is significant for UI: Local, Pi Backend.
- * Empty groups are dropped.
- */
-export function groupConnectionsByProvider<T extends LlmConnection>(
-  connections: readonly T[],
-): Array<[string, T[]]> {
-  const groups: Record<string, T[]> = {
-    'Local': [],
-    'Pi Backend': [],
-  }
-  for (const conn of connections) {
-    const provider = conn.providerType || 'pi'
-    if (provider === 'pi_compat' && isLocalConnection(conn)) {
-      groups['Local'].push(conn)
-    } else if (provider === 'pi' || provider === 'pi_compat') {
-      groups['Pi Backend'].push(conn)
-    }
-  }
-  return Object.entries(groups).filter(([, conns]) => conns.length > 0)
 }

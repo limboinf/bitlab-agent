@@ -16,5 +16,10 @@
 
 export { CredentialManager, getCredentialManager } from './manager.ts';
 export type { CredentialId, CredentialType, StoredCredential } from './types.ts';
-export { credentialIdToAccount, accountToCredentialId } from './types.ts';
+export {
+  credentialIdToAccount,
+  accountToCredentialId,
+  maskCredentialValue,
+  isMaskedCredentialValue,
+} from './types.ts';
 export type { CredentialBackend } from './backends/types.ts';

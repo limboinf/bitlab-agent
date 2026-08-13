@@ -20,6 +20,8 @@ import type {
   ContentBadge,
   ToolDisplayMeta,
   AnnotationV1,
+  ContextBreakdown,
+  ContextUsageReading,
 } from '@bitlab/core/types';
 
 // Mode types from dedicated subpath export (avoids pulling in SDK)
@@ -44,6 +46,8 @@ export type {
   ContentBadge,
   ToolDisplayMeta,
   AnnotationV1,
+  ContextBreakdown,
+  ContextUsageReading,
 };
 
 // Onboarding: minimal setup-needs shape driven by Bitlab's Lite Pi-only backend.
@@ -67,7 +71,7 @@ export type { LoadedSkill, SkillMetadata };
 
 
 // LLM connection types
-import type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderType, NetworkProxySettings } from '@bitlab/shared/config';
+import type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderType, NetworkProxySettings, SearchConfig } from '@bitlab/shared/config';
 export type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderType, NetworkProxySettings };
 
 // =============================================================================
@@ -185,6 +189,8 @@ import type {
   SessionEvent,
   PermissionResponseOptions,
   SessionCommand,
+  SessionModels,
+  SelectModelResult,
   RefreshTitleResult,
   FileSearchResult,
   SessionSearchResult,
@@ -218,7 +224,7 @@ export interface ElectronAPI {
   respondToPermission(sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean, options?: PermissionResponseOptions): Promise<boolean>
 
   // Consolidated session command handler
-  sessionCommand(sessionId: string, command: SessionCommand): Promise<void | RefreshTitleResult | { count: number }>
+  sessionCommand(sessionId: string, command: SessionCommand): Promise<void | RefreshTitleResult | { count: number } | SessionModels | SelectModelResult>
 
   // Server info (REMOTE_ELIGIBLE — returns data from whichever server owns the workspace)
   getServerHomeDir(): Promise<string>
@@ -448,6 +454,15 @@ export interface ElectronAPI {
   // Tools settings
   getBrowserToolEnabled(): Promise<boolean>
   setBrowserToolEnabled(enabled: boolean): Promise<void>
+
+  // Web search plugin settings — keys are stored encrypted, reads return a mask
+  search: {
+    getConfig(): Promise<SearchConfig>
+    setConfig(config: SearchConfig): Promise<void>
+    getApiKey(providerId: string): Promise<string | null>
+    setApiKey(providerId: string, apiKey: string): Promise<void>
+    deleteApiKey(providerId: string): Promise<void>
+  }
 
   // Appearance settings
   getRichToolDescriptions(): Promise<boolean>

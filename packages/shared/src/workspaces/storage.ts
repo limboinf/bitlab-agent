@@ -21,7 +21,7 @@ import {
   isLegacyCyclableDefault,
   resolveStartingPermissionMode,
 } from '../agent/mode-types.ts';
-import { normalizeThinkingLevel } from '../agent/thinking-levels.ts';
+import { normalizeThinkingLevel, type ThinkingLevel } from '../agent/thinking-levels.ts';
 import { CONFIG_DIR } from '../config/paths.ts';
 import type {
   WorkspaceConfig,
@@ -272,6 +272,37 @@ export function isValidWorkspace(rootPath: string): boolean {
 export function getWorkspaceColorTheme(rootPath: string): string | undefined {
   const config = loadWorkspaceConfig(rootPath);
   return config?.defaults?.colorTheme;
+}
+
+/**
+ * Remember the route a user just selected, so the NEXT session in this
+ * workspace starts on it instead of falling back to a stale default.
+ *
+ * Written as a whole: a model id only means something inside the connection
+ * that advertises it, so persisting one without the other would hand the next
+ * session a model its connection has never heard of.
+ *
+ * @param rootPath - Absolute path to workspace root folder
+ * @param selection - The complete selection to make default.
+ */
+export function setWorkspaceModelDefaults(
+  rootPath: string,
+  selection: { connection?: string; model?: string; thinkingLevel?: ThinkingLevel },
+): void {
+  const config = loadWorkspaceConfig(rootPath);
+  if (!config) return;
+
+  if (!config.defaults) {
+    config.defaults = {};
+  }
+
+  config.defaults.defaultLlmConnection = selection.connection;
+  config.defaults.model = selection.model;
+  if (selection.thinkingLevel) {
+    config.defaults.thinkingLevel = selection.thinkingLevel;
+  }
+
+  saveWorkspaceConfig(rootPath, config);
 }
 
 /**

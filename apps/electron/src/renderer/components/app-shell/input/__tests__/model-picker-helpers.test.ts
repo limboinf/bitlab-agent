@@ -6,11 +6,9 @@
  */
 
 import { describe, test, expect } from 'bun:test'
-import type { LlmConnection } from '@bitlab/shared/config/llm-connections'
 import {
   dedupeModelsById,
   formatTokenCount,
-  groupConnectionsByProvider,
   stripPiPrefixForDisplay,
 } from '../model-picker-helpers'
 
@@ -72,84 +70,6 @@ describe('formatTokenCount', () => {
     expect(formatTokenCount(1_000_000)).toBe('1.0M')
     expect(formatTokenCount(1_500_000)).toBe('1.5M')
     expect(formatTokenCount(12_345_678)).toBe('12.3M')
-  })
-})
-
-// -----------------------------------------------------------------------------
-// groupConnectionsByProvider
-// -----------------------------------------------------------------------------
-
-function conn(
-  slug: string,
-  providerType: LlmConnection['providerType'],
-  extras: Partial<LlmConnection> = {},
-): LlmConnection {
-  return {
-    slug,
-    name: slug,
-    providerType,
-    authType: 'api_key',
-    createdAt: 0,
-    ...extras,
-  }
-}
-
-describe('groupConnectionsByProvider', () => {
-  test('returns empty array for empty input', () => {
-    expect(groupConnectionsByProvider([])).toEqual([])
-  })
-
-  test('groups Pi providers into "Pi Backend"', () => {
-    const a = conn('a', 'pi')
-    const b = conn('b', 'pi')
-    const result = groupConnectionsByProvider([a, b])
-    expect(result).toEqual([['Pi Backend', [a, b]]])
-  })
-
-  test('preserves intra-group order', () => {
-    const a = conn('first', 'pi')
-    const b = conn('second', 'pi')
-    const c = conn('third', 'pi')
-    const result = groupConnectionsByProvider([a, b, c])
-    expect(result[0][1].map(c => c.slug)).toEqual(['first', 'second', 'third'])
-  })
-
-  test('places local connections before remote Pi connections', () => {
-    const piConn = conn('pi-1', 'pi')
-    const local = conn('local-1', 'pi_compat', { baseUrl: 'http://localhost:11434' })
-    const result = groupConnectionsByProvider([piConn, local])
-    expect(result.map(([k]) => k)).toEqual(['Local', 'Pi Backend'])
-  })
-
-  test('"pi_compat" with localhost baseUrl goes to "Local"', () => {
-    const local = conn('ollama', 'pi_compat', { baseUrl: 'http://localhost:11434' })
-    const result = groupConnectionsByProvider([local])
-    expect(result).toEqual([['Local', [local]]])
-  })
-
-  test('"pi_compat" with remote baseUrl goes to "Pi Backend"', () => {
-    const remote = conn('openrouter', 'pi_compat', { baseUrl: 'https://openrouter.ai/api/v1' })
-    const result = groupConnectionsByProvider([remote])
-    expect(result).toEqual([['Pi Backend', [remote]]])
-  })
-
-  test('drops empty groups from the output', () => {
-    const a = conn('a', 'pi')
-    const result = groupConnectionsByProvider([a])
-    // Only "Pi Backend" appears; "Local" is dropped.
-    expect(result.length).toBe(1)
-    expect(result[0][0]).toBe('Pi Backend')
-  })
-
-  test('full mixed input — local + remote pi_compat + pi', () => {
-    const local = conn('ollama', 'pi_compat', { baseUrl: 'http://127.0.0.1:1234' })
-    const remote = conn('or', 'pi_compat', { baseUrl: 'https://openrouter.ai' })
-    const pi = conn('p', 'pi')
-    const result = groupConnectionsByProvider([local, remote, pi])
-    expect(result.map(([k, conns]) => [k, conns.map(c => c.slug)])).toEqual([
-      ['Local', ['ollama']],
-      ['Pi Backend', ['or', 'p']],
-    ])
   })
 })
 

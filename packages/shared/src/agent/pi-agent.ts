@@ -15,7 +15,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
-import type { AgentEvent } from '@bitlab/core/types';
+import type { AgentEvent, ContextUsageReading } from '@bitlab/core/types';
 import type { FileAttachment } from '../utils/files.ts';
 import { getProxyEnvVars } from '../config/proxy-env.ts';
 
@@ -46,6 +46,7 @@ import { getSystemPrompt } from '../prompts/system.ts';
 
 // Credential manager for token storage
 import { getCredentialManager } from '../credentials/manager.ts';
+import { resolveSearchSettings } from '../config/search-settings.ts';
 
 // Session-scoped tool callbacks
 import {
@@ -398,6 +399,7 @@ export class PiAgent extends BaseAgent {
     // Custom endpoint mode must NOT fall back to global API keys — keyless local endpoints
     // are valid, and non-local endpoints should fail explicitly instead of using unrelated creds.
     const piAuth = await this.getPiAuth();
+    const searchSettings = await resolveSearchSettings();
     const isCustomEndpointMode = !!runtime.customEndpoint;
     const legacyApiKey = (!piAuth && !isCustomEndpointMode) ? await this.getApiKey() : undefined;
     if (isCustomEndpointMode && !piAuth) {
@@ -478,6 +480,8 @@ export class PiAgent extends BaseAgent {
       authType: this.config.authType,
       workspaceId: this.config.workspace.id,
       piAuth,
+      searchConfig: searchSettings.searchConfig,
+      searchApiKeys: searchSettings.searchApiKeys,
       baseUrl: runtime.baseUrl,
       customEndpoint: runtime.customEndpoint,
       customModels: runtime.customModels,
@@ -604,6 +608,17 @@ export class PiAgent extends BaseAgent {
     current.finally(() => {
       if (PiAgent.oauthPersistChains.get(slug) === current) PiAgent.oauthPersistChains.delete(slug);
     }).catch(() => {});
+  }
+
+  /**
+   * Push the current web_search settings to the subprocess.
+   * Called after the user changes provider or key so running sessions pick it
+   * up on their next search instead of needing a restart.
+   */
+  async refreshSearchConfig(): Promise<void> {
+    if (!this.subprocess) return;
+    const { searchConfig, searchApiKeys } = await resolveSearchSettings();
+    this.send({ type: 'search_config_update', searchConfig, searchApiKeys });
   }
 
   private async pushLatestOAuthCredential(): Promise<void> {
@@ -749,6 +764,21 @@ export class PiAgent extends BaseAgent {
       case 'update_runtime_config_result':
         // Response to a runtime config refresh request
         this.handleRuntimeConfigUpdateResult(msg);
+        break;
+
+      case 'context_usage':
+        // Context-meter reading. Independent of usage_update: that one is the
+        // billing fact, this one is occupancy (provider-anchored + estimated
+        // tail) plus its heuristic composition.
+        this.eventQueue.enqueue({
+          type: 'context_usage',
+          contextUsage: {
+            tokens: msg.tokens as number | null,
+            contextWindow: msg.contextWindow as number,
+            percent: msg.percent as number | null,
+            breakdown: msg.breakdown as ContextUsageReading['breakdown'],
+          },
+        });
         break;
 
       case 'session_id_update':
