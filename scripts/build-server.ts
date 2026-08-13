@@ -59,9 +59,17 @@ mkdirSync(dirname(runtime), { recursive: true })
 copyFileSync(process.execPath, runtime)
 chmodSync(runtime, 0o755)
 
+// @vscode/ripgrep 1.18 dropped its postinstall download in favour of per-platform
+// optional packages, so the binary no longer lives under the main package. Headless
+// builds already run on their target host, making the host platform the right one.
 const rgName = process.platform === 'win32' ? 'rg.exe' : 'rg'
-const rgSource = join(root, 'node_modules', '@vscode', 'ripgrep', 'bin', rgName)
-if (!existsSync(rgSource)) throw new Error(`Missing ripgrep binary: ${rgSource}`)
+const rgSource = join(root, 'node_modules', '@vscode', `ripgrep-${process.platform}-${process.arch}`, 'bin', rgName)
+if (!existsSync(rgSource)) {
+  throw new Error(
+    `Missing ripgrep binary: ${rgSource}\n`
+    + `Install the optional dependency @vscode/ripgrep-${process.platform}-${process.arch}.`,
+  )
+}
 const rgDestination = join(output, 'node_modules', '@vscode', 'ripgrep', 'bin', rgName)
 mkdirSync(dirname(rgDestination), { recursive: true })
 copyFileSync(rgSource, rgDestination)

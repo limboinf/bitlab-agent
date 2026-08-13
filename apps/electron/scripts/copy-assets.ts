@@ -82,6 +82,23 @@ mkdirSync(join(destination, 'bin', platformKey), { recursive: true })
 copyFileSync(uv, uvDestination)
 chmodSync(uvDestination, 0o755)
 
+// @vscode/ripgrep 1.18 dropped its postinstall download; the binary now ships in a
+// per-platform optional package. Stage it at a fixed vendor path so electron-builder
+// has one path to copy from regardless of platform, and so a missing binary fails the
+// build here rather than silently producing a package without search.
+const rgBinary = targetPlatform === 'win32' ? 'rg.exe' : 'rg'
+const rgSource = join(rootDir, 'node_modules', '@vscode', `ripgrep-${targetPlatform}-${targetArch}`, 'bin', rgBinary)
+if (!existsSync(rgSource)) {
+  throw new Error(
+    `ripgrep is not prepared for ${platformKey}: ${rgSource}\n`
+    + `Install the optional dependency @vscode/ripgrep-${targetPlatform}-${targetArch}.`,
+  )
+}
+const rgDestination = join(appDir, 'vendor', 'ripgrep', 'bin', rgBinary)
+mkdirSync(join(appDir, 'vendor', 'ripgrep', 'bin'), { recursive: true })
+copyFileSync(rgSource, rgDestination)
+chmodSync(rgDestination, 0o755)
+
 const bunDestination = join(appDir, 'vendor', 'bun', targetPlatform === 'win32' ? 'bun.exe' : 'bun')
 mkdirSync(join(appDir, 'vendor', 'bun'), { recursive: true })
 if (!hasExplicitTarget) {

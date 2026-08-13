@@ -16,6 +16,7 @@ const required = [
   'dist/resources/pi-agent-server/index.js',
   `dist/resources/bin/${platformKey}/uv${executable}`,
   `vendor/bun/bun${executable}`,
+  `vendor/ripgrep/bin/rg${executable}`,
 ]
 
 for (const relative of required) {

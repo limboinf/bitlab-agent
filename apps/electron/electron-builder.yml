@@ -19,7 +19,9 @@ extraMetadata:
   main: dist/main.cjs
 
 extraResources:
-  - from: ../../node_modules/@vscode/ripgrep/bin
+  # Staged by scripts/copy-assets.ts from the per-platform @vscode/ripgrep-* package.
+  # The destination keeps the layout the runtime resolver expects.
+  - from: vendor/ripgrep/bin
     to: app/node_modules/@vscode/ripgrep/bin
   - from: ../../LICENSE
     to: LICENSE
@@ -91,6 +93,9 @@ linux:
   icon: resources/icon.png
   category: Utility
   maintainer: Bitlab contributors
+  # Keep Linux file names independent from the scoped workspace package name.
+  executableName: bitlab
+  syncDesktopName: true
   target:
     - AppImage
   artifactName: Bitlab-${version}-${arch}.${ext}
