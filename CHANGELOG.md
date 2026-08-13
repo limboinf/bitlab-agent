@@ -13,6 +13,30 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.2.0] - 2026-08-13
+
+### Removed
+
+- **CLI bundle.** Use the desktop application or the headless server with its
+  WebUI instead; the RPC contract the CLI spoke to is unchanged.
+
+### Changed
+
+- **Reasoning blocks open while the model is still thinking.** A reasoning step
+  used to be a single scrolling line until it finished, with no way to read it.
+  It now expands from the first token, rendering as formatted text that grows
+  with the stream.
+- **Answers stream where you read them.** After a turn ran tools, further text
+  streamed as plain text inside the collapsed step list and jumped out only once
+  finished. It now streams directly in the conversation, formatted as it
+  arrives; only text that turns out to be a remark between tool calls settles
+  back into a step.
+
+### Fixed
+
+- A turn card could crash with a React hook-order error when a turn rendered
+  nothing and then received content.
+
 ## [0.1.0] - 2026-08-13
 
 First public release. Bitlab is a local-first AI agent workspace available as a
@@ -51,5 +75,6 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for attribution and [docs/comparison-with-craft.md](./docs/comparison-with-craft.md)
   for what differs.
 
-[Unreleased]: https://github.com/limboinf/bitlab-agent/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.2.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.0
 [0.1.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.1.0
