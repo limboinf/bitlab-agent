@@ -27,7 +27,7 @@
 | 上游同步 | [upstream-sync.md](./upstream-sync.md) |
 | Workspace | [workspaces.md](./workspaces.md) |
 
-首次使用建议先读 [development.md](./development.md)，再阅读 [connections.md](./connections.md)、[permissions.md](./permissions.md) 与 [sessions.md](./sessions.md)。`migration/` 是实现归档目录，其中的计划和审计快照均为历史记录，除非章节明确说明当前代码状态。
+首次使用建议先读 [development.md](./development.md)，再阅读 [connections.md](./connections.md)、[permissions.md](./permissions.md) 与 [sessions.md](./sessions.md)。
 
 ## 翻译约定
 

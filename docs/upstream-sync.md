@@ -101,7 +101,7 @@ When importing a file from Craft, apply these substitutions by hand before diffi
 - Sources API/Settings UI, session labels, user-defined statuses
 - WhatsApp worker
 
-These are recorded as Lite-boundary deletions in [`comparison-with-craft.md`](./comparison-with-craft.md) and the [`migration/`](./migration/README.md) archive.
+These are recorded as Lite-boundary deletions in [`comparison-with-craft.md`](./comparison-with-craft.md).
 
 ## Troubleshooting
 

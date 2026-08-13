@@ -30,14 +30,7 @@ This directory is the English-language user documentation. A Chinese translation
 | Upstream synchronization | [upstream-sync.md](./upstream-sync.md) |
 | Workspaces | [workspaces.md](./workspaces.md) |
 
-### Research / design notes
-
-| Topic | Document |
-| --- | --- |
-| Codex / ChatGPT Desktop layout research | [research/codex-ui-layout-research.md](./research/codex-ui-layout-research.md) |
-| Workspace vs working directory (vs Codex / WorkBuddy) | [research/workspace-vs-working-directory.md](./research/workspace-vs-working-directory.md) |
-
-For a clean start, read [development.md](./development.md), then use [connections.md](./connections.md), [permissions.md](./permissions.md), and [sessions.md](./sessions.md). The `migration/` directory is an implementation archive: its plans and audit snapshots are historical unless a section explicitly says it describes the current code. The `research/` directory holds product/design decision notes; they are not end-user manuals.
+For a clean start, read [development.md](./development.md), then use [connections.md](./connections.md), [permissions.md](./permissions.md), and [sessions.md](./sessions.md).
 
 ## Translation conventions
 
