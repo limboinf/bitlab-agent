@@ -1,0 +1,99 @@
+appId: app.bitlab.desktop
+productName: Bitlab
+copyright: Copyright © 2026 Bitlab contributors
+electronVersion: "39.2.7"
+afterPack: scripts/afterPack.cjs
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - dist/**/*
+  - "!dist/renderer/src/**"
+  - "!**/*.map"
+  - package.json
+  - vendor/bun/**/*
+
+extraMetadata:
+  main: dist/main.cjs
+
+extraResources:
+  - from: ../../node_modules/@vscode/ripgrep/bin
+    to: app/node_modules/@vscode/ripgrep/bin
+  - from: ../../LICENSE
+    to: LICENSE
+  - from: ../../NOTICE
+    to: NOTICE
+
+publish:
+  provider: github
+  owner: limboinf
+  repo: bitlab-agent
+
+asar: false
+
+mac:
+  category: public.app-category.productivity
+  icon: resources/icon.icns
+  extendInfo:
+    CFBundleIconName: AppIcon
+    CFBundleURLTypes:
+      - CFBundleURLName: app.bitlab.desktop
+        CFBundleURLSchemes:
+          - bitlab
+    NSLocalNetworkUsageDescription: Bitlab uses the local network to reach local models, servers, and devices requested by the user.
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  artifactName: Bitlab-${version}-${arch}.${ext}
+
+dmg:
+  artifactName: Bitlab-${version}-${arch}.dmg
+  icon: resources/icon.icns
+  iconSize: 80
+  title: Bitlab
+  contents:
+    - x: 130
+      y: 200
+    - x: 410
+      y: 200
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380
+
+win:
+  icon: resources/icon.ico
+  target:
+    - nsis
+  artifactName: Bitlab-${version}-${arch}.${ext}
+  files:
+    - "!vendor/bun/**/*"
+  extraResources:
+    - from: vendor/bun/bun.exe
+      to: vendor/bun/bun.exe
+  protocols:
+    - name: Bitlab
+      schemes: [bitlab]
+
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: true
+
+linux:
+  icon: resources/icon.png
+  category: Utility
+  maintainer: Bitlab contributors
+  target:
+    - AppImage
+  artifactName: Bitlab-${version}-${arch}.${ext}
+  protocols:
+    - name: Bitlab
+      schemes: [bitlab]

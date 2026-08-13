@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest a capability or an improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bitlab is a deliberately trimmed derivative of Craft Agents OSS. Some areas
+        are excluded on purpose — the Claude Agent SDK backend, GitHub Copilot,
+        external messaging, Sources/MCP, image generation, public sharing, and
+        product automations. The full boundary is in
+        [docs/upstream-sync.md](https://github.com/limboinf/bitlab-agent/blob/main/docs/upstream-sync.md).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that Bitlab makes hard or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like instead
+      description: Describe the behavior you want. Sketches and screenshots help.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have tried
+      description: Workarounds you are using now, or other tools that solve this well.
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Which interface does this affect?
+      multiple: true
+      options:
+        - Desktop (Electron)
+        - WebUI
+        - CLI
+        - Headless server
+    validations:
+      required: true

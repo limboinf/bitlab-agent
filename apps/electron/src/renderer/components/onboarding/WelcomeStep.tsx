@@ -1,0 +1,47 @@
+import { useTranslation } from "react-i18next"
+import { BitlabAppIcon } from "@/components/icons/BitlabAppIcon"
+import { StepFormLayout, ContinueButton } from "./primitives"
+
+interface WelcomeStepProps {
+  onContinue: () => void
+  /** Whether this is an existing user updating settings */
+  isExistingUser?: boolean
+  /** Whether the app is loading (e.g., checking Git Bash on Windows) */
+  isLoading?: boolean
+}
+
+/**
+ * WelcomeStep - Initial welcome screen for onboarding
+ *
+ * Shows different messaging for new vs existing users:
+ * - New users: Welcome to Bitlab
+ * - Existing users: Update your API connection settings
+ */
+export function WelcomeStep({
+  onContinue,
+  isExistingUser = false,
+  isLoading = false
+}: WelcomeStepProps) {
+  const { t } = useTranslation()
+
+  return (
+    <StepFormLayout
+      iconElement={
+        <div className="flex size-16 items-center justify-center">
+          <BitlabAppIcon className="size-10" size={40} />
+        </div>
+      }
+      title={isExistingUser ? t("onboarding.welcome.updateTitle") : t("onboarding.welcome.title")}
+      description={
+        isExistingUser
+          ? t("onboarding.welcome.updateDescription")
+          : t("onboarding.welcome.description")
+      }
+      actions={
+        <ContinueButton onClick={onContinue} className="w-full" loading={isLoading} loadingText={t("common.checking")}>
+          {isExistingUser ? t("onboarding.welcome.continue") : t("onboarding.welcome.getStarted")}
+        </ContinueButton>
+      }
+    />
+  )
+}

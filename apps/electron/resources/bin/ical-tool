@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "$BITLAB_UV" run --python 3.12 "$BITLAB_SCRIPTS/ical_tool.py" "$@"

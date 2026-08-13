@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "description": "Default configuration values for Bitlab",
+  "defaults": {
+    "notificationsEnabled": true,
+    "colorTheme": "default",
+    "autoCapitalisation": true,
+    "sendMessageKey": "enter",
+    "spellCheck": false,
+    "keepAwakeWhileRunning": false,
+    "richToolDescriptions": true,
+    "extendedPromptCache": false,
+    "browserToolEnabled": true
+  },
+  "workspaceDefaults": {
+    "thinkingLevel": "think",
+    "permissionMode": "ask",
+    "cyclablePermissionModes": ["ask", "allow-all"]
+  }
+}

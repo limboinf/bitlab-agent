@@ -1,0 +1,131 @@
+# Releases, updates, and telemetry
+
+Tagged releases in the open-source repository build macOS DMG/ZIP, Windows NSIS, Linux AppImage, the headless server for each platform, and the Bun-based CLI bundle. Source code and downloadable artifacts live together in [limboinf/bitlab-agent](https://github.com/limboinf/bitlab-agent/releases/latest). Signing credentials are optional: a zero-secret release produces ad-hoc-signed macOS packages and unsigned Windows installers, while complete platform credentials automatically enable Apple Developer ID signing/notarization or Windows Authenticode. The workflow publishes with the repository-scoped GitHub Actions token.
+
+## Release pipeline
+
+```text
+  main ──▶ release:prepare ──▶ reviewed version commit ──▶ annotated v* tag
+                                                          │
+                                                          ▼
+                                              validation + multi-platform builds
+                                                       │
+                                                       ▼
+                         sign when complete credentials are available
+                  otherwise ad-hoc sign macOS and package Windows unsigned
+                                                       │
+                                                       ▼
+                  upload installers + manifests + blockmaps + checksums
+                          to limboinf/bitlab-agent GitHub Releases
+                                                       │
+                                                       ▼
+                         electron-updater reads the same repository
+```
+
+Installers, manifest files (for example `latest-mac.yml`, `latest.yml`, and `latest-linux.yml`), blockmaps, checksums, and release notes live in the main repository's GitHub Releases rather than being committed to Git. A separate release-only repository is no longer used.
+
+Pull requests and pushes to `main` run the unsigned packaging matrix for macOS arm64, Windows x64, and Linux x64. Those validation packages and matching headless-server archives are retained as GitHub Actions artifacts for 7 days. Only a reviewed `v*` tag promotes the verified asset matrix to a durable GitHub Release; signing is upgraded automatically when the complete credentials for a platform are configured.
+
+## Version and changelog policy
+
+Bitlab uses semantic versions and `v<major>.<minor>.<patch>` Git tags. [`CHANGELOG.md`](../CHANGELOG.md) is the canonical cumulative changelog. The tag workflow extracts the matching version section for the public GitHub Release.
+
+Prepare a release only from a clean `main` branch:
+
+```bash
+# First replace the Unreleased placeholder in CHANGELOG.md with real entries.
+bun run release:prepare 0.2.0
+bun run release:check v0.2.0
+git diff --check
+git add CHANGELOG.md package.json bun.lock apps/*/package.json packages/*/package.json
+git commit -m "chore(release): prepare v0.2.0"
+git tag -a v0.2.0 -m "Bitlab v0.2.0"
+git push origin main v0.2.0
+```
+
+`release:prepare` updates every workspace package version, refreshes `bun.lock`, and moves the Unreleased changelog entries into a dated version section. The tag workflow independently rejects missing or inconsistent metadata.
+
+### The first release
+
+`release:prepare` requires the new version to be strictly greater than the one in `package.json`. Every manifest already reads `0.1.0`, so preparing `0.1.0` is rejected by design — there is nothing to bump. Cut the first release by hand instead:
+
+```bash
+# CHANGELOG.md already carries a dated [0.1.0] section.
+bun run release:check v0.1.0
+git tag -a v0.1.0 -m "Bitlab v0.1.0"
+git push origin main v0.1.0
+```
+
+Every release after that goes through `release:prepare`.
+
+### Rehearsing the pipeline
+
+The tag trigger is one-way: a `v*` push builds four platforms and publishes. Because `release.ts` rejects pre-release versions, `v0.1.0-rc.1` is not an option for a trial run. Use the manual trigger instead — **Actions** → **Release** → **Run workflow** — with the version tag and `dry_run` left checked.
+
+A dry run executes everything except publication: verification, the four-platform build matrix, signature checks, headless server and CLI bundles, asset collection with the complete required-file matrix, `latest-mac.yml` merging, the changelog extraction, and `SHA256SUMS`. Instead of creating a Release it writes the checksums to the job summary and uploads the collected assets as a `dry-run-<tag>` artifact for 7 days. Nothing is published, and the tag does not have to exist yet.
+
+Rehearse before the first release, and after any change to the build matrix, the asset naming, or `collect-release-assets.ts`.
+
+## Installer matrix
+
+| Platform                   | Build                    | Naming                             | Signing                               | Notes                                                                                  |
+| -------------------------- | ------------------------ | ---------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------- |
+| macOS arm64                | DMG + ZIP                | `Bitlab-0.1.0-arm64.{dmg,zip}`    | ad-hoc or Developer ID + notarization  | no-certificate builds disable Hardened Runtime and require manual updates              |
+| macOS x64                  | DMG + ZIP                | `Bitlab-0.1.0-x64.{dmg,zip}`      | same                                    | for Intel Macs                                                                         |
+| Windows x64                | NSIS                     | `Bitlab-0.1.0-x64.exe`            | unsigned or Authenticode                | unsigned builds may trigger SmartScreen; per-user install under `%LOCALAPPDATA%\Programs\` |
+| Linux x64                  | AppImage                 | `Bitlab-0.1.0-x86_64.AppImage`    | none                                  | electron-builder renders `x64` as `x86_64` for AppImage; desktop category: Utility     |
+| Headless server (per-arch) | `bun build --compile`    | `bitlab-server-<platform>-<arch>` | none                                  | consumed by WebUI and external CLI users                                               |
+| CLI                        | `bun build --target=bun` | `Bitlab-cli-bun.tar.gz`           | none                                  | JavaScript bundle; requires Bun on the user's machine                                  |
+
+`bun run electron:dist:dev:mac` produces a local ad-hoc-signed build and disables automatic updates. Release jobs also set `CSC_IDENTITY_AUTO_DISCOVERY=false`, `mac.identity=-`, and `hardenedRuntime=false` explicitly when Apple credentials are absent. Ad-hoc signing satisfies Apple Silicon code-integrity requirements but does not establish a trusted developer identity, so Gatekeeper warnings remain.
+
+## Updates
+
+The Electron app uses `electron-updater` against the GitHub Releases API on `limboinf/bitlab-agent`. The public repository and its update manifests require no client-side GitHub token.
+
+| Field        | Where it is set                                              |
+| ------------ | ------------------------------------------------------------ |
+| `appId`      | `apps/electron/electron-builder.yml` → `app.bitlab.desktop` |
+| Provider     | `github`                                                     |
+| Owner / repo | `limboinf` / `bitlab-agent`                                     |
+| Manifest     | auto-generated by electron-builder at release time           |
+
+When a downgrade is required, the user must install an older build manually; auto-update only moves forward.
+
+macOS automatic updates require a Developer ID-signed application. Ad-hoc macOS builds therefore skip startup update checks and reject manual in-app update attempts with a link to the latest GitHub Release. Users update those builds by downloading the next DMG manually. Windows and Linux continue to use their normal updater targets.
+
+## Cross-builder reproducibility
+
+The `electron-builder.yml` `files` / `extraResources` blocks are first-class artifacts of the Lite boundary. They are what give Bitlab its smaller installer footprint; see [`comparison-with-craft.md`](./comparison-with-craft.md) for the concrete numbers. Any release-time change to either block must update both that document and `appId` / `productName` / `copyright` at the top of the same file.
+
+## GitHub release environment
+
+The workflow works with no signing secrets. To enable trusted platform builds, create a protected Actions environment named `release` and configure one complete credential group:
+
+| Secret                                                     | Purpose                                                                               |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `CSC_LINK`, `CSC_KEY_PASSWORD`                             | Developer ID certificate and password; must be paired with all Apple fields            |
+| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Apple notarization; all five Apple secrets enable signed/notarized macOS builds         |
+| `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`                     | Both secrets enable Windows Authenticode                                                |
+
+[code-signing.md](./code-signing.md) walks through creating a Developer ID Application certificate, exporting it, and encoding it for these secrets, plus what to do about Windows now that code-signing keys must live on hardware.
+
+Missing credential groups select the no-certificate mode: ad-hoc signing on macOS and unsigned Windows installers. Partially configured groups fail before builds start so a typo cannot silently downgrade an intended trusted release. Every Release records the resolved platform trust modes in its notes and `SIGNING_STATUS.txt`; that file is also covered by `SHA256SUMS`. The workflow uses its repository-scoped `GITHUB_TOKEN` with `contents: write` to create a draft release, uploads and verifies the complete asset matrix plus checksums, and only then publishes it as Latest. Re-running a failed workflow may update an existing draft, but it will not overwrite an already published release.
+
+## Pre-release checklist
+
+```bash
+git status --short                # clean working tree
+git log -n 5 --oneline            # cross-check the version bump and its commit
+bun run release:check v0.2.0
+bun run audit:brand
+bun run validate:ci
+bun run typecheck:all
+bun run test
+bun run electron:build
+bun run webui:build
+bun run cli:build
+bun run server:build:subprocess
+```
+
+Release is published only when all of the above pass on the tag commit. Before tagging, either configure each desired signing group completely or leave that entire group empty for a deliberate unsigned release.

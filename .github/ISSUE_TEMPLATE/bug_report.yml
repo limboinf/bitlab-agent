@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in Bitlab does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not use this form for security
+        vulnerabilities — follow [SECURITY.md](https://github.com/limboinf/bitlab-agent/blob/main/SECURITY.md)
+        so the issue stays private until it is fixed.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a workspace with …
+        2. Start a session in Ask mode
+        3. …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      options:
+        - Desktop (Electron)
+        - WebUI
+        - CLI
+        - Headless server
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows x64
+        - Linux x64
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Bitlab version
+      description: From the About window, or the release you downloaded. For a source build, the commit SHA.
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model connection
+      description: Which provider and model, if the bug involves an agent session.
+      placeholder: Anthropic API — claude-sonnet-5
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Relevant output. Run with `BITLAB_DEBUG=true` for more detail.
+        Scrub API keys, tokens, and file paths you would rather not publish.
+      render: text

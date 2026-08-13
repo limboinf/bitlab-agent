@@ -1,0 +1,182 @@
+/**
+ * Pure-helper coverage for the model-picker. The helpers are tiny but they
+ * back both the desktop dropdown and the compact (drawer) selector — pinning
+ * the behavior here so future refactors of the picker can't quietly diverge
+ * the two surfaces.
+ */
+
+import { describe, test, expect } from 'bun:test'
+import type { LlmConnection } from '@bitlab/shared/config/llm-connections'
+import {
+  dedupeModelsById,
+  formatTokenCount,
+  groupConnectionsByProvider,
+  stripPiPrefixForDisplay,
+} from '../model-picker-helpers'
+
+// -----------------------------------------------------------------------------
+// stripPiPrefixForDisplay
+// -----------------------------------------------------------------------------
+
+describe('stripPiPrefixForDisplay', () => {
+  test('strips the "pi/" prefix when present', () => {
+    expect(stripPiPrefixForDisplay('pi/claude-opus-4-7')).toBe('claude-opus-4-7')
+  })
+
+  test('returns input unchanged when prefix is absent', () => {
+    expect(stripPiPrefixForDisplay('claude-opus-4-7')).toBe('claude-opus-4-7')
+  })
+
+  test('does NOT strip "pi:" (legacy other-form prefix)', () => {
+    // The prefix is "pi/" — the alternative "pi:" form is intentionally not
+    // collapsed because some IDs use a colon for unrelated purposes.
+    expect(stripPiPrefixForDisplay('pi:claude-opus-4-7')).toBe('pi:claude-opus-4-7')
+  })
+
+  test('only strips at the start, not mid-string', () => {
+    expect(stripPiPrefixForDisplay('foo-pi/bar')).toBe('foo-pi/bar')
+  })
+
+  test('handles empty string', () => {
+    expect(stripPiPrefixForDisplay('')).toBe('')
+  })
+})
+
+// -----------------------------------------------------------------------------
+// formatTokenCount
+// -----------------------------------------------------------------------------
+
+describe('formatTokenCount', () => {
+  test('renders zero as "0"', () => {
+    expect(formatTokenCount(0)).toBe('0')
+  })
+
+  test('renders < 1k literally', () => {
+    expect(formatTokenCount(42)).toBe('42')
+    expect(formatTokenCount(999)).toBe('999')
+  })
+
+  test('renders 1k..<10k with one decimal', () => {
+    expect(formatTokenCount(1000)).toBe('1.0k')
+    expect(formatTokenCount(1500)).toBe('1.5k')
+    expect(formatTokenCount(9999)).toBe('10.0k')
+  })
+
+  test('renders ≥ 10k as whole-k', () => {
+    expect(formatTokenCount(10_000)).toBe('10k')
+    expect(formatTokenCount(200_000)).toBe('200k')
+    expect(formatTokenCount(999_999)).toBe('1000k')
+  })
+
+  test('renders ≥ 1M with one decimal', () => {
+    expect(formatTokenCount(1_000_000)).toBe('1.0M')
+    expect(formatTokenCount(1_500_000)).toBe('1.5M')
+    expect(formatTokenCount(12_345_678)).toBe('12.3M')
+  })
+})
+
+// -----------------------------------------------------------------------------
+// groupConnectionsByProvider
+// -----------------------------------------------------------------------------
+
+function conn(
+  slug: string,
+  providerType: LlmConnection['providerType'],
+  extras: Partial<LlmConnection> = {},
+): LlmConnection {
+  return {
+    slug,
+    name: slug,
+    providerType,
+    authType: 'api_key',
+    createdAt: 0,
+    ...extras,
+  }
+}
+
+describe('groupConnectionsByProvider', () => {
+  test('returns empty array for empty input', () => {
+    expect(groupConnectionsByProvider([])).toEqual([])
+  })
+
+  test('groups Pi providers into "Pi Backend"', () => {
+    const a = conn('a', 'pi')
+    const b = conn('b', 'pi')
+    const result = groupConnectionsByProvider([a, b])
+    expect(result).toEqual([['Pi Backend', [a, b]]])
+  })
+
+  test('preserves intra-group order', () => {
+    const a = conn('first', 'pi')
+    const b = conn('second', 'pi')
+    const c = conn('third', 'pi')
+    const result = groupConnectionsByProvider([a, b, c])
+    expect(result[0][1].map(c => c.slug)).toEqual(['first', 'second', 'third'])
+  })
+
+  test('places local connections before remote Pi connections', () => {
+    const piConn = conn('pi-1', 'pi')
+    const local = conn('local-1', 'pi_compat', { baseUrl: 'http://localhost:11434' })
+    const result = groupConnectionsByProvider([piConn, local])
+    expect(result.map(([k]) => k)).toEqual(['Local', 'Pi Backend'])
+  })
+
+  test('"pi_compat" with localhost baseUrl goes to "Local"', () => {
+    const local = conn('ollama', 'pi_compat', { baseUrl: 'http://localhost:11434' })
+    const result = groupConnectionsByProvider([local])
+    expect(result).toEqual([['Local', [local]]])
+  })
+
+  test('"pi_compat" with remote baseUrl goes to "Pi Backend"', () => {
+    const remote = conn('openrouter', 'pi_compat', { baseUrl: 'https://openrouter.ai/api/v1' })
+    const result = groupConnectionsByProvider([remote])
+    expect(result).toEqual([['Pi Backend', [remote]]])
+  })
+
+  test('drops empty groups from the output', () => {
+    const a = conn('a', 'pi')
+    const result = groupConnectionsByProvider([a])
+    // Only "Pi Backend" appears; "Local" is dropped.
+    expect(result.length).toBe(1)
+    expect(result[0][0]).toBe('Pi Backend')
+  })
+
+  test('full mixed input — local + remote pi_compat + pi', () => {
+    const local = conn('ollama', 'pi_compat', { baseUrl: 'http://127.0.0.1:1234' })
+    const remote = conn('or', 'pi_compat', { baseUrl: 'https://openrouter.ai' })
+    const pi = conn('p', 'pi')
+    const result = groupConnectionsByProvider([local, remote, pi])
+    expect(result.map(([k, conns]) => [k, conns.map(c => c.slug)])).toEqual([
+      ['Local', ['ollama']],
+      ['Pi Backend', ['or', 'p']],
+    ])
+  })
+})
+
+// -----------------------------------------------------------------------------
+// dedupeModelsById
+// -----------------------------------------------------------------------------
+
+describe('dedupeModelsById', () => {
+  test('keeps the first occurrence of a duplicated id', () => {
+    // The setup wizard's best/balanced tiers collapse onto the same model when a
+    // provider exposes few models (DeepSeek has 2), which used to render two
+    // identical — and both checked — rows in the picker.
+    expect(
+      dedupeModelsById(['deepseek-v4-pro', 'deepseek-v4-pro', 'deepseek-v4-flash']),
+    ).toEqual(['deepseek-v4-pro', 'deepseek-v4-flash'])
+  })
+
+  test('dedupes object models by id, keeping the first entry', () => {
+    const models = [
+      { id: 'a', name: 'Best' },
+      { id: 'a', name: 'Balanced' },
+      { id: 'b', name: 'Fast' },
+    ]
+    expect(dedupeModelsById(models)).toEqual([models[0], models[2]])
+  })
+
+  test('leaves a list without duplicates untouched', () => {
+    expect(dedupeModelsById(['a', 'b', 'c'])).toEqual(['a', 'b', 'c'])
+  })
+})

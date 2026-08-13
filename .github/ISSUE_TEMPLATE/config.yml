@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/limboinf/bitlab-agent/security/advisories/new
+    about: Report privately through a GitHub security advisory. Never in a public issue.
+  - name: Question or idea
+    url: https://github.com/limboinf/bitlab-agent/discussions
+    about: Usage questions and open-ended discussion belong here rather than in issues.
+  - name: Documentation
+    url: https://github.com/limboinf/bitlab-agent/tree/main/docs
+    about: Setup, architecture, connections, permissions, and release documentation.

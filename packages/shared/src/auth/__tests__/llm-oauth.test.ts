@@ -1,0 +1,75 @@
+import { describe, expect, it } from 'bun:test'
+import {
+  CHATGPT_OAUTH_CONFIG,
+  generateCallbackPage,
+  prepareChatGptOAuth,
+} from '../index.ts'
+import { CredentialManager } from '../../credentials/manager.ts'
+import type { CredentialBackend } from '../../credentials/backends/types.ts'
+import type { CredentialId, StoredCredential } from '../../credentials/types.ts'
+
+describe('LLM subscription OAuth', () => {
+  it('prepares the Craft ChatGPT PKCE flow for the desktop callback', () => {
+    const flow = prepareChatGptOAuth()
+    const url = new URL(flow.authUrl)
+
+    expect(url.origin + url.pathname).toBe(CHATGPT_OAUTH_CONFIG.AUTH_URL)
+    expect(url.searchParams.get('client_id')).toBe(CHATGPT_OAUTH_CONFIG.CLIENT_ID)
+    expect(url.searchParams.get('redirect_uri')).toBe(CHATGPT_OAUTH_CONFIG.REDIRECT_URI)
+    expect(url.searchParams.get('scope')).toBe(CHATGPT_OAUTH_CONFIG.SCOPES)
+    expect(url.searchParams.get('state')).toBe(flow.state)
+    expect(url.searchParams.get('code_challenge_method')).toBe('S256')
+    expect(url.searchParams.get('codex_cli_simplified_flow')).toBe('true')
+    expect(flow.codeVerifier.length).toBeGreaterThanOrEqual(43)
+  })
+
+  it('uses Bitlab branding on the retained callback page', () => {
+    const html = generateCallbackPage({
+      title: 'Authorization Complete',
+      isSuccess: true,
+      appType: 'electron',
+      deeplinkUrl: 'bitlab://auth-complete',
+    })
+    expect(html).toContain('<title>Bitlab - Authorization Complete</title>')
+    expect(html).toContain('>Bitlab</a>')
+    expect(html).toContain('<img class="logo"')
+    expect(html).toContain('src="data:image/png;base64,')
+    expect(html).not.toContain('<pre class="logo">')
+    expect(html).not.toContain('Craft Agents') // bitlab-brand-audit-ignore
+  })
+})
+
+describe('LLM OAuth credential storage', () => {
+  it('round-trips access, refresh, expiry, and ID tokens under the connection slug', async () => {
+    const values = new Map<string, StoredCredential>()
+    const key = (id: CredentialId) => `${id.type}:${id.connectionSlug}`
+    const backend: CredentialBackend = {
+      name: 'memory',
+      priority: 1,
+      isAvailable: async () => true,
+      get: async id => values.get(key(id)) ?? null,
+      set: async (id, credential) => { values.set(key(id), credential) },
+      delete: async id => values.delete(key(id)),
+      list: async () => [],
+    }
+    const manager = new CredentialManager()
+    ;(manager as any).backends = [backend]
+    ;(manager as any).writeBackend = backend
+    ;(manager as any).initialized = true
+
+    await manager.setLlmOAuth('chatgpt-plus', {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresAt: 123456789,
+      idToken: 'identity-token',
+    })
+
+    expect(await manager.getLlmOAuth('chatgpt-plus')).toEqual({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresAt: 123456789,
+      idToken: 'identity-token',
+    })
+    expect(await manager.hasLlmCredentials('chatgpt-plus', 'oauth')).toBe(true)
+  })
+})

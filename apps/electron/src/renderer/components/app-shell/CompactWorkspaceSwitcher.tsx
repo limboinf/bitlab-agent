@@ -1,0 +1,249 @@
+import * as React from "react"
+import { useTranslation } from "react-i18next"
+import { useState, useCallback } from "react"
+import { Check, FolderOpen, FolderPlus, ExternalLink, ChevronDown, Trash2 } from "lucide-react"
+import { AnimatePresence } from "motion/react"
+import { useSetAtom } from "jotai"
+import { toast } from "sonner"
+
+import { cn } from "@/lib/utils"
+import { fullscreenOverlayOpenAtom } from "@/atoms/overlay"
+import {
+  Drawer,
+  DrawerTrigger,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerClose,
+} from "@/components/ui/drawer"
+import { WorkspaceAvatar } from "@/components/ui/workspace-avatar"
+import { WorkspaceCreationScreen } from "@/components/workspace"
+import { useWorkspaceIcons } from "@/hooks/useWorkspaceIcon"
+import type { Workspace } from "../../../shared/types"
+
+interface CompactWorkspaceSwitcherProps {
+  workspaces: Workspace[]
+  activeWorkspaceId: string | null
+  onSelect: (workspaceId: string, openInNewWindow?: boolean) => void | Promise<void>
+  onWorkspaceCreated?: (workspace: Workspace) => void
+  onWorkspaceRemoved?: () => void
+  workspaceUnreadMap?: Record<string, boolean>
+}
+
+/**
+ * CompactWorkspaceSwitcher — bottom-sheet workspace picker for compact/touch mode.
+ *
+ * Mirrors the topbar trigger from `WorkspaceSwitcher` (avatar pill with chevron)
+ * but opens a Drawer instead of a Radix DropdownMenu so the picker is
+ * touch-friendly and avoids the awkward popover anchoring on narrow viewports.
+ */
+export function CompactWorkspaceSwitcher({
+  workspaces,
+  activeWorkspaceId,
+  onSelect,
+  onWorkspaceCreated,
+  onWorkspaceRemoved,
+  workspaceUnreadMap,
+}: CompactWorkspaceSwitcherProps) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [creationStep, setCreationStep] = useState<'create' | 'open' | null>(null)
+  const setFullscreenOverlayOpen = useSetAtom(fullscreenOverlayOpenAtom)
+  const selectedWorkspace = workspaces.find(w => w.id === activeWorkspaceId)
+  const selectedWorkspaceName = selectedWorkspace?.kind === 'default'
+    ? t('workspace.noWorkspace')
+    : selectedWorkspace?.name
+  const projectWorkspaces = workspaces.filter(workspace => workspace.kind === 'folder')
+  const defaultWorkspace = workspaces.find(workspace => workspace.kind === 'default')
+  const workspaceIconMap = useWorkspaceIcons(workspaces)
+  const hasUnreadInOtherWorkspaces = React.useMemo(() => {
+    if (!activeWorkspaceId || !workspaceUnreadMap) return false
+    return workspaces.some((workspace) => workspace.id !== activeWorkspaceId && workspaceUnreadMap[workspace.id])
+  }, [workspaces, activeWorkspaceId, workspaceUnreadMap])
+
+  const handleNewWorkspace = () => {
+    setCreationStep('create')
+    setFullscreenOverlayOpen(true)
+    setOpen(false)
+  }
+
+  const handleOpenFolder = () => {
+    setCreationStep('open')
+    setFullscreenOverlayOpen(true)
+    setOpen(false)
+  }
+
+  const handleWorkspaceCreated = (workspace: Workspace) => {
+    setCreationStep(null)
+    setFullscreenOverlayOpen(false)
+    toast.success(t('toast.createdWorkspace', { name: workspace.name }))
+    onWorkspaceCreated?.(workspace)
+    onSelect(workspace.id)
+  }
+
+  const handleRemoveWorkspace = useCallback(async (workspace: Workspace) => {
+    if (workspace.id === activeWorkspaceId) {
+      toast.error(t('toast.cannotRemoveActiveWorkspace'))
+      return
+    }
+    const removed = await window.electronAPI.removeWorkspace(workspace.id)
+    if (removed) {
+      toast.success(t('toast.removedWorkspace', { name: workspace.name }))
+      onWorkspaceRemoved?.()
+    }
+  }, [activeWorkspaceId, onWorkspaceRemoved, t])
+
+  const handleCloseCreationScreen = useCallback(() => {
+    setCreationStep(null)
+    setFullscreenOverlayOpen(false)
+  }, [setFullscreenOverlayOpen])
+
+  return (
+    <>
+      <AnimatePresence>
+        {creationStep && (
+          <WorkspaceCreationScreen
+            initialStep={creationStep}
+            onWorkspaceCreated={handleWorkspaceCreated}
+            onClose={handleCloseCreationScreen}
+          />
+        )}
+      </AnimatePresence>
+
+      <Drawer open={open} onOpenChange={setOpen}>
+        <DrawerTrigger asChild>
+          <button
+            type="button"
+            data-workspace-switcher="topbar"
+            className="titlebar-no-drag ml-1 h-9 flex-1 min-w-0 flex items-center justify-start gap-1 px-3 rounded-[8px] border border-foreground/6 text-sm text-foreground/55 hover:bg-foreground/5 hover:text-foreground transition-colors cursor-pointer data-[state=open]:bg-foreground/5 data-[state=open]:text-foreground"
+            aria-label={t('workspace.selectWorkspace')}
+          >
+            <WorkspaceAvatar
+              workspaceId={selectedWorkspace?.id}
+              workspaceName={selectedWorkspaceName}
+              src={selectedWorkspace ? workspaceIconMap.get(selectedWorkspace.id) : undefined}
+              className="h-5 w-5 mr-1.5 rounded-full ring-1 ring-border/50"
+              fallbackClassName="rounded-full text-[11px]"
+            />
+            <span className="truncate min-w-0 flex-1 text-left">{selectedWorkspaceName || 'Workspace'}</span>
+            <ChevronDown data-slot="chevron" className="h-3 w-3 opacity-60 shrink-0" />
+            {hasUnreadInOtherWorkspaces && <span className="h-2 w-2 rounded-full bg-accent shrink-0" />}
+          </button>
+        </DrawerTrigger>
+
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>{t('workspace.selectWorkspace')}</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="px-2 pb-2 flex flex-col gap-0.5 max-h-[60vh] overflow-y-auto">
+            {projectWorkspaces.map((workspace) => {
+                const isActive = activeWorkspaceId === workspace.id
+              const handleSelect = () => {
+                onSelect(workspace.id)
+                setOpen(false)
+              }
+              return (
+                <div
+                  key={workspace.id}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-3 rounded-[10px] transition-colors",
+                    isActive ? "bg-foreground/5" : "hover:bg-foreground/5",
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={handleSelect}
+                    className="flex-1 min-w-0 flex items-center gap-3 text-left outline-none"
+                  >
+                    <WorkspaceAvatar
+                      workspaceId={workspace.id}
+                      workspaceName={workspace.name}
+                      src={workspaceIconMap.get(workspace.id)}
+                      className="h-7 w-7 rounded-full ring-1 ring-border/50 shrink-0"
+                      fallbackClassName="rounded-full text-sm"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate text-sm font-medium">{workspace.name}</span>
+                        {workspaceUnreadMap?.[workspace.id] && <span className="h-2 w-2 rounded-full bg-accent shrink-0" />}
+                      </div>
+                    </div>
+                  </button>
+                  {!isActive && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveWorkspace(workspace)}
+                      className="shrink-0 h-9 w-9 rounded-[8px] flex items-center justify-center text-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      aria-label={t("workspace.removeWorkspace")}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                  {!isActive && (
+                    <button
+                      type="button"
+                      onClick={() => { onSelect(workspace.id, true); setOpen(false) }}
+                      className="shrink-0 h-9 w-9 rounded-[8px] flex items-center justify-center text-foreground/50 hover:text-foreground hover:bg-foreground/10 transition-colors"
+                      aria-label={t("sidebarMenu.openInNewWindow")}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </button>
+                  )}
+                  {isActive && (
+                    <Check className="h-4 w-4 shrink-0 text-foreground/60 mr-2" />
+                  )}
+                </div>
+              )
+            })}
+
+            <DrawerClose asChild>
+              <button
+                type="button"
+                onClick={handleNewWorkspace}
+                className="mt-1 flex items-center gap-3 px-3 py-3 rounded-[10px] hover:bg-foreground/5 transition-colors text-left"
+              >
+                <div className="h-7 w-7 rounded-full bg-foreground/5 flex items-center justify-center shrink-0">
+                  <FolderPlus className="h-4 w-4 text-foreground/60" />
+                </div>
+                <span className="text-sm font-medium">{t("workspace.createNew")}</span>
+              </button>
+            </DrawerClose>
+            <DrawerClose asChild>
+              <button
+                type="button"
+                onClick={handleOpenFolder}
+                className="flex items-center gap-3 px-3 py-3 rounded-[10px] hover:bg-foreground/5 transition-colors text-left"
+              >
+                <div className="h-7 w-7 rounded-full bg-foreground/5 flex items-center justify-center shrink-0">
+                  <FolderOpen className="h-4 w-4 text-foreground/60" />
+                </div>
+                <span className="text-sm font-medium">{t("workspace.openFolder")}</span>
+              </button>
+            </DrawerClose>
+            {defaultWorkspace && (
+              <button
+                type="button"
+                onClick={() => { onSelect(defaultWorkspace.id); setOpen(false) }}
+                className={cn(
+                  "mt-1 flex items-center gap-3 border-t border-border/50 px-3 py-3 text-left transition-colors hover:bg-foreground/5",
+                  activeWorkspaceId === defaultWorkspace.id && "bg-foreground/5",
+                )}
+              >
+                <WorkspaceAvatar
+                  workspaceId={defaultWorkspace.id}
+                  workspaceName={t('workspace.noWorkspace')}
+                  src={workspaceIconMap.get(defaultWorkspace.id)}
+                  className="h-7 w-7 rounded-full ring-1 ring-border/50"
+                  fallbackClassName="rounded-full text-sm"
+                />
+                <span className="flex-1 truncate text-sm font-medium">{t('workspace.noWorkspace')}</span>
+                {activeWorkspaceId === defaultWorkspace.id && <Check className="h-4 w-4 text-foreground/60" />}
+              </button>
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </>
+  )
+}

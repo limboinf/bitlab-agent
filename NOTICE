@@ -1,0 +1,50 @@
+Bitlab
+Copyright 2026 Bitlab contributors
+
+This product includes software developed by Bitlab contributors.
+https://github.com/limboinf/bitlab-agent
+
+------------------------------------------------------------------------------
+Derived work notice
+------------------------------------------------------------------------------
+
+Bitlab is a derivative work of Craft Agents OSS, taken at tag v0.11.2
+(commit a60ebc1a5a7cb0a6af7a77d5eed0512c5fc07658) and continued with an
+independent Git history and product boundary. The following notice is
+retained from the upstream project in accordance with Section 4(d) of the
+Apache License, Version 2.0:
+
+    Craft Agents
+    Copyright 2026 Craft Docs Ltd.
+
+    This product includes software developed by Craft Docs Ltd.
+    https://craft.do
+
+Bitlab is not affiliated with, sponsored by, or endorsed by Craft Docs Ltd.
+The Craft name and logo are trademarks of their respective owner and are used
+here only to identify the origin of the derived source code, as permitted by
+Section 6 of the Apache License, Version 2.0.
+
+The upstream notice also referenced the Claude Agent SDK and Anthropic's
+Commercial Terms of Service. That notice is intentionally not reproduced as a
+condition of this distribution: Bitlab removes the Claude Agent SDK backend and
+does not bundle, link, or redistribute any part of it. See
+docs/comparison-with-craft.md for the full list of removed components.
+
+------------------------------------------------------------------------------
+Bundled third-party components
+------------------------------------------------------------------------------
+
+Bitlab distributes the following third-party components inside its installers.
+Each remains subject to its own license:
+
+    Electron                    MIT             https://github.com/electron/electron
+    Bun (runtime binary)        MIT             https://github.com/oven-sh/bun
+    uv (per-platform binary)    MIT OR Apache-2.0
+                                                https://github.com/astral-sh/uv
+    ripgrep (@vscode/ripgrep)   MIT             https://github.com/BurntSushi/ripgrep
+    Pi agent runtime            see package     https://github.com/badlogic/pi-mono
+    (@earendil-works/pi-ai, @earendil-works/pi-coding-agent)
+
+Remaining third-party dependencies are declared in the package.json files of
+this repository and are subject to their respective licenses.

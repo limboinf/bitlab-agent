@@ -1,0 +1,18 @@
+version: 2
+
+# Only GitHub Actions is automated here. Bitlab installs with
+# `bun install --frozen-lockfile`, and a dependency bump that edits package.json
+# without regenerating bun.lock fails every job in the matrix. Runtime dependency
+# updates stay manual: bump, run `bun install`, then `bun run validate:ci`.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns:
+          - "*"

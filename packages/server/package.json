@@ -1,0 +1,35 @@
+{
+  "name": "@bitlab/server",
+  "version": "0.1.0",
+  "description": "Standalone headless Bitlab server (Bun runtime)",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "bitlab-server": "src/index.ts"
+  },
+  "files": [
+    "src/"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "author": {
+    "name": "Bitlab contributors"
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "generate-token": "bun run src/index.ts --generate-token",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bitlab/core": "workspace:*",
+    "@bitlab/server-core": "workspace:*",
+    "@bitlab/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2",
+    "@types/node": "^22.0.0",
+    "ws": "^8.16.0"
+  }
+}

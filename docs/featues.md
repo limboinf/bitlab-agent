@@ -1,0 +1,49 @@
+# Feature matrix
+
+This document records Bitlab's intentional product boundary relative to the upstream baseline. A side-by-side technical comparison with Craft Agents, including installer sizes, lives in [`comparison-with-craft.md`](./comparison-with-craft.md).
+
+## Retained
+
+- Electron Desktop, WebUI, CLI, headless server, shared renderer, and WebSocket RPC
+- Pi agent backend, API-key model connections, and ChatGPT Plus / Claude Pro/Max subscriptions
+- Custom OpenAI-compatible and Anthropic-compatible endpoints, plus Ollama
+- Local multi-workspace support and the `default` workspace
+- Sessions (create, continue, cancel, resume, search, rename, delete, flag, archive, unread, import/export, branch, multi-window)
+- Skills, mini chat, plans, annotations, follow-ups
+- Browser pane + `web_search` + `web_fetch`
+- Attachments and document tools
+- Permissions (safe / allow-all), network proxy, themes, English and Simplified Chinese
+- Auto-update integration
+
+## Removed
+
+- Claude Agent SDK backend
+- GitHub Copilot and all OAuth beyond the two retained LLM subscriptions
+- External messaging channels and workers
+- Product automations and schedulers
+- Session labels and user-defined statuses
+- Projects and Kanban
+- Sources (API Source, MCP Source) and MCP servers
+- Viewer app, public sharing, and remote workspaces
+- Image generation (`gen_image`)
+
+## Reference policy
+
+Retained modules follow the upstream directory layout, public names, coding style, and tests. The product name is Bitlab. Runtime identifiers still use the existing lineage (`@bitlab/*`, `~/.bitlab`, `BITLAB_*`, `bitlab://`, `app.bitlab.desktop`). Reference repositories are read-only.
+
+## Numerical anchors
+
+| Metric | Bitlab | Notes |
+|---|---:|---|
+| Tracked source TS/TSX LOC | 190,558 | excludes `node_modules`, `dist`, `release`, `.git` |
+| Source files audited against Craft | 1,163 | see [`comparison-with-craft.md`](./comparison-with-craft.md#1-repository--source-line-count) |
+| Same-path rate | 96 % | byte-equal after normalization for 59 % |
+| Top-level `dependencies` | 55 | drops 6 backend/OAuth/MCP/Copilot packages |
+| License | Apache-2.0 | notice in `NOTICE` |
+
+## Verifying the boundary
+
+The automated source-lineage audit was removed during the Bitlab rename. The
+figures above are a point-in-time snapshot against the pinned Craft baseline; to
+re-check the boundary, diff against the baseline commit by hand as described in
+[`upstream-sync.md`](./upstream-sync.md).

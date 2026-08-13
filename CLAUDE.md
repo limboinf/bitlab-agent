@@ -1,0 +1,21 @@
+## Design Context
+
+### Users
+
+Bitlab 面向需要在本机持续运行 AI 工作流的开发者与技术型用户。他们通过 Desktop、WebUI 或 CLI 管理本地 Workspace、多个 Session、模型连接、权限审批、Browser 与文档工具。核心任务是快速判断“当前在哪个上下文工作、Agent 正在做什么、哪里需要我处理”，并在不失去历史和执行状态的前提下继续工作。
+
+### Brand Personality
+
+克制、可信、工具感。界面应像成熟的本地生产力工具：信息密度适中，状态清晰，操作有反馈，但不炫技、不堆装饰，也不靠通用 AI 渐变营造所谓科技感。
+
+### Aesthetic Direction
+
+保留 Bitlab 现有 Craft 系视觉语言、主题系统、色彩、阴影、圆角、字体和交互动效。布局可以借鉴 Codex Desktop 的信息架构，但不进行像素级复刻，不引入另一套设计 token。Desktop 与 WebUI 均支持明暗主题；优先使用现有组件和语义变量。
+
+### Design Principles
+
+1. Chat 是默认主画布，导航和工具面板不能长期挤占其核心空间。
+2. Workspace 承担长期上下文边界，Session 承担一次明确成果；列表优先表达选择和运行状态。
+3. 低频工具渐进披露，Browser、Changes、Files、Terminal 不默认全部常驻。
+4. 先复用现有组件、路由、状态和主题，再考虑增加新的布局抽象。
+5. 响应式布局按使用场景重新组织内容，避免只缩窄桌面栏位或隐藏关键能力。
