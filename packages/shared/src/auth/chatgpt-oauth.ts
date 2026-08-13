@@ -21,6 +21,25 @@ const TOKEN_URL = CHATGPT_OAUTH_CONFIG.TOKEN_URL;
 const REDIRECT_URI = CHATGPT_OAUTH_CONFIG.REDIRECT_URI;
 const OAUTH_SCOPES = CHATGPT_OAUTH_CONFIG.SCOPES;
 
+/**
+ * Token endpoint timeout. Without it a stalled connection hangs the caller
+ * (and the UI waiting on it) until the RPC layer gives up with a generic error.
+ */
+const TOKEN_REQUEST_TIMEOUT_MS = 20_000;
+
+/** POST to the token endpoint with a bounded timeout. */
+function postToTokenEndpoint(params: URLSearchParams): Promise<Response> {
+  return fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    },
+    body: params.toString(),
+    signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+  });
+}
+
 export interface ChatGptTokens {
   /** JWT id_token containing user identity claims */
   idToken: string;
@@ -105,14 +124,7 @@ export async function exchangeChatGptTokens(
     code_verifier: codeVerifier,
   });
 
-  const response = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-    },
-    body: params.toString(),
-  });
+  const response = await postToTokenEndpoint(params);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -161,14 +173,7 @@ export async function refreshChatGptTokens(
   });
 
   try {
-    const response = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json',
-      },
-      body: params.toString(),
-    });
+    const response = await postToTokenEndpoint(params);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -224,14 +229,7 @@ export async function exchangeIdTokenForApiKey(idToken: string): Promise<string>
     requested_token: 'openai-api-key',
   });
 
-  const response = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-    },
-    body: params.toString(),
-  });
+  const response = await postToTokenEndpoint(params);
 
   if (!response.ok) {
     const errorText = await response.text();
