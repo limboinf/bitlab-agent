@@ -1,30 +1,32 @@
 # Releases, updates, and telemetry
 
-Tagged releases in the open-source repository build macOS DMG/ZIP, Windows NSIS, Linux AppImage, and the headless server for each platform. Source code and downloadable artifacts live together in [limboinf/bitlab-agent](https://github.com/limboinf/bitlab-agent/releases/latest). Signing credentials are optional: a zero-secret release produces ad-hoc-signed macOS packages and unsigned Windows installers, while complete platform credentials automatically enable Apple Developer ID signing/notarization or Windows Authenticode. The workflow publishes with the repository-scoped GitHub Actions token.
+Release candidates in the open-source repository build macOS DMG/ZIP, Windows NSIS, Linux AppImage, and the headless server for each platform; a matching annotated tag promotes those exact verified assets. Source code and downloadable artifacts live together in [limboinf/bitlab-agent](https://github.com/limboinf/bitlab-agent/releases/latest). Signing credentials are optional: a zero-secret candidate produces ad-hoc-signed macOS packages and unsigned Windows installers, while complete platform credentials automatically enable Apple Developer ID signing/notarization or Windows Authenticode.
 
 ## Release pipeline
 
 ```text
-  main ──▶ release:prepare ──▶ reviewed version commit ──▶ annotated v* tag
-                                                          │
-                                                          ▼
-                                              validation + multi-platform builds
-                                                       │
-                                                       ▼
-                         sign when complete credentials are available
-                  otherwise ad-hoc sign macOS and package Windows unsigned
-                                                       │
-                                                       ▼
-                  upload installers + manifests + blockmaps + checksums
-                          to limboinf/bitlab-agent GitHub Releases
-                                                       │
-                                                       ▼
-                         electron-updater reads the same repository
+  main ──▶ release:prepare ──▶ reviewed version commit
+                                      │
+                                      ▼
+                        manual Release candidate run
+                   ┌──────────────────┴──────────────────┐
+                   ▼                                     ▼
+          validation and tests                 four platform builds
+                                               + signing/notarization
+                   └──────────────────┬──────────────────┘
+                                      ▼
+                    checksummed candidate bound to commit SHA
+                                      │
+                                      ▼
+                         annotated v* tag on the same commit
+                                      │
+                                      ▼
+                    verify provenance and publish without rebuilding
 ```
 
 Installers, manifest files (for example `latest-mac.yml`, `latest.yml`, and `latest-linux.yml`), blockmaps, checksums, and release notes live in the main repository's GitHub Releases rather than being committed to Git. A separate release-only repository is no longer used.
 
-Pull requests and pushes to `main` run the unsigned packaging matrix for macOS arm64, Windows x64, and Linux x64. Those validation packages and matching headless-server archives are retained as GitHub Actions artifacts for 7 days. Only a reviewed `v*` tag promotes the verified asset matrix to a durable GitHub Release; signing is upgraded automatically when the complete credentials for a platform are configured.
+Pull requests and pushes to `main` run the unsigned packaging matrix for macOS arm64, Windows x64, and Linux x64. Those validation packages and matching headless-server archives are retained as GitHub Actions artifacts for 7 days. A manual Release workflow run builds the complete release candidate once, applying the configured signing policy, and retains it for 30 days. Only a reviewed `v*` tag on that exact candidate commit promotes the verified asset matrix to a durable GitHub Release; the tag workflow verifies provenance and checksums instead of rebuilding every platform.
 
 ## Version and changelog policy
 
@@ -39,32 +41,40 @@ bun run release:check v0.2.0
 git diff --check
 git add CHANGELOG.md package.json bun.lock apps/*/package.json packages/*/package.json
 git commit -m "chore(release): prepare v0.2.0"
-git tag -a v0.2.0 -m "Bitlab v0.2.0"
-git push origin main v0.2.0
+git push origin main
 ```
 
-`release:prepare` updates every workspace package version, refreshes `bun.lock`, and moves the Unreleased changelog entries into a dated version section. The tag workflow independently rejects missing or inconsistent metadata.
+`release:prepare` updates every workspace package version, refreshes `bun.lock`, and moves the Unreleased changelog entries into a dated version section. After pushing the reviewed commit, run **Actions** → **Release** → **Run workflow** with `v0.2.0`. Once that candidate succeeds, tag the same commit:
+
+```bash
+git tag -a v0.2.0 -m "Bitlab v0.2.0"
+git push origin v0.2.0
+```
+
+The tag workflow independently rejects missing or inconsistent metadata, a candidate from another commit or workflow run, expired assets, and any checksum mismatch.
 
 ### The first release
 
-`release:prepare` requires the new version to be strictly greater than the one in `package.json`. Every manifest already reads `0.1.0`, so preparing `0.1.0` is rejected by design — there is nothing to bump. Cut the first release by hand instead:
+`release:prepare` requires the new version to be strictly greater than the one in `package.json`. Every manifest already reads `0.1.0`, so preparing `0.1.0` is rejected by design — there is nothing to bump. For the first release, verify and push the existing version commit, build its candidate, then tag that same commit:
 
 ```bash
 # CHANGELOG.md already carries a dated [0.1.0] section.
 bun run release:check v0.1.0
+git push origin main
+# Run Actions → Release with tag v0.1.0 and wait for the candidate to succeed.
 git tag -a v0.1.0 -m "Bitlab v0.1.0"
-git push origin main v0.1.0
+git push origin v0.1.0
 ```
 
 Every release after that goes through `release:prepare`.
 
-### Rehearsing the pipeline
+### Building and promoting a release candidate
 
-The tag trigger is one-way: a `v*` push builds four platforms and publishes. Because `release.ts` rejects pre-release versions, `v0.1.0-rc.1` is not an option for a trial run. Use the manual trigger instead — **Actions** → **Release** → **Run workflow** — with the version tag and `dry_run` left checked.
+The expensive work happens once, before the tag exists. Use **Actions** → **Release** → **Run workflow** and enter the intended stable tag. The workflow performs the lightweight version preflight first, then runs validation and the four-platform build matrix in parallel. Complete platform credentials enable signing automatically; macOS signing and notarization remain part of the candidate build.
 
-A dry run executes everything except publication: verification, the four-platform build matrix, signature checks, headless server bundles, asset collection with the complete required-file matrix, `latest-mac.yml` merging, the changelog extraction, and `SHA256SUMS`. Instead of creating a Release it writes the checksums to the job summary and uploads the collected assets as a `dry-run-<tag>` artifact for 7 days. Nothing is published, and the tag does not have to exist yet.
+The collected candidate contains installers, headless-server bundles, manifests, signing status, `SHA256SUMS`, and `BUILD_PROVENANCE.json`. It is named with the intended tag and full commit SHA and retained for 30 days. No Release is published yet.
 
-Rehearse before the first release, and after any change to the build matrix, the asset naming, or `collect-release-assets.ts`.
+Push the annotated tag only after reviewing the successful candidate. The tag workflow locates the exact candidate by tag and SHA, verifies that it came from a successful manual run of this Release workflow, rechecks provenance and every checksum, and then publishes it as Latest. It does not rebuild. A tag without an exact unexpired candidate fails with instructions to build one; it never silently falls back to a different run.
 
 ## Installer matrix
 
@@ -109,7 +119,7 @@ The workflow works with no signing secrets. To enable trusted platform builds, c
 
 [code-signing.md](./code-signing.md) walks through creating a Developer ID Application certificate, exporting it, and encoding it for these secrets, plus what to do about Windows now that code-signing keys must live on hardware.
 
-Missing credential groups select the no-certificate mode: ad-hoc signing on macOS and unsigned Windows installers. Partially configured groups fail before builds start so a typo cannot silently downgrade an intended trusted release. Every Release records the resolved platform trust modes in its notes and `SIGNING_STATUS.txt`; that file is also covered by `SHA256SUMS`. The workflow uses its repository-scoped `GITHUB_TOKEN` with `contents: write` to create a draft release, uploads and verifies the complete asset matrix plus checksums, and only then publishes it as Latest. Re-running a failed workflow may update an existing draft, but it will not overwrite an already published release.
+Missing credential groups select the no-certificate mode: ad-hoc signing on macOS and unsigned Windows installers. Partially configured groups fail before builds start so a typo cannot silently downgrade an intended trusted release. Every Release records the resolved platform trust modes in its notes and `SIGNING_STATUS.txt`; that file is also covered by `SHA256SUMS`. The candidate workflow uses read-only repository permissions and signs only inside the protected `release` environment. The tag promotion job receives `actions: read` and `contents: write`, creates a draft release, uploads the exact verified candidate, and only then publishes it as Latest. Re-running a failed promotion may update an existing draft, but it will not overwrite an already published release.
 
 ## Pre-release checklist
 
@@ -126,4 +136,4 @@ bun run webui:build
 bun run server:build:subprocess
 ```
 
-Release is published only when all of the above pass on the tag commit. Before tagging, either configure each desired signing group completely or leave that entire group empty for a deliberate unsigned release.
+Run the Release candidate workflow on that exact commit after the checklist passes. Before building the candidate, either configure each desired signing group completely or leave that entire group empty for a deliberate unsigned release. Create the tag only after the candidate succeeds.

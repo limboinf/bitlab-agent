@@ -1,29 +1,31 @@
 # 发布、更新与遥测
 
-开源仓库中的版本 tag 会触发 macOS DMG/ZIP、Windows NSIS、Linux AppImage 与各平台 headless server 构建。源码与可下载产物统一放在 [limboinf/bitlab-agent](https://github.com/limboinf/bitlab-agent/releases/latest)。签名凭证是可选的：零 secret 会发布 ad-hoc 签名的 macOS 包和未签名 Windows 安装包；某个平台的完整凭证会自动启用 Apple Developer ID 签名与公证或 Windows Authenticode。workflow 使用仓库范围的 GitHub Actions token 发布。
+开源仓库中的 Release 候选会构建 macOS DMG/ZIP、Windows NSIS、Linux AppImage 与各平台 headless server；对应的 annotated tag 只负责晋升这批精确且已验证的产物。源码与可下载产物统一放在 [limboinf/bitlab-agent](https://github.com/limboinf/bitlab-agent/releases/latest)。签名凭证是可选的：零 secret 候选会生成 ad-hoc 签名的 macOS 包和未签名 Windows 安装包；某个平台的完整凭证会自动启用 Apple Developer ID 签名与公证或 Windows Authenticode。
 
 ## 发布流水线
 
 ```text
-  main ──▶ release:prepare ──▶ 审核版本提交 ──▶ 带注释的 v* tag
-                                                   │
-                                                   ▼
-                                          校验 + 多平台构建
-                                                       │
-                                                       ▼
-                 有完整凭证时可信签名，否则 macOS ad-hoc、Windows 未签名
-                                                       │
-                                                       ▼
-                  上传安装包 + manifest + blockmap + checksum
-                          到 limboinf/bitlab-agent GitHub Releases
-                                                       │
-                                                       ▼
-                              electron-updater 读取同一仓库
+  main ──▶ release:prepare ──▶ 审核版本提交
+                                      │
+                                      ▼
+                           手动运行 Release 候选构建
+                   ┌──────────────────┴──────────────────┐
+                   ▼                                     ▼
+                校验与测试                      四平台构建 + 签名/公证
+                   └──────────────────┬──────────────────┘
+                                      ▼
+                       与 commit SHA 绑定并带 checksum 的候选包
+                                      │
+                                      ▼
+                           在同一提交创建带注释的 v* tag
+                                      │
+                                      ▼
+                        校验 provenance 后直接发布，不再重建
 ```
 
 安装包、manifest（如 `latest-mac.yml`、`latest.yml`、`latest-linux.yml`）、blockmap、checksum 和版本说明统一放在主仓库的 GitHub Releases 中，不提交进 Git；不再使用单独的 release-only 仓库。
 
-Pull Request 和推送到 `main` 的提交会运行未签名打包矩阵，覆盖 macOS arm64、Windows x64 和 Linux x64。对应的验证安装包与 headless server 压缩包会作为 GitHub Actions artifacts 保留 7 天。只有经过审核的 `v*` tag 才会将完整且校验通过的产物矩阵长期发布到 GitHub Release；配置某个平台的完整凭证后会自动升级为签名构建。
+Pull Request 和推送到 `main` 的提交会运行未签名打包矩阵，覆盖 macOS arm64、Windows x64 和 Linux x64。对应的验证安装包与 headless server 压缩包会作为 GitHub Actions artifacts 保留 7 天。手动运行 Release workflow 会按当前签名策略只构建一次完整发布候选，并保留 30 天。只有位于候选精确提交上的 `v*` tag 才能把这批产物长期发布到 GitHub Release；tag workflow 会验证 provenance 与 checksum，不会重新构建四个平台。
 
 ## 版本与 Changelog 规范
 
@@ -38,32 +40,40 @@ bun run release:check v0.2.0
 git diff --check
 git add CHANGELOG.md package.json bun.lock apps/*/package.json packages/*/package.json
 git commit -m "chore(release): prepare v0.2.0"
-git tag -a v0.2.0 -m "Bitlab v0.2.0"
-git push origin main v0.2.0
+git push origin main
 ```
 
-`release:prepare` 会同步所有 workspace package 版本、刷新 `bun.lock`，并把 Unreleased 内容移入带日期的版本段。Tag workflow 会再次独立检查这些元数据是否一致。
+`release:prepare` 会同步所有 workspace package 版本、刷新 `bun.lock`，并把 Unreleased 内容移入带日期的版本段。推送审核后的提交后，在 **Actions** → **Release** → **Run workflow** 中填写 `v0.2.0`。候选构建全绿后，再给同一个提交打 tag：
+
+```bash
+git tag -a v0.2.0 -m "Bitlab v0.2.0"
+git push origin v0.2.0
+```
+
+Tag workflow 会拒绝版本元数据不一致、候选来自其他提交或 workflow run、Artifact 已过期，以及任何 checksum 不匹配的情况。
 
 ### 首次发布
 
-`release:prepare` 要求新版本必须严格大于 `package.json` 中的当前版本。所有 manifest 已经是 `0.1.0`，所以用它去 prepare `0.1.0` 会被设计性地拒绝——没有东西可以 bump。首个版本手工发：
+`release:prepare` 要求新版本必须严格大于 `package.json` 中的当前版本。所有 manifest 已经是 `0.1.0`，所以用它去 prepare `0.1.0` 会被设计性地拒绝——没有东西可以 bump。首发时先校验并推送现有版本提交，构建候选，再给同一个提交打 tag：
 
 ```bash
 # CHANGELOG.md 里已经有带日期的 [0.1.0] 段。
 bun run release:check v0.1.0
+git push origin main
+# 在 Actions → Release 中填写 v0.1.0，等待候选构建成功。
 git tag -a v0.1.0 -m "Bitlab v0.1.0"
-git push origin main v0.1.0
+git push origin v0.1.0
 ```
 
 从下一个版本起，一律走 `release:prepare`。
 
-### 彩排整条流水线
+### 构建并晋升发布候选
 
-Tag 触发是单向的：推一个 `v*` 就会构建四个平台并直接发布。而 `release.ts` 拒绝 pre-release 版本，所以 `v0.1.0-rc.1` 也不能用来试跑。改用手动触发——**Actions** → **Release** → **Run workflow**——填入版本 tag，保持 `dry_run` 勾选。
+耗时的工作只在打 tag 前执行一次。通过 **Actions** → **Release** → **Run workflow** 填入准备发布的稳定版本 tag。workflow 先做轻量版本检查，再并行执行完整校验与四平台构建矩阵。签名凭证完整时自动启用对应平台签名；macOS 签名与公证仍属于候选构建的一部分。
 
-dry run 会执行除发布之外的一切：校验、四平台构建矩阵、签名检查、headless server bundle、带完整必需文件矩阵的资产收集、`latest-mac.yml` 合并、changelog 抽取，以及 `SHA256SUMS`。它不创建 Release，而是把校验和写进 job summary，并把收集到的产物作为 `dry-run-<tag>` artifact 保留 7 天。什么都不会被发布，tag 甚至不需要提前存在。
+候选包含安装包、headless server bundle、manifest、签名状态、`SHA256SUMS` 与 `BUILD_PROVENANCE.json`。Artifact 名称同时包含目标 tag 和完整 commit SHA，保留 30 天；此时不会创建公开 Release。
 
-首次发布前先彩排一次；之后每当改动构建矩阵、产物命名或 `collect-release-assets.ts`，也都要再跑一次。
+审核候选成功结果后再推送 annotated tag。Tag workflow 会按 tag 与 SHA 查找精确候选，验证它来自这条 Release workflow 的成功手动运行，重新检查 provenance 和全部 checksum，然后将同一批产物发布为 Latest，不做重建。若没有精确且未过期的候选，tag job 会明确失败并提示先构建候选，绝不会偷偷选另一次运行的包。
 
 ## 安装包矩阵
 
@@ -108,7 +118,7 @@ workflow 在没有签名 secret 时也能工作。若要启用受信任的平台
 
 [code-signing.md](./code-signing.md) 完整讲了如何创建 Developer ID Application 证书、导出并编码成上面这些 secret，以及在代码签名私钥必须存放于硬件的今天，Windows 这边该怎么办。
 
-凭证组完全缺失时进入无证书模式：macOS 使用 ad-hoc 签名，Windows 生成未签名安装包。只配置一部分会在构建开始前失败，避免 secret 拼写错误导致原本计划可信签名的版本静默降级。每个 Release 都会在正文和 `SIGNING_STATUS.txt` 中记录最终的平台信任模式，该文件也纳入 `SHA256SUMS`。workflow 使用具有 `contents: write` 权限的仓库范围 `GITHUB_TOKEN` 创建 draft Release，上传并核对完整产物矩阵及 checksum，全部成功后才发布为 Latest。失败后可重跑并更新 draft，但不会覆盖已经发布的版本。
+凭证组完全缺失时进入无证书模式：macOS 使用 ad-hoc 签名，Windows 生成未签名安装包。只配置一部分会在构建开始前失败，避免 secret 拼写错误导致原本计划可信签名的版本静默降级。每个 Release 都会在正文和 `SIGNING_STATUS.txt` 中记录最终的平台信任模式，该文件也纳入 `SHA256SUMS`。候选 workflow 只使用仓库只读权限，签名仅在受保护的 `release` environment 中完成。Tag 晋升 job 才获得 `actions: read` 与 `contents: write`，创建 draft Release、上传精确候选，并在全部成功后发布为 Latest。晋升失败后可重跑并更新 draft，但不会覆盖已经发布的版本。
 
 ## 发布前 checklist
 
@@ -125,4 +135,4 @@ bun run webui:build
 bun run server:build:subprocess
 ```
 
-只有上面所有命令在 tag commit 上通过才能发布。创建 tag 前，应当把需要的平台签名凭证组配置完整；如果有意发布未签名版本，则保持该组全部为空。
+Checklist 通过后，在这个精确提交上运行 Release 候选 workflow。构建候选前，应当把需要的平台签名凭证组配置完整；如果有意发布未签名版本，则保持该组全部为空。候选成功后再创建 tag。
