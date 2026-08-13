@@ -115,7 +115,6 @@ const required = [
   "latest-mac.yml",
   "latest.yml",
   "latest-linux.yml",
-  "Bitlab-cli-bun.tar.gz",
 ];
 for (const name of required) {
   if (!existsSync(join(outputArg, name)))

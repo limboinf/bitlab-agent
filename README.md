@@ -5,7 +5,7 @@
 <h1 align="center">Bitlab</h1>
 
 <p align="center">
-  A local-first, Pi-powered AI agent workspace for Desktop, WebUI, and CLI.
+  A local-first, Pi-powered AI agent workspace for Desktop and WebUI.
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 </p>
 
 Bitlab is an open-source, local-first AI agent workspace for anyone who wants more control over
-their AI work. Download and use it through Desktop, WebUI, or CLI, or extend its open-source
+their AI work. Download and use it through Desktop or WebUI, or extend its open-source
 foundation to build your own desktop agent product. Powered by the
 [Pi](https://github.com/badlogic/pi-mono) agent runtime, it combines persistent local workspaces,
 model flexibility, browser tools, and document tools in one application.
@@ -36,7 +36,7 @@ operating system credential manager.
 - **Local-first workspaces** — keep sessions, files, settings, and workspace history on your machine.
 - **Flexible model connections** — use ChatGPT Plus, Claude Pro/Max, provider API keys,
   OpenAI-compatible or Anthropic-compatible endpoints, and local Ollama models.
-- **Desktop, WebUI, and CLI** — work through the Electron app, a browser-based renderer, or an RPC
+- **Desktop and WebUI** — work through the Electron app or a browser-based renderer backed by an RPC
   command-line client backed by the same runtime.
 - **Agent workflows** — create and branch sessions, build plans, use Skills, resume work, manage
   follow-ups, and run multiple windows.
@@ -57,7 +57,6 @@ Every release publishes installers for all three interfaces on the
 | Windows x64 | `Bitlab-<version>-x64.exe` | per-user install, no administrator rights required |
 | Linux x64 | `Bitlab-<version>-x86_64.AppImage` | `chmod +x` then run |
 | Headless server | `Bitlab-server-<version>-<platform>-<arch>.tar.gz` / `.zip` | serves the WebUI and the RPC API |
-| CLI | `Bitlab-cli-bun.tar.gz` | requires [Bun](https://bun.sh) on the machine |
 
 Every release also ships `SHA256SUMS`. Verify a download before running it:
 
@@ -97,7 +96,6 @@ Maintainers configuring signing should read [code-signing.md](./docs/code-signin
 | --- | --- | --- |
 | Desktop | Full local experience and browser pane | `bun run electron:dev` |
 | WebUI | Browser access to the headless server | `bun run server:prod` |
-| CLI | Scripting, remote control, and terminal workflows | `bun run apps/cli/src/index.ts --help` |
 
 ## Build from source
 
@@ -127,7 +125,6 @@ be isolated for development or testing with `BITLAB_CONFIG_DIR=/path/to/director
 | `bun run electron:dev` | Start the Electron development environment |
 | `bun run electron:start` | Build and launch Electron once |
 | `bun run server:prod` | Build and start the headless server with WebUI |
-| `bun run cli:build` | Build the CLI bundle |
 | `bun run test` | Run unit and isolated tests |
 | `bun run validate:ci` | Run the full type, test, document-tool, and localization gate |
 
@@ -165,9 +162,9 @@ The complete documentation is available in [English](./docs/README.md) and
 | --- | --- |
 | Start here | [Development](./docs/development.md), [architecture](./docs/architecture.md), [testing](./docs/testing.md) |
 | Models | [Connections](./docs/connections.md), [Ollama](./docs/ollama.md) |
-| Work | [Workspaces](./docs/workspaces.md), [sessions](./docs/sessions.md), [Skills](./docs/skills.md) |
+| Work | [Sessions](./docs/sessions.md), [Skills](./docs/skills.md) |
 | Tools | [Browser](./docs/browser.md), [attachments](./docs/attachments.md), [document tools](./docs/document-tools.md) |
-| Runtime | [CLI](./docs/cli.md), [permissions](./docs/permissions.md), [network proxy](./docs/network-proxy.md) |
+| Runtime | [permissions](./docs/permissions.md), [network proxy](./docs/network-proxy.md) |
 | Project | [features](./docs/featues.md), [releases](./docs/releases.md), [code signing](./docs/code-signing.md), [upstream synchronization](./docs/upstream-sync.md) |
 | Contributing | [CONTRIBUTING.md](./CONTRIBUTING.md), [SECURITY.md](./SECURITY.md), [CHANGELOG.md](./CHANGELOG.md) |
 

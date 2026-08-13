@@ -48,7 +48,6 @@ Reference checkouts (`../craft-agents-oss`, `../echo`, `../xagent`) stay read-on
   │    bun run test                                                    │
   │    bun run electron:build                                         │
   │    bun run webui:build                                            │
-  │    bun run cli:build                                              │
   │    bun run server:build:subprocess                                │
   │                                                                  │
   │ 6. GUI smoke against a fresh config dir                           │

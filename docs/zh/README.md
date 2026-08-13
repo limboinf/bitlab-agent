@@ -1,6 +1,6 @@
 # Bitlab 文档（中文）
 
-本目录是 Bitlab 用户文档的中文译本，与 [`docs/`](../) 下的英文文档一一对应。Bitlab 是基于 [Craft Agents OSS](https://github.com/craft-ai-agents/craft-agents-oss) `v0.11.2` 派生的跨平台、本地优先 AI Agent 工作区。当前运行时只有 Pi：`@earendil-works/pi-coding-agent` 在独立 Bun 子进程中运行，Electron、WebUI、CLI 与 headless server 共用同一套 RPC 合约。Bitlab 支持 API key、OpenAI/Anthropic 兼容端点、Ollama，以及保留的 ChatGPT Plus / Claude Pro/Max 订阅流程。不包含 Claude Agent SDK、GitHub Copilot、外部消息、产品 Automations、Projects/Kanban、Sources/MCP、Viewer/公开分享或图片生成。
+本目录是 Bitlab 用户文档的中文译本，与 [`docs/`](../) 下的英文文档一一对应。Bitlab 是基于 [Craft Agents OSS](https://github.com/craft-ai-agents/craft-agents-oss) `v0.11.2` 派生的跨平台、本地优先 AI Agent 工作区。当前运行时只有 Pi：`@earendil-works/pi-coding-agent` 在独立 Bun 子进程中运行，Electron、WebUI 与 headless server 共用同一套 RPC 合约。Bitlab 支持 API key、OpenAI/Anthropic 兼容端点、Ollama，以及保留的 ChatGPT Plus / Claude Pro/Max 订阅流程。不包含 Claude Agent SDK、GitHub Copilot、外部消息、产品 Automations、Projects/Kanban、Sources/MCP、Viewer/公开分享或图片生成。
 
 ## 文档导航
 
@@ -9,7 +9,6 @@
 | 整体架构 | [architecture.md](./architecture.md) |
 | 附件 | [attachments.md](./attachments.md) |
 | Browser 面板 | [browser.md](./browser.md) |
-| 命令行 | [cli.md](./cli.md) |
 | 连接与模型 | [connections.md](./connections.md) |
 | 代码签名与公证 | [code-signing.md](./code-signing.md) |
 | 与 Craft Agents 的当前差异对比（含安装包体积） | [comparison-with-craft.md](./comparison-with-craft.md) |

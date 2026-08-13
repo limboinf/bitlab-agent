@@ -30,13 +30,10 @@ This means:
 ```bash
 # Sanity check from the shell
 curl http://127.0.0.1:11434/v1/models
-
-# Verify via Bitlab CLI
-bun run apps/cli/src/index.ts connections list
-bun run apps/cli/src/index.ts connections test <id>
-bun run apps/cli/src/index.ts run "Hello" \
-  --provider ollama --base-url http://127.0.0.1:11434/v1 --model llama3.2
 ```
+
+Then open Settings → Connections in Desktop or WebUI, add the Ollama connection,
+and use "Test" to confirm the endpoint answers before starting a session.
 
 ## Permissions
 

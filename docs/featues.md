@@ -4,7 +4,7 @@ This document records Bitlab's intentional product boundary relative to the upst
 
 ## Retained
 
-- Electron Desktop, WebUI, CLI, headless server, shared renderer, and WebSocket RPC
+- Electron Desktop, WebUI, headless server, shared renderer, and WebSocket RPC
 - Pi agent backend, API-key model connections, and ChatGPT Plus / Claude Pro/Max subscriptions
 - Custom OpenAI-compatible and Anthropic-compatible endpoints, plus Ollama
 - Local multi-workspace support and the `default` workspace

@@ -36,7 +36,6 @@ bun run electron:build
 ```bash
 bun run electron:build           # main + preload + renderer + resources + assets
 bun run webui:build              # vite build for the shared renderer
-bun run cli:build                # produces apps/cli/dist/bitlab
 bun run server:build:subprocess  # packages/pi-agent-server/dist/index.js
 bun run electron:dist:dev:mac    # macOS arm64 dev .app, ad-hoc signed
 ```

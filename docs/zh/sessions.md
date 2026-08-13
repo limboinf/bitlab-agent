@@ -1,6 +1,6 @@
 # 会话
 
-会话是追加写入的 JSONL 记录,Pi 恢复数据存在同一目录下。Desktop、WebUI、CLI 都读写同一份文件;不存在独立的客户端存储。
+会话是追加写入的 JSONL 记录,Pi 恢复数据存在同一目录下。Desktop 与 WebUI 读写同一份文件;不存在独立的客户端存储。
 
 ## 磁盘布局
 
@@ -80,4 +80,4 @@ Pi 子进程把自己的临时状态存在 `sessions/<id>/.pi-sessions/` 下。B
 
 ## 审计会话
 
-还没有 replayer 的 CLI 子命令;标准审计路径是 `bun run apps/cli/src/index.ts session messages <id>` 与 `session export <id>`。两条命令都保留事件顺序并对凭证字段脱敏。
+还没有 replayer 工具;标准审计路径是直接读取 `session.jsonl`,或从 Desktop / WebUI 导出会话。两者都保留事件顺序并对凭证字段脱敏。

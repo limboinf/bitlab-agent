@@ -28,7 +28,7 @@
 |---|---|---|
 | `apps/electron` | ✅（共享 renderer + preload + Browser 面板 + 自动更新） | ✅（同） |
 | `apps/webui` | ✅（通过浏览器 adapter 加载同一份 renderer） | ✅（同） |
-| `apps/cli` | ✅（`run`、`session`、`workspace`、`send` 等） | ✅（同命令面 + Sources/Automations 额外子命令，Bitlab **不**暴露） |
+| `apps/cli` | ❌（已删除） | ✅（`run`、`session`、`workspace`、`send` 等 + Sources/Automations 子命令） |
 | `apps/viewer` | ❌（已删除） | ✅（用于公开分享会话的独立 Electron Viewer） |
 | `packages/core` | ✅ | ✅ |
 | `packages/shared` | ✅（已移除 `messaging-gateway`、`interceptor-common`、`feature-flags`、`interceptor-request-utils`） | ✅（完整规模） |
@@ -200,7 +200,7 @@ Craft 注册的第二个 backend 是 `claude-agent-sdk`，自带的 Claude Code 
 | macOS `.app` 安装占用 | ~438 MB | ~907 MB |
 | NSIS `.exe`（Windows x64） | ~210 MB¹ | ~430 MB¹ |
 | Linux AppImage | ~200 MB¹ | ~420 MB¹ |
-| 纯 CLI 模式（无 Electron） | `bun run cli:build` → `dist/bitlab` 约 1 MB；Craft 同 | ~1 MB（CLI payload 本身一致） |
+| 纯 CLI 模式（无 Electron） | 不提供 | `dist/bitlab` 约 1 MB |
 | `uv` 缓存为空时首次调用文档工具 | 可能按需下载 Python 3.12 与脚本声明的依赖 | 相同 |
 
 ¹ **说明。** DMG / NSIS / AppImage 数字是从未打包 `.app` 大小以及 `electron-builder.yml` 的 `files` / `extraResources` 规则**推算**的，不是同窗口重建的实测值。两边的 release pipeline 都会下载或复制目标平台的 `uv`；Craft 还会引入约 217 MB 的 Claude SDK 二进制，Bitlab 跳过的是这部分 backend payload，而不是 `uv`。
@@ -209,7 +209,7 @@ Craft 注册的第二个 backend 是 `claude-agent-sdk`，自带的 Claude Code 
 
 | 范围 | Bitlab | Craft Agents |
 |---|---|---|
-| Electron Desktop + WebUI + headless server + CLI + 共享 renderer | ✅ | ✅ |
+| Electron Desktop + WebUI + headless server + 共享 renderer | ✅ | ✅（另有 CLI 客户端） |
 | Pi agent + Pi provider preset + API key 连接 | ✅ | ✅ |
 | 自定义 OpenAI-completions / Anthropic-messages 端点 + Ollama | ✅ | ✅ |
 | 本地多 workspace、默认 `default` slug、每窗口绑定 | ✅ | ✅ |

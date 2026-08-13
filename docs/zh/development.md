@@ -31,7 +31,7 @@ bun run validate:dev
 apps/
   electron/    # Electron desktop(main、preload、renderer、Browser 面板)
   webui/       # 通过浏览器 adapter 加载同一份 renderer
-  cli/         # RPC CLI(`run`、`session`、`workspace`、`send` 等)
+  website/     # 中英文静态产品官网（Astro）
 packages/
   core/                # 稳定 DTO、AgentEvent、错误码
   shared/              # 配置、凭证、提示词、Skills、theme、i18n
@@ -57,8 +57,9 @@ migration/             # 迁移计划、audit、UI 历史
 | 在 dev 模式运行 Electron(vite + electron) | `bun run electron:dev` |
 | 从已构建的 `apps/electron/dist/` 启动 Electron | `bun run electron:start` |
 | 启动带 WebUI dev bundle 的 headless server | `bun run server:dev:webui` |
+| 启动产品官网 | `bun run website:dev` |
+| 构建产品官网 | `bun run website:build` |
 | 生产 headless server(WebUI 已打包、Pi 已构建) | `bun run server:prod` |
-| 构建 CLI 二进制 | `bun run cli:build`(输出 `apps/cli/dist/bitlab`) |
 | 构建 Pi 子进程 | `bun run server:build:subprocess` |
 | 构建 macOS arm64 dev 签名的 .app | `bun run electron:dist:dev:mac` |
 | 跑全部 unit + isolated 测试 | `bun run test` |
@@ -96,9 +97,6 @@ BITLAB_CONFIG_DIR=/tmp/bitlab-dev bun run server:dev:webui
 | `BITLAB_PI_MODEL_API` | 不设置 | 给 interceptor 的 Pi 模型提示 |
 | `BITLAB_UV` / `BITLAB_BUN` / `BITLAB_NODE` | 不设置 | 覆盖脚本 runtime；打包 launcher 通常注入内置绝对路径，开发期才可回退到 PATH |
 | `BITLAB_DEV_RUNTIME` | 不设置 | 设为 `1` 在本地打包时跳过代码签名 |
-| `BITLAB_SERVER_URL` / `BITLAB_TLS_CA` | 不设置 | CLI 连接参数 |
-| `BITLAB_WORKSPACE` | `default` | CLI 的 workspace 覆盖 |
-| `LLM_API_KEY` / provider 环境变量 | 不设置 | CLI 自包含 `--run` 模式的 API 凭证 |
 
 ## 约定
 

@@ -36,7 +36,6 @@ bun run electron:build
 ```bash
 bun run electron:build           # main + preload + renderer + resources + assets
 bun run webui:build              # vite 构建共享 renderer
-bun run cli:build                # 输出 apps/cli/dist/bitlab
 bun run server:build:subprocess  # packages/pi-agent-server/dist/index.js(约 3,655 个模块)
 bun run electron:dist:dev:mac    # macOS arm64 dev .app,ad-hoc 签名
 ```

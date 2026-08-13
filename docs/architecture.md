@@ -6,14 +6,13 @@ Bitlab is a Bun monorepo with three clients sharing one authenticated WebSocket 
 
 ```text
 +-----------------------------------------------------------+
-| apps/electron       apps/webui         apps/cli           |
-|   Electron             Browser            RPC client       |
-|   (Browser pane,       adapter (loads    (connects to      |
-|   auto-update,         the same React    running server    |
-|   update, IPC)         app via header    or spawns a        |
-|        \                  handshake)      one-shot server)  |
-+---------|----------------|--------------------|-------------+
-          v                v                    v
+| apps/electron                    apps/webui               |
+|   Electron                         Browser adapter        |
+|   (Browser pane, auto-update,      (loads the same React  |
+|   update, IPC)                     app via header         |
+|        \                            handshake)            |
++---------|----------------------------------|--------------+
+          v                                  v
    Browser adapter  ──>  preload Client API  ──> RPC client
                           (window.Bitlab)         (rpc-client.ts)
                                                        |
@@ -56,14 +55,13 @@ All three clients operate the same workspace and JSONL sessions; there is no cli
 
 - `apps/electron` embeds the local server, exposes the Client API through preload, and owns windows, Browser panes, proxy integration, and auto-update.
 - `apps/webui` loads the same React application through a browser adapter. The headless server serves its static files and the authenticated attachment endpoint.
-- `apps/cli` uses the same RPC methods and can connect to an existing server or start a temporary local instance for `run`.
 
 ## Shared packages
 
 - `packages/server-core` owns transport, handlers, `SessionManager`, and platform-neutral services. Subpackages: `bootstrap/`, `domain/`, `handlers/`, `model-fetchers/`, `runtime/`, `services/`, `sessions/`, `transport/`, `utils/`, `webui/`.
 - `packages/shared` owns protocol DTOs (`@bitlab/shared/protocol`), config, credentials, Skills, prompts, the backend registry, workspace storage, and the Pi client.
 - `packages/pi-agent-server` runs `createAgentSession(...)` from `@earendil-works/pi-coding-agent` in a separate Bun subprocess (`packages/pi-agent-server/dist/index.js`) and communicates through JSONL. The same SDK boundary is used in development and packaged builds; `bun run server:build:subprocess` produces the bundle.
-- `packages/ui` and `packages/session-tools-core` provide shared rendering and session-level tools. They are platform-neutral: Electron, WebUI, and CLI reuse them.
+- `packages/ui` and `packages/session-tools-core` provide shared rendering and session-level tools. They are platform-neutral: Electron and WebUI reuse them.
 
 ## Backend registry
 
@@ -74,7 +72,7 @@ Only the `pi` backend is registered. Custom endpoints (`openai-completions`, `an
 1. The server binds on `BITLAB_RPC_HOST:BITLAB_RPC_PORT` (default `127.0.0.1:9100`).
 2. The bearer token is read from `BITLAB_SERVER_TOKEN` (Electron generates one automatically on launch; the headless server requires it to be passed in).
 3. The token is exchanged for a short-lived JWT used on every subsequent WebSocket frame (`@bitlab/server-core/webui`).
-4. WebUI and CLI additionally support `BITLAB_WEBUI_PASSWORD` (falls back to `BITLAB_SERVER_TOKEN`) and an optional `BITLAB_TLS_CA` for TLS pinning.
+4. WebUI additionally supports `BITLAB_WEBUI_PASSWORD` (falls back to `BITLAB_SERVER_TOKEN`) and an optional `BITLAB_TLS_CA` for TLS pinning.
 5. The handshake binds a workspace id; later RPC commands are scoped to that workspace and only see its sessions, Skills, permissions, and Views.
 
 ## Subprocess boundary
@@ -94,10 +92,9 @@ Abort, model switching, thinking-level change, permission responses, and session
 
 - Desktop app: macOS arm64 / x64 (DMG + ZIP), Windows x64 (NSIS), Linux x64 (AppImage). Build entry: `bun run electron:dist[:dev][:mac|:win|:linux]`.
 - Headless server: per-platform compiled Bun archive; build with `bun run scripts/build-server.ts`.
-- CLI: `bun run cli:build` produces `dist/bitlab`.
 - Pi subprocess: `bun run server:build:subprocess` produces `packages/pi-agent-server/dist/index.js`.
 
-The main `limboinf/bitlab-agent` repository publishes DMG/ZIP/NSIS/AppImage assets, headless-server archives, a Bun CLI archive, manifests, blockmaps, checksums, and release notes in GitHub Releases. `electron-updater` reads the public manifests and never embeds a GitHub token in the client.
+The main `limboinf/bitlab-agent` repository publishes DMG/ZIP/NSIS/AppImage assets, headless-server archives, manifests, blockmaps, checksums, and release notes in GitHub Releases. `electron-updater` reads the public manifests and never embeds a GitHub token in the client.
 
 ## What is intentionally absent
 

@@ -1,6 +1,6 @@
 # Releases, updates, and telemetry
 
-Tagged releases in the open-source repository build macOS DMG/ZIP, Windows NSIS, Linux AppImage, the headless server for each platform, and the Bun-based CLI bundle. Source code and downloadable artifacts live together in [limboinf/bitlab-agent](https://github.com/limboinf/bitlab-agent/releases/latest). Signing credentials are optional: a zero-secret release produces ad-hoc-signed macOS packages and unsigned Windows installers, while complete platform credentials automatically enable Apple Developer ID signing/notarization or Windows Authenticode. The workflow publishes with the repository-scoped GitHub Actions token.
+Tagged releases in the open-source repository build macOS DMG/ZIP, Windows NSIS, Linux AppImage, and the headless server for each platform. Source code and downloadable artifacts live together in [limboinf/bitlab-agent](https://github.com/limboinf/bitlab-agent/releases/latest). Signing credentials are optional: a zero-secret release produces ad-hoc-signed macOS packages and unsigned Windows installers, while complete platform credentials automatically enable Apple Developer ID signing/notarization or Windows Authenticode. The workflow publishes with the repository-scoped GitHub Actions token.
 
 ## Release pipeline
 
@@ -62,7 +62,7 @@ Every release after that goes through `release:prepare`.
 
 The tag trigger is one-way: a `v*` push builds four platforms and publishes. Because `release.ts` rejects pre-release versions, `v0.1.0-rc.1` is not an option for a trial run. Use the manual trigger instead — **Actions** → **Release** → **Run workflow** — with the version tag and `dry_run` left checked.
 
-A dry run executes everything except publication: verification, the four-platform build matrix, signature checks, headless server and CLI bundles, asset collection with the complete required-file matrix, `latest-mac.yml` merging, the changelog extraction, and `SHA256SUMS`. Instead of creating a Release it writes the checksums to the job summary and uploads the collected assets as a `dry-run-<tag>` artifact for 7 days. Nothing is published, and the tag does not have to exist yet.
+A dry run executes everything except publication: verification, the four-platform build matrix, signature checks, headless server bundles, asset collection with the complete required-file matrix, `latest-mac.yml` merging, the changelog extraction, and `SHA256SUMS`. Instead of creating a Release it writes the checksums to the job summary and uploads the collected assets as a `dry-run-<tag>` artifact for 7 days. Nothing is published, and the tag does not have to exist yet.
 
 Rehearse before the first release, and after any change to the build matrix, the asset naming, or `collect-release-assets.ts`.
 
@@ -74,8 +74,7 @@ Rehearse before the first release, and after any change to the build matrix, the
 | macOS x64                  | DMG + ZIP                | `Bitlab-0.1.0-x64.{dmg,zip}`      | same                                    | for Intel Macs                                                                         |
 | Windows x64                | NSIS                     | `Bitlab-0.1.0-x64.exe`            | unsigned or Authenticode                | unsigned builds may trigger SmartScreen; per-user install under `%LOCALAPPDATA%\Programs\` |
 | Linux x64                  | AppImage                 | `Bitlab-0.1.0-x86_64.AppImage`    | none                                  | electron-builder renders `x64` as `x86_64` for AppImage; desktop category: Utility     |
-| Headless server (per-arch) | `bun build --compile`    | `bitlab-server-<platform>-<arch>` | none                                  | consumed by WebUI and external CLI users                                               |
-| CLI                        | `bun build --target=bun` | `Bitlab-cli-bun.tar.gz`           | none                                  | JavaScript bundle; requires Bun on the user's machine                                  |
+| Headless server (per-arch) | `bun build --compile`    | `bitlab-server-<platform>-<arch>` | none                                  | consumed by WebUI and external RPC clients                                            |
 
 `bun run electron:dist:dev:mac` produces a local ad-hoc-signed build and disables automatic updates. Release jobs also set `CSC_IDENTITY_AUTO_DISCOVERY=false`, `mac.identity=-`, and `hardenedRuntime=false` explicitly when Apple credentials are absent. Ad-hoc signing satisfies Apple Silicon code-integrity requirements but does not establish a trusted developer identity, so Gatekeeper warnings remain.
 
@@ -124,7 +123,6 @@ bun run typecheck:all
 bun run test
 bun run electron:build
 bun run webui:build
-bun run cli:build
 bun run server:build:subprocess
 ```
 

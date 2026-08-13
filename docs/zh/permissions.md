@@ -23,7 +23,7 @@ workspace 的设置控制默认 mode 与可循环列表(`cyclablePermissionModes
        ┌──────────────────┬───────┴────────┬────────────────────────┐
        ▼                  ▼                ▼                        ▼
    policy table    workspace overrides   user prompt     tool-specific check
-   (默认)          (workspaces/<slug>/   (headless/cli    (BrowserPaneManager、
+   (默认)          (workspaces/<slug>/   (headless          (BrowserPaneManager、
                     permissions/)         server)         document-tool 包装器)
                                   │
                                   ▼
@@ -56,16 +56,12 @@ Source、MCP 与 Source OAuth 允许名单不会被加载——对应 schema 字
 
 `~/.bitlab/workspaces/<slug>/permissions/` 下放覆盖文件,优先级高于内置策略。覆盖改动只对新工具调用生效;飞行中的 turn 仍使用 turn 开始时的策略。
 
-## CLI 覆盖
-
-`bitlab run --mode <mode>` 为临时会话设定初始 mode。`send` 与实时 CLI 默认继承 workspace 默认 mode,除非显式传入 `--mode`。
-
 ## 审计权限决策
 
-权限询问与授予都是会话 JSONL 的一部分。审计:
+权限询问与授予都是会话 JSONL 的一部分。审计时直接读取该会话的 transcript:
 
 ```bash
-bun run apps/cli/src/index.ts session messages <id> | grep -E 'permission_'
+grep -E 'permission_' ~/.bitlab/workspaces/<slug>/sessions/<id>/session.jsonl
 ```
 
 renderer 还在会话详情页提供专用的 "Permissions" 时间线。

@@ -11,7 +11,6 @@ Desktop 支持文件选择、粘贴、拖放、持久化与恢复。WebUI 上传
 | 拖放 | 把 Finder/Explorer/Nautilus 中的文件拖到聊天界面 |
 | 持久化 | session resume 时从 `sessions/<id>/attachments/` 恢复 |
 | WebUI 上传 | `POST /api/attachments` on the headless server |
-| CLI | `send <session-id> --attachment <path>` |
 
 所有路径最终都汇聚到 `@bitlab/shared/agent/attachments` 的同一份附件校验器。
 

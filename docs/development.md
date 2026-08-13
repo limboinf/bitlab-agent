@@ -31,7 +31,7 @@ If you have to add or upgrade a dependency, edit the appropriate `package.json`,
 apps/
   electron/    # Electron desktop (main, preload, renderer, Browser pane)
   webui/       # Loads the same renderer through a browser adapter
-  cli/         # RPC CLI (`run`, `session`, `workspace`, `send`, ...)
+  website/     # Static bilingual product website (Astro)
 packages/
   core/                # Stable DTOs, AgentEvent, error codes
   shared/              # Config, credentials, prompts, Skills, theme, i18n
@@ -57,8 +57,9 @@ migration/             # Migration plan, audit, UI history
 | Run Electron in dev (vite + electron) | `bun run electron:dev` |
 | Run Electron from a prebuilt `apps/electron/dist/` | `bun run electron:start` |
 | Start the headless server with the WebUI dev bundle | `bun run server:dev:webui` |
+| Start the product website | `bun run website:dev` |
+| Build the product website | `bun run website:build` |
 | Production headless server (WebUI bundled, Pi built) | `bun run server:prod` |
-| Build the CLI binary | `bun run cli:build` (output: `apps/cli/dist/bitlab`) |
 | Build the Pi subprocess | `bun run server:build:subprocess` |
 | Build a dev-signed macOS arm64 .app | `bun run electron:dist:dev:mac` |
 | Run all unit + isolated tests | `bun run test` |
@@ -96,9 +97,6 @@ BITLAB_CONFIG_DIR=/tmp/bitlab-dev bun run server:dev:webui
 | `BITLAB_PI_MODEL_API` | unset | Interceptor-level Pi model hint |
 | `BITLAB_UV` / `BITLAB_BUN` / `BITLAB_NODE` | unset | Override script runtimes; packaged launchers normally inject absolute bundled paths, while development may fall back to PATH |
 | `BITLAB_DEV_RUNTIME` | unset | Set to `1` to skip code-signing during local packaging |
-| `BITLAB_SERVER_URL` / `BITLAB_TLS_CA` | unset | CLI connection options |
-| `BITLAB_WORKSPACE` | `default` | CLI workspace override |
-| `LLM_API_KEY` / provider env var | unset | CLI self-contained `run` API credential |
 
 ## Conventions
 

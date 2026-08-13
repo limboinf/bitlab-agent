@@ -1,6 +1,6 @@
 # 发布、更新与遥测
 
-开源仓库中的版本 tag 会触发 macOS DMG/ZIP、Windows NSIS、Linux AppImage、各平台 headless server 与基于 Bun 的 CLI bundle 构建。源码与可下载产物统一放在 [limboinf/bitlab-agent](https://github.com/limboinf/bitlab-agent/releases/latest)。签名凭证是可选的：零 secret 会发布 ad-hoc 签名的 macOS 包和未签名 Windows 安装包；某个平台的完整凭证会自动启用 Apple Developer ID 签名与公证或 Windows Authenticode。workflow 使用仓库范围的 GitHub Actions token 发布。
+开源仓库中的版本 tag 会触发 macOS DMG/ZIP、Windows NSIS、Linux AppImage 与各平台 headless server 构建。源码与可下载产物统一放在 [limboinf/bitlab-agent](https://github.com/limboinf/bitlab-agent/releases/latest)。签名凭证是可选的：零 secret 会发布 ad-hoc 签名的 macOS 包和未签名 Windows 安装包；某个平台的完整凭证会自动启用 Apple Developer ID 签名与公证或 Windows Authenticode。workflow 使用仓库范围的 GitHub Actions token 发布。
 
 ## 发布流水线
 
@@ -61,7 +61,7 @@ git push origin main v0.1.0
 
 Tag 触发是单向的：推一个 `v*` 就会构建四个平台并直接发布。而 `release.ts` 拒绝 pre-release 版本，所以 `v0.1.0-rc.1` 也不能用来试跑。改用手动触发——**Actions** → **Release** → **Run workflow**——填入版本 tag，保持 `dry_run` 勾选。
 
-dry run 会执行除发布之外的一切：校验、四平台构建矩阵、签名检查、headless server 与 CLI bundle、带完整必需文件矩阵的资产收集、`latest-mac.yml` 合并、changelog 抽取，以及 `SHA256SUMS`。它不创建 Release，而是把校验和写进 job summary，并把收集到的产物作为 `dry-run-<tag>` artifact 保留 7 天。什么都不会被发布，tag 甚至不需要提前存在。
+dry run 会执行除发布之外的一切：校验、四平台构建矩阵、签名检查、headless server bundle、带完整必需文件矩阵的资产收集、`latest-mac.yml` 合并、changelog 抽取，以及 `SHA256SUMS`。它不创建 Release，而是把校验和写进 job summary，并把收集到的产物作为 `dry-run-<tag>` artifact 保留 7 天。什么都不会被发布，tag 甚至不需要提前存在。
 
 首次发布前先彩排一次；之后每当改动构建矩阵、产物命名或 `collect-release-assets.ts`，也都要再跑一次。
 
@@ -73,8 +73,7 @@ dry run 会执行除发布之外的一切：校验、四平台构建矩阵、签
 | macOS x64               | DMG + ZIP                | `Bitlab-0.1.0-x64.{dmg,zip}`      | 同上                               | 给 Intel Mac 用                                                                       |
 | Windows x64             | NSIS                     | `Bitlab-0.1.0-x64.exe`            | 未签名或 Authenticode              | 未签名构建可能触发 SmartScreen；每用户安装到 `%LOCALAPPDATA%\Programs\`              |
 | Linux x64               | AppImage                 | `Bitlab-0.1.0-x86_64.AppImage`    | 无                                 | AppImage 的 `x64` 会被 electron-builder 渲染成 `x86_64`;desktop 类别:Utility          |
-| Headless server(每架构) | `bun build --compile`    | `bitlab-server-<platform>-<arch>` | 无                                 | 给 WebUI 与 CLI 用户消费                                                              |
-| CLI                     | `bun build --target=bun` | `Bitlab-cli-bun.tar.gz`           | 无                                 | JavaScript bundle；用户机器需要 Bun                                                   |
+| Headless server(每架构) | `bun build --compile`    | `bitlab-server-<platform>-<arch>` | 无                                 | 给 WebUI 与外部 RPC 客户端消费                                                        |
 
 `bun run electron:dist:dev:mac` 会生成本地 ad-hoc 签名构建并关闭自动更新。Release job 在缺少 Apple 凭证时也会显式设置 `CSC_IDENTITY_AUTO_DISCOVERY=false`、`mac.identity=-` 与 `hardenedRuntime=false`。ad-hoc 签名满足 Apple Silicon 的代码完整性要求，但不代表受信任开发者身份，因此仍会出现 Gatekeeper 警告。
 
@@ -123,7 +122,6 @@ bun run typecheck:all
 bun run test
 bun run electron:build
 bun run webui:build
-bun run cli:build
 bun run server:build:subprocess
 ```
 

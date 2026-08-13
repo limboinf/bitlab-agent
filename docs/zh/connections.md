@@ -143,7 +143,7 @@ Pi 刷新:新 OAuth 凭证回传父进程并持久化
 
 ## 限制
 
-- Bitlab 不把环境变量当作凭证存储的替代,只在 CLI 的 `--api-key` 与 `LLM_API_KEY` 自包含 run 模式下读取。Desktop / WebUI 始终从凭证管理器读。
+- Bitlab 不把环境变量当作凭证存储的替代,Desktop / WebUI 始终从凭证管理器读。
 - 不支持 workspace 级连接;连接注册表是全局的,workspace 只能 pin 一个 `defaultConnectionId`。
 - 配额与限流监控交给 provider;Bitlab 原样透传 provider 上报的 error。
 
@@ -151,14 +151,6 @@ Pi 刷新:新 OAuth 凭证回传父进程并持久化
 
 OAuth 仅限 ChatGPT Plus 与 Claude Pro/Max。GitHub Copilot、Craft gateway、Sources OAuth、通用 OAuth provider 与 Claude Agent SDK 仍物理删除。Desktop 负责 ChatGPT localhost callback；WebUI 可以使用已经存储的 ChatGPT 订阅，但不能发起新的 ChatGPT 登录。
 
-## 在 CLI 中验证连接
+## 验证连接
 
-```bash
-bun run apps/cli/src/index.ts connections list
-bun run apps/cli/src/index.ts connections test <id>
-bun run apps/cli/src/index.ts connections default <id>
-bun run apps/cli/src/index.ts connections add \
-  --provider anthropic --name "Work" --api-key "$ANTHROPIC_API_KEY"
-```
-
-四条命令读取的是和 Desktop / WebUI 同一份连接注册表。
+连接在 Desktop 或 WebUI 的 设置 → 连接 中管理,可以列出、测试并设为默认。两个客户端读写同一份连接注册表。

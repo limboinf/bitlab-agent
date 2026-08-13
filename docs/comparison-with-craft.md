@@ -14,7 +14,7 @@ Both repositories are Bun monorepos with the same workspace layout (`apps/{elect
 | Tracked source files (current `git ls-files`) | 1,163 | ~1,719 | 96 % same-path rate against Craft (measured before the lineage audit was removed) |
 | Same-path files normalized to byte-identical | 686 (59 %) | — | Mechanical replacements only: scope (`@bitlab/*` ↔ `@craft-agent/*`), URL scheme (`bitlab://`), config root (`~/.bitlab`), brand strings |
 | Same-path Lite-customized | 430 | — | Lite boundary (e.g. deleted Sources/MCP branch) plus brand |
-| Bitlab-only source files | 47 | — | Bitlab brand assets, lint/CLI scripts, `apps/online-docs`-equivalent leftovers removed |
+| Bitlab-only source files | 47 | — | Bitlab brand assets, lint scripts, `apps/online-docs`-equivalent leftovers removed |
 | Source files Craft has that Bitlab does not | — | 606 | Removed by the Lite boundary (Claude backend, OAuth, Sources, MCP, Messaging, Viewer, automations, …) |
 | Top-level `dependencies` | 55 | 61 | Bitlab drops `@anthropic-ai/claude-agent-sdk`, `@anthropic-ai/sdk`, `@dnd-kit/{dom,helpers}`, `@github/copilot-sdk`, `@modelcontextprotocol/sdk`, plus the messaging OAuth flow packages (the lowered number reflects the Lite backend registry, not a runtime regression) |
 | Top-level `devDependencies` | 33 | 34 | Only meaningful drop is `@aws-sdk/client-s3` (used only for the upstream release upload to S3; Bitlab's `electron-updater` GitHub provider does not need it) |
@@ -26,7 +26,7 @@ Both repositories are Bun monorepos with the same workspace layout (`apps/{elect
 |---|---|---|
 | `apps/electron` | ✅ (shared renderer + preload + Browser pane + auto-update) | ✅ (same) |
 | `apps/webui` | ✅ (loads the same renderer through a browser adapter) | ✅ (same) |
-| `apps/cli` | ✅ (`run`, `session`, `workspace`, `send`, …) | ✅ (same surface plus extra Sources/Automations sub-commands, which Bitlab does **not** expose) |
+| `apps/cli` | ❌ (deleted) | ✅ (`run`, `session`, `workspace`, `send`, … plus Sources/Automations sub-commands) |
 | `apps/viewer` | ❌ (deleted) | ✅ (Electron Viewer app for sharing sessions publicly) |
 | `packages/core` | ✅ | ✅ |
 | `packages/shared` | ✅ (with `messaging-gateway`, `interceptor-common`, `feature-flags`, `interceptor-request-utils` removed) | ✅ (full size) |
@@ -196,7 +196,7 @@ These are the sizes you actually ship to users, taken from the on-disk dev build
 | macOS `.app` install footprint | ~438 MB | ~907 MB |
 | NSIS `.exe` (Windows x64) | ~210 MB¹ | ~430 MB¹ |
 | Linux AppImage | ~200 MB¹ | ~420 MB¹ |
-| `bun run apps/cli` pure-CLI mode (no Electron) | `bun run cli:build` → ~1 MB `dist/bitlab` package; same on Craft | ~1 MB (CLI payload itself is identical) |
+| Pure-CLI mode (no Electron) | not shipped | ~1 MB `dist/bitlab` package |
 | First document-tool run with a cold `uv` cache | May download Python 3.12 and declared script dependencies on demand | Same |
 
 ¹ **Caveat.** DMG / NSIS / AppImage numbers above are **inferred** from the unpacked `.app` sizes and the `electron-builder.yml` `files` / `extraResources` rules; they are not freshly built side-by-side. Both release pipelines fetch or copy a target-platform `uv` binary. Craft additionally brings the ~217 MB Claude SDK binary; Bitlab skips that backend payload, not `uv`.
@@ -207,7 +207,7 @@ The matrix below extends [`docs/featues.md`](./featues.md) with explicit numbers
 
 | Area | Bitlab | Craft Agents |
 |---|---|---|
-| Electron Desktop + WebUI + headless server + CLI + shared renderer | ✅ | ✅ |
+| Electron Desktop + WebUI + headless server + shared renderer | ✅ | ✅ (also ships a CLI client) |
 | Pi agent + Pi provider preset + API-key connections | ✅ | ✅ |
 | Custom OpenAI-completions / Anthropic-messages endpoints + Ollama | ✅ | ✅ |
 | Local multi-workspace, `default` slug, per-window binding | ✅ | ✅ |

@@ -48,7 +48,6 @@ Bitlab 工作期间,参考 checkout(`../craft-agents-oss`、`../echo`、`../xage
   │    bun run test                                                    │
   │    bun run electron:build                                         │
   │    bun run webui:build                                            │
-  │    bun run cli:build                                              │
   │    bun run server:build:subprocess                                │
   │                                                                  │
   │ 6. 对全新 config dir 做 GUI smoke                                  │

@@ -11,7 +11,6 @@ This directory is the English-language user documentation. A Chinese translation
 | Overall architecture | [architecture.md](./architecture.md) |
 | Attachments | [attachments.md](./attachments.md) |
 | Browser pane | [browser.md](./browser.md) |
-| Command-line interface | [cli.md](./cli.md) |
 | Connections and models | [connections.md](./connections.md) |
 | Code signing and notarization | [code-signing.md](./code-signing.md) |
 | Comparison with Craft (current) | [comparison-with-craft.md](./comparison-with-craft.md) |
@@ -28,7 +27,6 @@ This directory is the English-language user documentation. A Chinese translation
 | Skills | [skills.md](./skills.md) |
 | Testing | [testing.md](./testing.md) |
 | Upstream synchronization | [upstream-sync.md](./upstream-sync.md) |
-| Workspaces | [workspaces.md](./workspaces.md) |
 
 For a clean start, read [development.md](./development.md), then use [connections.md](./connections.md), [permissions.md](./permissions.md), and [sessions.md](./sessions.md).
 

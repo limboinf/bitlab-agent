@@ -31,12 +31,9 @@ Ollama 作为 `openai-completions` 连接注册。session 启动时,Pi 的 provi
 # 在 shell 里 sanity check
 curl http://127.0.0.1:11434/v1/models
 
-# 通过 Bitlab CLI 验证
-bun run apps/cli/src/index.ts connections list
-bun run apps/cli/src/index.ts connections test <id>
-bun run apps/cli/src/index.ts run "Hello" \
-  --provider ollama --base-url http://127.0.0.1:11434/v1 --model llama3.2
 ```
+
+然后在 Desktop 或 WebUI 的 设置 → 连接 中添加 Ollama 连接,用 "测试" 确认端点可用后再开始会话。
 
 ## 权限
 

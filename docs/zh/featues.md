@@ -4,7 +4,7 @@
 
 ## 保留能力
 
-- Electron Desktop、WebUI、CLI、headless server、共享 renderer、WebSocket RPC
+- Electron Desktop、WebUI、headless server、共享 renderer、WebSocket RPC
 - Pi agent backend、API key 模型连接，以及 ChatGPT Plus / Claude Pro/Max 订阅
 - 自定义 OpenAI-兼容与 Anthropic-兼容端点,以及 Ollama
 - 本地多 workspace 与 `default` workspace

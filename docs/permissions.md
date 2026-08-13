@@ -23,7 +23,7 @@ Workspace settings control the default mode and the cyclable list (`cyclablePerm
        ┌──────────────────┬───────┴────────┬────────────────────────┐
        ▼                  ▼                ▼                        ▼
    policy table    workspace overrides   user prompt     tool-specific check
-   (defaults)      (workspaces/<slug>/   (headless/cli    (BrowserPaneManager,
+   (defaults)      (workspaces/<slug>/   (headless          (BrowserPaneManager,
                     permissions/)         server)          document-tool wrappers)
                                   │
                                   ▼
@@ -56,16 +56,13 @@ Source, MCP, and Source-OAuth allowlists are not loaded — the corresponding sc
 
 `~/.bitlab/workspaces/<slug>/permissions/` stores overrides that take precedence over the bundled policy. Override changes apply to new tool calls only; in-flight turns keep the policy they had when the turn started.
 
-## CLI overrides
-
-`bitlab run --mode <mode>` sets the initial mode of the temporary session. `send` and the live CLI inherit the workspace's default mode unless `--mode` is provided.
-
 ## Auditing permission decisions
 
-Permission prompts and grants are part of the session JSONL. To audit a session:
+Permission prompts and grants are part of the session JSONL. To audit a session,
+read its transcript directly:
 
 ```bash
-bun run apps/cli/src/index.ts session messages <id> | grep -E 'permission_'
+grep -E 'permission_' ~/.bitlab/workspaces/<slug>/sessions/<id>/session.jsonl
 ```
 
 The renderer also surfaces a dedicated "Permissions" timeline inside the session detail view.

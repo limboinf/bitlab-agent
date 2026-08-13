@@ -6,14 +6,13 @@ Bitlab 是一个 Bun monorepo，三种客户端共用同一套经过鉴权的 We
 
 ```text
 +-----------------------------------------------------------+
-| apps/electron       apps/webui         apps/cli           |
-|   Electron             浏览器            RPC 客户端        |
-|   (Browser 面板、      adapter(通过      (连接已运行的      |
-|   自动更新、IPC)       头部握手加载      server,或在        |
-|   更新、IPC)           同一份 React)     --run 模式下       |
-|        \                              启动一次性 server)  |
-+---------|----------------|--------------------|-------------+
-          v                v                    v
+| apps/electron                    apps/webui               |
+|   Electron                         浏览器 adapter          |
+|   (Browser 面板、自动更新、        (通过头部握手加载        |
+|   更新、IPC)                       同一份 React)           |
+|        \                                                  |
++---------|----------------------------------|--------------+
+          v                                  v
    Browser adapter  ──>  preload Client API  ──> RPC client
                          (window.Bitlab)        (rpc-client.ts)
                                                        |
@@ -56,14 +55,13 @@ Bitlab 是一个 Bun monorepo，三种客户端共用同一套经过鉴权的 We
 
 - `apps/electron` 内嵌本地 server,通过 preload 暴露 Client API,负责窗口、Browser 面板、代理集成与自动更新。
 - `apps/webui` 通过浏览器 adapter 加载同一份 React 应用。headless server 同时托管其静态资源与经过鉴权的附件端点。
-- `apps/cli` 使用同一套 RPC 方法,可以连接到已运行的 server,也可以在 `--run` 时启动一次性本地实例。
 
 ## 共享 package
 
 - `packages/server-core` 负责 transport、handler、`SessionManager` 与跨平台服务,内含子目录: `bootstrap/`、`domain/`、`handlers/`、`model-fetchers/`、`runtime/`、`services/`、`sessions/`、`transport/`、`utils/`、`webui/`。
 - `packages/shared` 负责协议 DTO(`@bitlab/shared/protocol`)、配置、凭证、Skills、提示词、backend registry、workspace 存储与 Pi 客户端。
 - `packages/pi-agent-server` 在独立 Bun 子进程(`packages/pi-agent-server/dist/index.js`)中调用 `@earendil-works/pi-coding-agent` 的 `createAgentSession(...)`,通过 JSONL 通信。开发与打包产物共用同一 SDK 边界;`bun run server:build:subprocess` 负责打包。
-- `packages/ui` 与 `packages/session-tools-core` 提供共享渲染与会话级工具。Electron、WebUI、CLI 都复用它们,和平台无关。
+- `packages/ui` 与 `packages/session-tools-core` 提供共享渲染与会话级工具。Electron 与 WebUI 都复用它们,和平台无关。
 
 ## Backend registry
 
@@ -74,7 +72,7 @@ Bitlab 是一个 Bun monorepo，三种客户端共用同一套经过鉴权的 We
 1. server 绑定 `BITLAB_RPC_HOST:BITLAB_RPC_PORT`(默认 `127.0.0.1:9100`)。
 2. bearer token 从 `BITLAB_SERVER_TOKEN` 读取(Electron 启动时会自动生成;headless server 必须显式传入)。
 3. token 兑换为短生命周期 JWT,后续每个 WebSocket 帧都使用(`@bitlab/server-core/webui`)。
-4. WebUI 与 CLI 额外支持 `BITLAB_WEBUI_PASSWORD`(回退到 `BITLAB_SERVER_TOKEN`)和可选的 `BITLAB_TLS_CA` 用于 TLS pinning。
+4. WebUI 额外支持 `BITLAB_WEBUI_PASSWORD`(回退到 `BITLAB_SERVER_TOKEN`)和可选的 `BITLAB_TLS_CA` 用于 TLS pinning。
 5. 握手时绑定 workspace id;后续 RPC 命令都作用域在该 workspace 内,只会看到它自己的会话、Skills、权限与 Views。
 
 ## 子进程边界
@@ -94,10 +92,9 @@ Pi 子进程与主进程隔离:
 
 - Desktop 应用:macOS arm64 / x64(DMG + ZIP)、Windows x64(NSIS)、Linux x64(AppImage)。构建入口 `bun run electron:dist[:dev][:mac|:win|:linux]`。
 - Headless server:每个平台的编译 Bun archive;通过 `bun run scripts/build-server.ts` 构建。
-- CLI:`bun run cli:build` 输出 `dist/bitlab`。
 - Pi 子进程:`bun run server:build:subprocess` 输出 `packages/pi-agent-server/dist/index.js`。
 
-主仓库 `limboinf/bitlab-agent` 直接在 GitHub Releases 中发布 DMG/ZIP/NSIS/AppImage、headless-server archive、Bun CLI archive、manifest、blockmap、checksum 和 release notes。`electron-updater` 读取公开 manifest，客户端不带任何 GitHub token。
+主仓库 `limboinf/bitlab-agent` 直接在 GitHub Releases 中发布 DMG/ZIP/NSIS/AppImage、headless-server archive、manifest、blockmap、checksum 和 release notes。`electron-updater` 读取公开 manifest，客户端不带任何 GitHub token。
 
 ## 刻意不存在的部分
 

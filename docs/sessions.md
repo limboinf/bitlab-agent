@@ -1,6 +1,6 @@
 # Sessions
 
-Sessions are append-oriented JSONL records with Pi recovery files in the same directory. The Desktop, WebUI, and CLI all read and write the same files; there is no separate per-client storage.
+Sessions are append-oriented JSONL records with Pi recovery files in the same directory. Desktop and WebUI both read and write the same files; there is no separate per-client storage.
 
 ## On-disk layout
 
@@ -80,4 +80,4 @@ Every Pi tool call passes through the shared permission engine (`@bitlab/shared/
 
 ## Auditing a session
 
-There is no CLI sub-command for replay yet; the canonical audit path is `bun run apps/cli/src/index.ts session messages <id>` and `session export <id>`. Both commands preserve event ordering but redact credential-like fields.
+There is no replay tool yet; the canonical audit path is reading `session.jsonl` directly, or exporting the session from Desktop or WebUI. Both preserve event ordering and redact credential-like fields.

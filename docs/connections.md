@@ -143,7 +143,7 @@ When you delete a connection, the credential reference is removed from the keych
 
 ## Limitations
 
-- Bitlab does not look at environment variables as a substitute for storing credentials, except for the CLI's `--api-key` and `LLM_API_KEY` self-contained run mode. The Desktop and WebUI always read from the credential manager.
+- Bitlab does not look at environment variables as a substitute for storing credentials. The Desktop and WebUI always read from the credential manager.
 - Per-workspace connections are not implemented; the registry is global. A workspace can still pin a single `defaultConnectionId`.
 - Quota and rate-limit monitoring is delegated to the provider; Bitlab surfaces provider-reported errors verbatim.
 
@@ -151,14 +151,8 @@ When you delete a connection, the credential reference is removed from the keych
 
 The OAuth surface is restricted to ChatGPT Plus and Claude Pro/Max. GitHub Copilot, Craft gateway, Sources OAuth, generic OAuth providers, and the Claude Agent SDK remain physically absent. Desktop owns the ChatGPT localhost callback; WebUI can use an already stored ChatGPT subscription but cannot start a new ChatGPT login.
 
-## Verifying a connection from the CLI
+## Verifying a connection
 
-```bash
-bun run apps/cli/src/index.ts connections list
-bun run apps/cli/src/index.ts connections test <id>
-bun run apps/cli/src/index.ts connections default <id>
-bun run apps/cli/src/index.ts connections add \
-  --provider anthropic --name "Work" --api-key "$ANTHROPIC_API_KEY"
-```
-
-All four commands read the same connection registry as Desktop and WebUI.
+Connections are managed from Desktop or WebUI under Settings → Connections, where
+each entry can be listed, tested, and promoted to default. Both clients read and
+write the same connection registry.

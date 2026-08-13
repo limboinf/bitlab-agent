@@ -39,8 +39,6 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: bun run webui:build
-      - name: Build CLI
-        run: bun run cli:build
       - name: Check whitespace errors
         run: git diff --check
 

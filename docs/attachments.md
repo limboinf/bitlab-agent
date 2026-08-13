@@ -11,7 +11,6 @@ Desktop supports file selection, paste, drag/drop, persistence, and recovery. We
 | Drag & drop | Drag from Finder/Explorer/Nautilus onto the chat surface |
 | Persisted | Recovered on session resume from `sessions/<id>/attachments/` |
 | WebUI upload | `POST /api/attachments` on the headless server |
-| CLI | `send <session-id> --attachment <path>` |
 
 All paths converge on the same attachment validator in `@bitlab/shared/agent/attachments`.
 

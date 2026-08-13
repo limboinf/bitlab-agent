@@ -84,13 +84,3 @@ Workspace 下方不再提供独立的“在文件夹中工作”选择器，也�
 
 Project Skills 只在 Folder workspace 中扫描；Default workspace 没有项目目录，因此不会扫描用户 Home。
 
-## CLI
-
-CLI 与 Desktop 使用同一套注册表：
-
-```bash
-bitlab workspace create ~/work/abc
-bitlab workspace create ~/work/abc "ABC Project"
-```
-
-`--workspace` 使用 Workspace id、slug 或名称选择已登记的 Workspace。CLI 不再把 `~/.bitlab/workspaces/` 下的内部数据目录当作用户项目目录。
