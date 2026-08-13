@@ -393,8 +393,8 @@ jobs:
           version="${RELEASE_TAG#v}"
           awk -v version="$version" '
             $0 ~ "^## \\[" version "\\] - " { found=1; next }
-            found && /^## \\[/ { exit }
-            found && /^\\[/ { exit }
+            found && /^## \[/ { exit }
+            found && /^\[/ { exit }
             found { print }
           ' CHANGELOG.md > "$release_notes"
           if [ ! -s "$release_notes" ]; then
