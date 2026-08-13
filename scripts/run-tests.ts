@@ -11,8 +11,13 @@ if (tracked.exitCode !== 0) {
 }
 
 const files = tracked.stdout.toString().split('\0').filter(Boolean)
+// Files that cannot share a `bun test` process with the rest of the suite.
 const SERIAL_TESTS = new Set([
   'packages/shared/src/agent/__tests__/pi-conversation-flow.integration.test.ts',
+  // bun's mock.module() is process-wide and leaks across files. browser-pane-manager
+  // .test.ts replaces ../browser-cdp with a stub that never attaches a debugger, which
+  // is what this file would import if they ran together.
+  'apps/electron/src/main/__tests__/browser-cdp.test.ts',
 ])
 const tests = files.filter(
   file => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file) && !SERIAL_TESTS.has(file),

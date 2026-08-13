@@ -13,6 +13,19 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * Poll until `predicate` holds. File-system watch latency varies with machine load,
+ * so a fixed sleep either flakes on a busy runner or wastes time on an idle one.
+ */
+async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return true
+    await wait(10)
+  }
+  return predicate()
+}
+
 describe('sessions file watchers', () => {
   const handlers = new Map<string, HandlerFn>()
   const pushed: Array<{ channel: string; target: any; args: any[] }> = []
@@ -93,28 +106,29 @@ describe('sessions file watchers', () => {
     await watch!({ clientId: 'client-b' }, 'session-b')
     await wait(50)
 
+    const notified = (clientId: string, sessionId: string) => () =>
+      pushed.some((evt) =>
+        evt.target?.to === 'client'
+        && evt.target?.clientId === clientId
+        && evt.channel === RPC_CHANNELS.sessions.FILES_CHANGED
+        && evt.args[0] === sessionId)
+
     writeFileSync(join(sessionDirA, 'a.txt'), `a-${Date.now()}`)
     writeFileSync(join(sessionDirB, 'b.txt'), `b-${Date.now()}`)
-    await wait(300)
 
-    const aEvents = pushed.filter((evt) => evt.target?.to === 'client' && evt.target?.clientId === 'client-a')
-    const bEvents = pushed.filter((evt) => evt.target?.to === 'client' && evt.target?.clientId === 'client-b')
-
-    expect(aEvents.some((evt) => evt.channel === RPC_CHANNELS.sessions.FILES_CHANGED && evt.args[0] === 'session-a')).toBe(true)
-    expect(bEvents.some((evt) => evt.channel === RPC_CHANNELS.sessions.FILES_CHANGED && evt.args[0] === 'session-b')).toBe(true)
+    expect(await waitFor(notified('client-a', 'session-a'))).toBe(true)
+    expect(await waitFor(notified('client-b', 'session-b'))).toBe(true)
 
     pushed.length = 0
     await unwatch!({ clientId: 'client-a' })
 
     writeFileSync(join(sessionDirA, 'a.txt'), `a2-${Date.now()}`)
     writeFileSync(join(sessionDirB, 'b.txt'), `b2-${Date.now()}`)
-    await wait(300)
 
-    const aEventsAfter = pushed.filter((evt) => evt.target?.clientId === 'client-a')
-    const bEventsAfter = pushed.filter((evt) => evt.target?.clientId === 'client-b')
-
-    expect(aEventsAfter.length).toBe(0)
-    expect(bEventsAfter.some((evt) => evt.channel === RPC_CHANNELS.sessions.FILES_CHANGED && evt.args[0] === 'session-b')).toBe(true)
+    // Both files are written together, so client-b's event arriving is the signal
+    // that client-a's would have arrived too if its watcher were still attached.
+    expect(await waitFor(notified('client-b', 'session-b'))).toBe(true)
+    expect(pushed.filter((evt) => evt.target?.clientId === 'client-a')).toHaveLength(0)
   })
 
   it('disconnect cleanup removes watcher and prevents further events', async () => {
