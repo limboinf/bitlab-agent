@@ -1,0 +1,56 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import ProductWindow from "../components/ProductWindow.astro";
+---
+<BaseLayout title="Bitlab — A simple, fast AI workspace powered by Pi" description="Bitlab is a simple, fast AI workspace powered by the Pi agent runtime for Desktop, WebUI, and CLI.">
+  <section class="shell hero">
+    <div class="hero-grid">
+      <div>
+        <div class="eyebrow">Powered by Pi agent</div>
+        <h1>Simple. Fast. Ready to work.</h1>
+        <p class="lede">Bitlab puts the lightweight Pi agent runtime into a focused workspace that feels quick, clear, and easy to use.</p>
+        <div class="actions">
+          <a class="button button-primary" href="https://github.com/limboinf/bitlab-agent/releases/latest">Download Bitlab</a>
+          <a class="button button-quiet" href="https://github.com/limboinf/bitlab-agent">View source ↗</a>
+        </div>
+        <p class="hero-note">Desktop · WebUI · CLI &nbsp; / &nbsp; Open source under Apache-2.0</p>
+      </div>
+      <ProductWindow />
+    </div>
+  </section>
+
+  <section class="shell section" id="features">
+    <div class="section-heading">
+      <h2>Less ceremony.<br />More useful work.</h2>
+      <p class="section-intro">Pi handles the agent loop. Bitlab gives it a calm home for sessions, files, tools, and the context you want to keep.</p>
+    </div>
+    <div class="feature-list">
+      <article class="feature"><span class="feature-index">01</span><h3>Pi-powered at the core</h3><p>Bitlab is built on Pi, a minimal agent runtime designed to stay adaptable instead of getting in your way.</p></article>
+      <article class="feature"><span class="feature-index">02</span><h3>Focused by design</h3><p>Persistent workspaces, clear permissions, and the tools you need — without a crowded control panel.</p></article>
+      <article class="feature"><span class="feature-index">03</span><h3>Fast feedback</h3><p>Short paths from intent to action keep the interface responsive and the work moving.</p></article>
+    </div>
+  </section>
+
+  <section class="shell section" id="principles">
+    <div class="split">
+      <div class="manifesto"><p>Good agent software should get out of the way quickly — then remember where you left off.</p></div>
+      <div class="principles">
+        <div class="principle"><b>01</b><span>Pi keeps the agent loop small and adaptable.</span></div>
+        <div class="principle"><b>02</b><span>Clear surfaces make powerful tools easier to use.</span></div>
+        <div class="principle"><b>03</b><span>Persistent context means less setup, every time.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="download">
+    <div class="shell">
+      <div class="eyebrow">Ready when you are</div>
+      <h2>Start with a faster path to useful work.</h2>
+      <p>Download the latest release, or explore the source behind Bitlab and its Pi-powered runtime.</p>
+      <div class="actions">
+        <a class="button button-primary" href="https://github.com/limboinf/bitlab-agent/releases/latest">Get the latest release</a>
+        <a class="button button-quiet" href="https://github.com/limboinf/bitlab-agent/blob/main/docs/README.md">Read the docs ↗</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

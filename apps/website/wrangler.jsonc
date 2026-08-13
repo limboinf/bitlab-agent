@@ -1,0 +1,15 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "bitlab-website",
+  "compatibility_date": "2026-08-13",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    {
+      "pattern": "bitlab.onekuu.com/*",
+      "zone_name": "onekuu.com"
+    }
+  ]
+}

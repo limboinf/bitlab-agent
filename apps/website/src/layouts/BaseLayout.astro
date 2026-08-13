@@ -1,0 +1,57 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+  lang?: "en" | "zh";
+}
+
+const { title, description, lang = "en" } = Astro.props;
+const isZh = lang === "zh";
+const alternate = isZh ? "/" : "/zh/";
+const locale = isZh ? "zh_CN" : "en_US";
+---
+<!doctype html>
+<html lang={lang === "zh" ? "zh-CN" : "en"}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#f5f7f8" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Bitlab" />
+    <meta property="og:locale" content={locale} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <link rel="icon" href="/assets/bitlab-icon.svg" />
+    <link rel="alternate" hreflang={isZh ? "en" : "zh-CN"} href={alternate} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <header class="shell topbar">
+      <a class="brand" href={isZh ? "/zh/" : "/"} aria-label="Bitlab home">
+        <img src="/assets/bitlab-mark.svg" alt="" />
+        <span>Bitlab</span>
+      </a>
+      <nav class="nav" aria-label={isZh ? "主导航" : "Primary navigation"}>
+        <a href={isZh ? "/zh/#features" : "/#features"}>{isZh ? "能力" : "Capabilities"}</a>
+        <a href={isZh ? "/zh/#principles" : "/#principles"}>{isZh ? "理念" : "Principles"}</a>
+        <a href="https://github.com/limboinf/bitlab-agent" target="_blank" rel="noreferrer">{isZh ? "开源仓库" : "GitHub"}</a>
+        <a class="lang" href={alternate}>{isZh ? "EN" : "中文"}</a>
+      </nav>
+    </header>
+    <main><slot /></main>
+    <footer class="shell footer">
+      <span>© 2026 Bitlab. Apache-2.0.</span>
+      <div class="footer-links">
+        <a href={isZh ? "/zh/privacy/" : "/privacy/"}>{isZh ? "隐私" : "Privacy"}</a>
+        <a href={isZh ? "/zh/terms/" : "/terms/"}>{isZh ? "条款" : "Terms"}</a>
+        <a href="https://github.com/limboinf/bitlab-agent" target="_blank" rel="noreferrer">{isZh ? "源码" : "Source"}</a>
+      </div>
+    </footer>
+  </body>
+</html>
