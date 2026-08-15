@@ -21,9 +21,11 @@
     "@sinclair/typebox": "^0.34.0",
     "node-html-parser": "^6.1.0",
     "pdfjs-dist": "^5.4.0",
+    "pi-mcp-adapter": "^2.25.0",
     "turndown": "^7.2.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^22.0.0"
   }
 }

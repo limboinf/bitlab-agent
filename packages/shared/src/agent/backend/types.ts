@@ -52,7 +52,7 @@ export type AgentProvider = 'pi';
 /**
  * Permission prompt types for different tool categories.
  */
-export type PermissionRequestType = 'bash' | 'file_write' | 'browser' | 'network' | 'admin_approval';
+export type PermissionRequestType = 'bash' | 'file_write' | 'browser' | 'network' | 'admin_approval' | 'mcp';
 
 /**
  * Permission request callback signature.

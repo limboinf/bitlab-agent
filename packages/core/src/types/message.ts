@@ -57,7 +57,7 @@ export interface MessageAttachment {
  */
 export interface ContentBadge {
   /** Badge type - used for fallback icon if iconBase64 not available */
-  type: 'skill' | 'context' | 'command' | 'file' | 'folder';
+  type: 'skill' | 'context' | 'command' | 'file' | 'folder' | 'mcp';
   /** Display label (e.g., "Linear", "Commit") */
   label: string;
   /** Original text pattern (e.g., "@linear", "@commit") */
@@ -458,7 +458,7 @@ export interface TypedError {
 /**
  * Permission request type categories
  */
-export type PermissionRequestType = 'bash' | 'file_write' | 'browser' | 'network' | 'admin_approval';
+export type PermissionRequestType = 'bash' | 'file_write' | 'browser' | 'network' | 'admin_approval' | 'mcp';
 
 /**
  * Permission request from agent (e.g., bash command approval)

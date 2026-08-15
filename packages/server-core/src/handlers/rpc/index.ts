@@ -4,6 +4,7 @@ import type { HandlerDeps } from '../handler-deps'
 import { registerAuthHandlers } from './auth'
 import { registerFilesHandlers } from './files'
 import { registerLlmConnectionsHandlers } from './llm-connections'
+import { registerMcpHandlers } from './mcp'
 import { registerOnboardingHandlers } from './onboarding'
 import { registerSessionsHandlers } from './sessions'
 export { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './sessions'
@@ -24,6 +25,7 @@ export function registerCoreRpcHandlers(
   registerAuthHandlers(server, deps)
   registerFilesHandlers(server, deps)
   registerLlmConnectionsHandlers(server, deps)
+  registerMcpHandlers(server, deps)
   registerOnboardingHandlers(server, deps)
   registerSessionsHandlers(server, deps)
   if (serverCtx) registerServerHandlers(server, deps, serverCtx)

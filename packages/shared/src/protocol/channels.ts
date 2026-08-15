@@ -255,6 +255,23 @@ export const RPC_CHANNELS = {
     SET_API_KEY: 'search:setApiKey',
     DELETE_API_KEY: 'search:deleteApiKey',
   },
+  mcp: {
+    LIST: 'mcp:list',                     // servers + settings + live/last-known statuses
+    SAVE: 'mcp:save',                     // add-or-update a single server
+    DELETE: 'mcp:delete',
+    SAVE_SETTINGS: 'mcp:saveSettings',
+    TEST: 'mcp:test',                     // one-shot connect; returns tools/error
+    AUTH: 'mcp:auth',                     // browser OAuth sign-in for a server
+    AUTH_CANCEL: 'mcp:authCancel',        // abandon an in-flight sign-in
+    SIGN_OUT: 'mcp:signOut',              // clear a server's stored credentials
+    RECONNECT: 'mcp:reconnect',           // reconnect a server in live sessions
+    CREDENTIALS: 'mcp:credentials',       // stored-credential status for a server
+    NOTIFY: 'mcp:notify',                 // adapter ui.notify forwarded to clients
+    STATUS: 'mcp:status',                 // live runtime status snapshot broadcast
+    DISCOVER: 'mcp:discover',             // project .mcp.json + other apps' configs
+    IMPORT: 'mcp:import',                 // bulk-add discovered servers
+    CHANGED: 'mcp:changed',               // broadcast after CRUD (UI refresh)
+  },
   caching: {
     GET_EXTENDED_PROMPT_CACHE: 'caching:getExtendedPromptCache',
     SET_EXTENDED_PROMPT_CACHE: 'caching:setExtendedPromptCache',

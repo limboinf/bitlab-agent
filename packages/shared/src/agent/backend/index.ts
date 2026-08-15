@@ -33,6 +33,7 @@ export {
   resolveBackendContext,
   resolveBackendHostTooling,
   resolveModelForProvider,
+  resolvePiServerRuntime,
   resolveSessionConnection,
   resolveSetupTestConnectionHint,
   testBackendConnection,

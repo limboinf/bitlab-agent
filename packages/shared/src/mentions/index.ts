@@ -8,6 +8,7 @@
  * - Skills:  [skill:slug] or [skill:workspaceId:slug]
  * - Files:   [file:path]
  * - Folders: [folder:path]
+ * - MCP:     [mcp:server]
  */
 
 // Simple path join that works in both Node and browser contexts.
@@ -38,6 +39,14 @@ export interface ParsedMentions {
   files: string[]
   /** Folder paths mentioned via [folder:path] */
   folders: string[]
+  /**
+   * MCP server names mentioned via [mcp:server].
+   *
+   * Unlike the others this is not content for the model: it is the user
+   * picking which MCP server the session may use, and the composer strips it
+   * from the text it sends.
+   */
+  mcpServers: string[]
 }
 
 // ============================================================================
@@ -64,6 +73,7 @@ export function parseMentions(
     invalidSkills: [],
     files: [],
     folders: [],
+    mcpServers: [],
   }
 
   let match: RegExpExecArray | null
@@ -103,7 +113,50 @@ export function parseMentions(
     }
   }
 
+  // Match MCP mentions: [mcp:server] (server names are letters/digits/-/_)
+  const mcpPattern = /\[mcp:([\w-]+)\]/g
+  while ((match = mcpPattern.exec(text)) !== null) {
+    const serverName = match[1]!
+    if (!result.mcpServers.includes(serverName)) {
+      result.mcpServers.push(serverName)
+    }
+  }
+
   return result
+}
+
+/**
+ * Resolve MCP mentions into an instruction the model cannot misread.
+ *
+ * [mcp:okx-trade-mcp] → [Use the "okx-trade-mcp" MCP server for this request]
+ *
+ * The token is the user naming the tool to use, not a hint to weigh: without
+ * the explicit wording a model happily answers a "BTC price" question with a
+ * web search while the exchange's own MCP server sits right there. The
+ * directive that goes with it (see formatMcpDirective) says so in one line.
+ */
+export function resolveMcpMentions(text: string, servers: string[] = []): string {
+  return text.replace(/\[mcp:([\w-]+)\]/g, (match, name: string) => {
+    if (servers.length && !servers.includes(name)) return match;
+    return `[Use the "${name}" MCP server for this request]`;
+  });
+}
+
+/**
+ * The instruction prepended to a message that names MCP servers.
+ *
+ * Deliberately blunt about the alternatives: the failure mode is not the model
+ * refusing the server, it is the model reaching for a general-purpose tool
+ * (web search, its own memory) that looks close enough.
+ */
+export function formatMcpDirective(servers: string[]): string {
+  if (!servers.length) return '';
+  const names = servers.map(name => `"${name}"`).join(', ');
+  const subject = servers.length > 1 ? 'these MCP servers' : 'this MCP server';
+  return `The user picked ${subject} for this request: ${names}. `
+    + 'Use its tools to answer, and do not substitute web search, another server, '
+    + 'or your own knowledge for what it can provide. '
+    + 'If its tools cannot cover the request, say so instead of quietly falling back.';
 }
 
 /**

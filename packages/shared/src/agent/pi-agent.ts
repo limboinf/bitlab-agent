@@ -47,6 +47,8 @@ import { getSystemPrompt } from '../prompts/system.ts';
 // Credential manager for token storage
 import { getCredentialManager } from '../credentials/manager.ts';
 import { resolveSearchSettings } from '../config/search-settings.ts';
+import { resolveAdapterMcpConfig, ensureMcpOAuthDir } from '../config/mcp-settings.ts';
+import type { AdapterMcpConfig, McpApprovalDecision, McpApprovalRequestDto, McpOperationResult, McpStatusSnapshotDto } from '../config/mcp.ts';
 
 // Session-scoped tool callbacks
 import {
@@ -227,6 +229,13 @@ export class PiAgent extends BaseAgent {
     reject: (error: Error) => void;
   }> = new Map();
 
+  // Pending MCP operations (correlation map for subprocess mcp_auth /
+  // mcp_logout -> mcp_op_result)
+  private pendingMcpOps: Map<string, {
+    resolve: (result: McpOperationResult) => void;
+    reject: (error: Error) => void;
+  }> = new Map();
+
   // Pending mini completions (correlation map for subprocess mini_completion_result)
   private pendingMiniCompletions: Map<string, {
     resolve: (text: string | null) => void;
@@ -400,6 +409,7 @@ export class PiAgent extends BaseAgent {
     // are valid, and non-local endpoints should fail explicitly instead of using unrelated creds.
     const piAuth = await this.getPiAuth();
     const searchSettings = await resolveSearchSettings();
+    const mcpConfig = resolveAdapterMcpConfig();
     const isCustomEndpointMode = !!runtime.customEndpoint;
     const legacyApiKey = (!piAuth && !isCustomEndpointMode) ? await this.getApiKey() : undefined;
     if (isCustomEndpointMode && !piAuth) {
@@ -418,6 +428,9 @@ export class PiAgent extends BaseAgent {
         ...(sessionDir ? { BITLAB_SESSION_DIR: sessionDir } : {}),
         // Propagate debug mode
         BITLAB_DEBUG: (process.argv.includes('--debug') || process.env.BITLAB_DEBUG === '1') ? '1' : '0',
+        // Shared MCP OAuth token store — every session's subprocess reads and
+        // writes the same credentials (pi-mcp-adapter honors this override).
+        MCP_OAUTH_DIR: ensureMcpOAuthDir(),
       },
     });
 
@@ -463,6 +476,11 @@ export class PiAgent extends BaseAgent {
     const plansFolderPath = getSessionPlansPath(this.config.workspace.dataRoot, sessionId);
     const workingDirectory = this.config.session?.workingDirectory || cwd;
 
+    const mcpServerNames = Object.keys(mcpConfig.mcpServers);
+    if (mcpServerNames.length) {
+      this.debug(`init MCP config: ${mcpServerNames.map(n => `${n}(${mcpConfig.mcpServers[n]?.lifecycle ?? 'lazy'})`).join(', ')}`);
+    }
+
     // Send init command (flat structure matching subprocess InboundMessage type)
     this.send({
       type: 'init',
@@ -482,6 +500,7 @@ export class PiAgent extends BaseAgent {
       piAuth,
       searchConfig: searchSettings.searchConfig,
       searchApiKeys: searchSettings.searchApiKeys,
+      mcpConfig,
       baseUrl: runtime.baseUrl,
       customEndpoint: runtime.customEndpoint,
       customModels: runtime.customModels,
@@ -621,6 +640,88 @@ export class PiAgent extends BaseAgent {
     this.send({ type: 'search_config_update', searchConfig, searchApiKeys });
   }
 
+  /**
+   * Push the current MCP adapter config to the subprocess (hot update).
+   * The subprocess swaps the adapter's in-memory config and refreshes its
+   * registered tool surface without restarting the session.
+   */
+  refreshMcpConfig(): void {
+    if (!this.subprocess) return;
+    const config = resolveAdapterMcpConfig();
+    const summary = Object.entries(config.mcpServers).map(([name, entry]) => `${name}(${entry.lifecycle ?? 'lazy'})`).join(', ') || 'none';
+    this.debug(`Pushing MCP config to subprocess: ${summary}`);
+    this.send({ type: 'update_mcp_config', mcpConfig: config });
+  }
+
+
+  /** Test-only seam: inject a prebuilt adapter config (see mcp e2e tests). */
+  pushMcpConfigForTest(mcpConfig: AdapterMcpConfig): void {
+    this.send({ type: 'update_mcp_config', mcpConfig });
+  }
+
+  /**
+   * Resolve a pending MCP tool-approval request from the subprocess.
+   * No-op (fails closed) if the requestId is unknown — the adapter treats a
+   * missing claim as "approval_required" and surfaces that to the model.
+   */
+  resolveMcpApproval(requestId: string, decision: McpApprovalDecision): void {
+    this.send({ type: 'mcp_approval_response', requestId, decision });
+  }
+
+  /**
+   * Spawn the subprocess and create the Pi session without sending a prompt.
+   * Used before MCP auth (settings context) so a chat turn isn't required.
+   */
+  async ensureReady(): Promise<string | null> {
+    return this.requestEnsureSessionReady();
+  }
+
+  /**
+   * Drive an MCP OAuth sign-in inside the subprocess: connects to the server
+   * and, on 401, the adapter's auto-auth opens the default browser and
+   * completes via its localhost callback. Tokens land in the shared
+   * MCP_OAUTH_DIR store, so every session picks them up on next use.
+   */
+  requestMcpAuth(serverName: string, timeoutMs = 300_000): Promise<McpOperationResult> {
+    return this.requestMcpOperation({ type: 'mcp_auth', serverName }, 'auth', timeoutMs);
+  }
+
+  /**
+   * Clear one MCP server's stored OAuth credentials (adapter `/mcp logout`)
+   * and drop this session's connection to it. `url` is what the credential
+   * store keys the entry by, and is checked to confirm the removal.
+   */
+  requestMcpLogout(serverName: string, url: string, timeoutMs = 30_000): Promise<McpOperationResult> {
+    return this.requestMcpOperation({ type: 'mcp_logout', serverName, url }, 'logout', timeoutMs);
+  }
+
+  /** Send one correlated MCP operation and await its `mcp_op_result`. */
+  private requestMcpOperation(
+    payload: Record<string, unknown> & { type: string },
+    kind: string,
+    timeoutMs: number,
+  ): Promise<McpOperationResult> {
+    if (!this.subprocess) return Promise.resolve({ ok: false, message: 'Subprocess not running', code: 'no_session' });
+    const id = `mcp-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.send({ ...payload, id });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingMcpOps.delete(id);
+        reject(new Error(`MCP ${kind} timed out after ${Math.floor(timeoutMs / 1000)}s`));
+      }, timeoutMs);
+      this.pendingMcpOps.set(id, {
+        resolve: result => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+        reject: error => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+    });
+  }
+
   private async pushLatestOAuthCredential(): Promise<void> {
     if (this.config.authType !== 'oauth') return;
     const slug = this.config.connectionSlug;
@@ -722,6 +823,48 @@ export class PiAgent extends BaseAgent {
       case 'session_tool_completed':
         // Session MCP tool completed -- fire callbacks (SubmitPlan, auth, etc.)
         this.handleSessionToolCompleted(msg);
+        break;
+
+      case 'mcp_op_result': {
+        const pending = this.pendingMcpOps.get(msg.id as string);
+        if (pending) {
+          this.pendingMcpOps.delete(msg.id as string);
+          pending.resolve({
+            ok: msg.ok === true,
+            message: (msg.message as string) ?? '',
+            ...(typeof msg.code === 'string' ? { code: msg.code } : {}),
+          });
+        }
+        break;
+      }
+
+      case 'mcp_notify':
+        // Adapter ui.notify bridge (auth progress, connection notices).
+        this.onMcpNotify?.({
+          message: (msg.message as string) ?? '',
+          level: (msg.level as 'info' | 'warning' | 'error') ?? 'info',
+        });
+        break;
+
+      case 'mcp_status':
+        // MCP server status snapshot from the pi-mcp-adapter extension
+        {
+          const snapshot = msg.snapshot as McpStatusSnapshotDto;
+          this.debug(`MCP status: ${snapshot.servers.map(s => `${s.name}:${s.status}`).join(', ') || 'no servers'}`);
+          this.onMcpStatus?.(snapshot);
+        }
+        break;
+
+      case 'mcp_approval_request':
+        // Adapter wants interactive approval for an MCP tool call
+        this.debug(`MCP approval requested: ${(msg.prefixedToolName as string) ?? 'unknown tool'}`);
+        this.onMcpApprovalRequest?.({
+          requestId: msg.requestId as string,
+          serverName: msg.serverName as string,
+          originalToolName: msg.originalToolName as string,
+          prefixedToolName: msg.prefixedToolName as string,
+          args: (msg.args as Record<string, unknown>) ?? {},
+        });
         break;
 
       case 'mini_completion_result':
@@ -1465,6 +1608,12 @@ export class PiAgent extends BaseAgent {
       pending.reject(new Error('Pi subprocess exited'));
     }
     this.pendingToolExecutions.clear();
+
+    // Reject all pending MCP operations
+    for (const [, pending] of this.pendingMcpOps) {
+      pending.reject(new Error('Pi subprocess exited'));
+    }
+    this.pendingMcpOps.clear();
 
     // Drop any cached pre-tool metadata for the dead subprocess.
     this.preToolMetadataByCallId.clear();
