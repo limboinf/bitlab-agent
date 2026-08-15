@@ -29,6 +29,15 @@ export interface ContextBreakdown {
   toolsTokens: number;
   /** Heuristic tokens of the current model-visible conversation. */
   messageTokens: number;
+  /**
+   * Heuristic tokens of the skill catalog inside the system prompt.
+   *
+   * A SUBSET of {@link systemTokens}, not a fourth part — adding it to the
+   * other three would count it twice. It exists so a large catalog is
+   * attributable: every enabled skill contributes its name and description to
+   * every request, and that standing cost is otherwise invisible.
+   */
+  skillsTokens: number;
 }
 
 /** The parts of a tool definition that are actually serialized into a request. */
@@ -49,6 +58,25 @@ function tokensForChars(chars: number): number {
 export function estimateSystemTokens(prompt: string | undefined): number {
   if (!prompt) return 0;
   return tokensForChars(prompt.length);
+}
+
+/**
+ * Price the skill catalog Pi appends to the system prompt.
+ *
+ * Matched on the rendered block rather than recomputed from the catalog, so
+ * the figure prices what the request actually carries — including the
+ * instruction lines above the XML, which are part of the standing cost.
+ *
+ * @param prompt - the exact system prompt string, or undefined before one is set.
+ */
+export function estimateSkillCatalogTokens(prompt: string | undefined): number {
+  if (!prompt) return 0;
+  const end = prompt.indexOf('</available_skills>');
+  if (end === -1) return 0;
+  const opening = prompt.lastIndexOf('The following skills provide', end);
+  const start = opening === -1 ? prompt.lastIndexOf('<available_skills>', end) : opening;
+  if (start === -1) return 0;
+  return tokensForChars(end + '</available_skills>'.length - start);
 }
 
 /**
@@ -97,5 +125,6 @@ export function computeContextBreakdown(
     systemTokens: estimateSystemTokens(systemPrompt),
     toolsTokens: estimateToolsTokens(tools),
     messageTokens: estimateMessageTokens(messages),
+    skillsTokens: estimateSkillCatalogTokens(systemPrompt),
   };
 }

@@ -268,14 +268,18 @@ export abstract class BaseAgent implements AgentBackend {
     cleanMessage: string;
     missingSkills: string[];
     mcpServers: string[];
+    unmetMcp: Map<string, string[]>;
   } {
     const skills = loadAllSkills(this.config.workspace.dataRoot, this.config.workspace.folderPath ?? undefined);
     const parsed = parseMentions(message, skills.map(skill => skill.slug));
     const skillPaths = new Map<string, string>();
+    const unmetMcp = new Map<string, string[]>();
     for (const slug of parsed.skills) {
       const skill = skills.find(candidate => candidate.slug === slug);
       const skillPath = skill ? join(skill.path, 'SKILL.md') : undefined;
       if (skillPath && existsSync(skillPath)) skillPaths.set(slug, skillPath);
+      const unmet = skill?.mcpRequirements?.filter(requirement => requirement.state !== 'satisfied') ?? [];
+      if (unmet.length) unmetMcp.set(slug, unmet.map(requirement => requirement.server));
     }
     const names = new Map(skills.map(skill => [skill.slug, skill.metadata.name]));
     const resolved = resolveFileMentions(
@@ -287,13 +291,21 @@ export abstract class BaseAgent implements AgentBackend {
       cleanMessage: resolved || (skillPaths.size ? 'Follow the mentioned Skill instructions.' : ''),
       missingSkills: parsed.invalidSkills,
       mcpServers: parsed.mcpServers,
+      unmetMcp,
     };
   }
 
-  private formatSkillDirective(skillPaths: Map<string, string>): string {
+  private formatSkillDirective(skillPaths: Map<string, string>, unmetMcp: Map<string, string[]>): string {
     if (!skillPaths.size) return '';
     const paths = [...skillPaths.entries()].map(([slug, path]) => `- ${path} (${slug})`).join('\n');
-    return `Read these Skill files before acting:\n${paths}`;
+    let directive = `Read these Skill files before acting:\n${paths}`;
+    // Told plainly so the model degrades honestly instead of inventing calls to
+    // a server that is not there.
+    for (const [slug, servers] of unmetMcp) {
+      const list = servers.map(server => `\`${server}\``).join(', ');
+      directive += `\nRequired MCP server${servers.length > 1 ? 's' : ''} for ${slug} not available: ${list}.`;
+    }
+    return directive;
   }
 
   async *chat(
@@ -301,7 +313,7 @@ export abstract class BaseAgent implements AgentBackend {
     attachments?: FileAttachment[],
     options?: ChatOptions
   ): AsyncGenerator<AgentEvent> {
-    const { skillPaths, cleanMessage, missingSkills, mcpServers } = this.extractSkillPaths(message);
+    const { skillPaths, cleanMessage, missingSkills, mcpServers, unmetMcp } = this.extractSkillPaths(message);
     if (missingSkills.length) {
       yield { type: 'error', message: `Skill(s) not found: ${missingSkills.join(', ')}` };
       yield { type: 'complete' };
@@ -311,7 +323,7 @@ export abstract class BaseAgent implements AgentBackend {
     if (branchContext) this.config.markBranchSeedApplied?.();
     const effectiveMessage = [
       branchContext,
-      this.formatSkillDirective(skillPaths),
+      this.formatSkillDirective(skillPaths, unmetMcp),
       formatMcpDirective(mcpServers),
       cleanMessage,
     ]

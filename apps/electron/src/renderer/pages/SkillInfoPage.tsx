@@ -221,8 +221,43 @@ export default function SkillInfoPage({ skillSlug, workspaceId }: SkillInfoPageP
                   {formatPath(skill.path)}
                 </button>
               </Info_Table.Row>
+              {skill.metadata.license && (
+                <Info_Table.Row label={t('skillInfo.license')}>{skill.metadata.license}</Info_Table.Row>
+              )}
+              {skill.metadata.compatibility && (
+                <Info_Table.Row label={t('skillInfo.compatibility')}>
+                  {skill.metadata.compatibility}
+                </Info_Table.Row>
+              )}
             </Info_Table>
           </Info_Section>
+
+          {/* Declared MCP dependencies. Shown whether or not they are met: an
+              unmet one still installs and still runs, it just degrades — and a
+              user staring at a skill that half-works deserves to see why. */}
+          {skill.mcpRequirements && skill.mcpRequirements.length > 0 && (
+            <Info_Section title={t('skillInfo.requiredMcp')}>
+              <Info_Table>
+                {skill.mcpRequirements.map((requirement) => (
+                  <Info_Table.Row key={requirement.server} label={requirement.server}>
+                    <span
+                      className={
+                        requirement.state === 'satisfied'
+                          ? 'text-foreground/80'
+                          : 'text-muted-foreground'
+                      }
+                    >
+                      {requirement.state === 'satisfied'
+                        ? t('skillInfo.mcpSatisfied')
+                        : requirement.state === 'disabled'
+                          ? t('skillInfo.mcpDisabled')
+                          : t('skillInfo.mcpMissing')}
+                    </span>
+                  </Info_Table.Row>
+                ))}
+              </Info_Table>
+            </Info_Section>
+          )}
 
           {/* Instructions */}
           <Info_Section

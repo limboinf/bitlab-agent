@@ -515,6 +515,11 @@ export interface ContextBreakdown {
   toolsTokens: number;
   /** Heuristic tokens of the model-visible conversation. */
   messageTokens: number;
+  /**
+   * Heuristic tokens of the skill catalog carried inside the system prompt.
+   * A SUBSET of {@link systemTokens} — never add it to the other three.
+   */
+  skillsTokens: number;
 }
 
 /**
