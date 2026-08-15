@@ -14,6 +14,7 @@ export const KEYS = {
   navigationPanelVisible: 'navigation-panel-visible',
   navigationPanelWidth: 'navigation-panel-width',
   collapsedSessionGroups: 'collapsed-session-groups',
+  sidebarExtensionsOpen: 'sidebar-extensions-open',
 
   // Focus mode
   focusModeEnabled: 'focus-mode-enabled',

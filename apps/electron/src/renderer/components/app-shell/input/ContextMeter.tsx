@@ -52,7 +52,7 @@ const ROWS = [
  * render a 1M context window as "1000k" in the one place the denominator is
  * always a whole context window.
  */
-export function formatContextTokens(n: number): string {
+function formatContextTokens(n: number): string {
   if (!Number.isFinite(n) || n < 0) return '0'
   const scaled = (v: number): string =>
     v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)

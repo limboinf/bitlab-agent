@@ -101,6 +101,9 @@ const CODE_FILE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="12" h
 // Folder icon (open folder) - matches UserMessageBubble style (12x12, text-muted-foreground)
 const FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" class="shrink-0 text-muted-foreground"><path d="M20.5 10C20.5 9.07003 20.5 8.60504 20.3978 8.22354C20.1204 7.18827 19.3117 6.37962 18.2765 6.10222C17.895 6 17.43 6 16.5 6H13.1008C12.4742 6 12.1609 6 11.8739 5.91181C11.6824 5.85298 11.5009 5.76572 11.3353 5.65295C11.0871 5.48389 10.8914 5.23926 10.5 4.75L10.4095 4.63693C10.107 4.25881 9.9558 4.06975 9.7736 3.92674C9.54464 3.74703 9.27921 3.61946 8.99585 3.55294C8.77037 3.5 8.52825 3.5 8.04402 3.5C6.60485 3.5 5.88527 3.5 5.32008 3.74178C4.61056 4.0453 4.0453 4.61056 3.74178 5.32008C3.5 5.88527 3.5 6.60485 3.5 8.04402V10M9.46502 20.5H14.535C16.9102 20.5 18.0978 20.5 18.9301 19.8113C19.7624 19.1226 19.9846 17.9559 20.429 15.6227L20.8217 13.5613C21.1358 11.9121 21.2929 11.0874 20.843 10.5437C20.393 10 19.5536 10 17.8746 10H6.12537C4.44643 10 3.60696 10 3.15704 10.5437C2.70713 11.0874 2.8642 11.9121 3.17835 13.5613L3.57099 15.6227C4.01541 17.9559 4.23763 19.1226 5.06992 19.8113C5.90221 20.5 7.08981 20.5 9.46502 20.5Z"/></svg>`
 
+/** Server icon for `[mcp:server]` badges (lucide "server", 12px). */
+const MCP_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg>`
+
 /** Known code file extensions - used to pick code file icon vs generic file icon */
 const CODE_EXTENSIONS = new Set([
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs',
@@ -151,6 +154,8 @@ function renderBadgeHTML(
       iconHtml = isCodeFile(label) ? CODE_FILE_ICON_SVG : FILE_ICON_SVG
     } else if (type === 'folder') {
       iconHtml = FOLDER_ICON_SVG
+    } else if (type === 'mcp') {
+      iconHtml = MCP_ICON_SVG
     }
   }
 
@@ -762,7 +767,10 @@ export const RichTextInput = React.forwardRef<RichTextInputHandle, RichTextInput
     // Check if value contains any mentions (badges) to adjust line height
     const hasMentions = React.useMemo(() => {
       const mentions = parseMentions(safeValue, skillSlugs)
-      return mentions.skills.length > 0 || mentions.files.length > 0 || mentions.folders.length > 0
+      return mentions.skills.length > 0
+        || mentions.files.length > 0
+        || mentions.folders.length > 0
+        || mentions.mcpServers.length > 0
     }, [safeValue, skillSlugs])
 
     return (

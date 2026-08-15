@@ -121,7 +121,7 @@ export function PermissionModeDropdown({
               ? cn(
                   'input-toolbar-btn h-7 rounded-[6px] px-1.5 text-[13px] transition-colors',
                   'hover:bg-foreground/5 data-[state=open]:bg-foreground/5',
-                  currentStyle[optimisticMode].className,
+                  optimisticMode === 'allow-all' ? 'text-accent' : 'text-foreground/70',
                 )
               : cn(
                   'h-[30px] rounded-[8px] pl-2.5 pr-2 text-xs shadow-tinted',

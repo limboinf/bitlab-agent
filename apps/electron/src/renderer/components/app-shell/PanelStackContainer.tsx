@@ -25,7 +25,6 @@
 import { useRef, useEffect } from 'react'
 import { useAtomValue } from 'jotai'
 import { motion } from 'motion/react'
-import { cn } from '@/lib/utils'
 import { panelStackAtom, focusedPanelIdAtom, focusedPanelRouteAtom } from '@/atoms/panel-stack'
 import { parseRouteToNavigationState } from '../../../shared/route-parser'
 import { isDetailNavState } from '@/lib/nav-helpers'
@@ -37,15 +36,10 @@ import {
   PANEL_GAP,
   PANEL_EDGE_INSET,
   PANEL_STACK_VERTICAL_OVERFLOW,
-  RADIUS_EDGE,
-  RADIUS_INNER,
 } from './panel-constants'
 
 /** Spring transition matching AppShell's sidebar/navigator animation */
 const PANEL_SPRING = { type: 'spring' as const, stiffness: 600, damping: 49 }
-
-/** Visual breathing room between the fixed compact TopBar and the first panel. */
-const COMPACT_PANEL_TOP_GAP = 8
 
 interface PanelStackContainerProps {
   sidebarSlot: React.ReactNode
@@ -127,9 +121,7 @@ export function PanelStackContainer({
         style={{
           paddingBlock: PANEL_STACK_VERTICAL_OVERFLOW,
           marginBlock: -PANEL_STACK_VERTICAL_OVERFLOW,
-          marginBottom: -6,
-          paddingBottom: 6,
-          '--compact-panel-stack-top': `${PANEL_STACK_VERTICAL_OVERFLOW + COMPACT_PANEL_TOP_GAP}px`,
+          '--compact-panel-stack-top': '0px',
         } as React.CSSProperties}
       >
         {/* Navigator slot — full width, slides left to -30% when detail focused. */}
@@ -137,17 +129,7 @@ export function PanelStackContainer({
           <CompactPanelTransition role="navigator" isDetailActive={hasSelectedContent}>
             <div
               data-panel-role="navigator"
-              className={cn(
-                'h-full w-full overflow-hidden relative',
-                'bg-background shadow-middle',
-              )}
-              style={{
-                // Compact mode runs flush to the viewport floor — no rounded bottom.
-                borderTopLeftRadius: RADIUS_INNER,
-                borderBottomLeftRadius: 0,
-                borderTopRightRadius: RADIUS_INNER,
-                borderBottomRightRadius: 0,
-              }}
+              className="relative h-full w-full overflow-hidden bg-foreground-2 pt-[var(--topbar-height)]"
             >
               {navigatorSlot}
             </div>
@@ -188,10 +170,6 @@ export function PanelStackContainer({
         overflowY: 'hidden',
         paddingBlock: PANEL_STACK_VERTICAL_OVERFLOW,
         marginBlock: -PANEL_STACK_VERTICAL_OVERFLOW,
-        marginBottom: -6,
-        paddingBottom: 6,
-        paddingRight: 8,
-        marginRight: -8,
       }}
     >
       <motion.div
@@ -229,16 +207,7 @@ export function PanelStackContainer({
             opacity: hasNavigator ? 1 : 0,
           }}
           transition={transition}
-          className={cn(
-            'h-full overflow-hidden relative shrink-0 z-[2]',
-            'bg-background shadow-middle',
-          )}
-          style={{
-            borderTopLeftRadius: RADIUS_INNER,
-            borderBottomLeftRadius: !hasSidebar ? RADIUS_EDGE : RADIUS_INNER,
-            borderTopRightRadius: RADIUS_INNER,
-            borderBottomRightRadius: RADIUS_INNER,
-          }}
+          className="relative z-[2] h-full shrink-0 overflow-hidden border-r border-border/30 bg-foreground-2 pt-[var(--topbar-height)]"
         >
           <div className="h-full" style={{ width: navigatorWidth }}>
             {navigatorSlot}
@@ -247,15 +216,7 @@ export function PanelStackContainer({
 
         {/* === CONTENT PANELS WITH SASHES === */}
         {visiblePanels.length === 0 ? (
-          <div
-            className="flex min-w-0 flex-1 overflow-hidden bg-background shadow-middle"
-            style={{
-              borderTopLeftRadius: RADIUS_INNER,
-              borderBottomLeftRadius: isLeftEdge ? RADIUS_EDGE : RADIUS_INNER,
-              borderTopRightRadius: RADIUS_INNER,
-              borderBottomRightRadius: !isRightSidebarVisible ? RADIUS_EDGE : RADIUS_INNER,
-            }}
-          >
+          <div className="flex min-w-0 flex-1 overflow-hidden bg-background pt-[var(--topbar-height)]">
             <WelcomePanel />
           </div>
         ) : (
