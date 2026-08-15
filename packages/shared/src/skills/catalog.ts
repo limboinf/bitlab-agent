@@ -33,6 +33,7 @@ import {
 import { getWorkspaceSkillsPath } from '../workspaces/storage.ts';
 import { getMcpServers } from '../config/storage.ts';
 import { findIconFile, validateIconValue } from '../utils/icon.ts';
+import { getBundledAssetsDir } from '../utils/paths.ts';
 
 /** Global agent skills directory: ~/.agents/skills/ */
 export const GLOBAL_AGENT_SKILLS_DIR = join(homedir(), '.agents', 'skills');
@@ -45,7 +46,11 @@ export interface SkillCatalogContext {
   workspaceRoot: string;
   /** Session working directory. Root of the project tier, when there is one. */
   projectRoot?: string;
-  /** Skills shipped as app resources. Present from P2. */
+  /**
+   * Skills shipped as app resources. Defaults to the bundled directory, which
+   * resolves across dev, packaged Electron, and the headless server; pass a
+   * path to point it elsewhere.
+   */
   builtinRoot?: string;
   /**
    * Global tier root. Defaults to `~/.agents/skills`, the cross-tool directory
@@ -201,7 +206,7 @@ export function tierRoot(source: SkillSource, ctx: SkillCatalogContext): string 
     case 'project':
       return ctx.projectRoot ? join(ctx.projectRoot, PROJECT_AGENT_SKILLS_DIR) : undefined;
     case 'builtin':
-      return ctx.builtinRoot;
+      return ctx.builtinRoot ?? getBundledAssetsDir('skills');
   }
 }
 

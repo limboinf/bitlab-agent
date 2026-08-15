@@ -13,8 +13,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { setBundledAssetsRoot } from '../../utils/paths.ts';
 import { SkillCatalog, makeSkillId, resolveSkillId, winnersOf } from '../catalog.ts';
-import { getSkillCatalog, getSkillsSnapshot, invalidateSkillsCache } from '../storage.ts';
+import { deleteSkillById, getSkillCatalog, getSkillsSnapshot, invalidateSkillsCache } from '../storage.ts';
 import { readSkillsConfig, setProjectTrust, setSkillEnabled } from '../config.ts';
 import type { CatalogSnapshot } from '../types.ts';
 
@@ -46,6 +47,9 @@ beforeEach(() => {
   workspaceRoot = join(tempDir, 'workspace');
   projectRoot = join(tempDir, 'project');
   globalDir = join(tempDir, 'global');
+  // The built-in tier resolves from bundled assets, which must not depend on
+  // where the test runner happens to be started from.
+  setBundledAssetsRoot(join(tempDir, 'no-bundled-assets'));
   mkdirSync(join(workspaceRoot, 'skills'), { recursive: true });
   mkdirSync(join(projectRoot, '.agents', 'skills'), { recursive: true });
   mkdirSync(globalDir, { recursive: true });
@@ -276,5 +280,43 @@ describe('revision', () => {
     setSkillEnabled(workspaceRoot, makeSkillId('workspace', file), false);
 
     expect(catalog().snapshot().revision).not.toBe(before);
+  });
+});
+
+describe('built-in tier', () => {
+  it('refuses to delete a built-in skill', () => {
+    const builtinRoot = join(tempDir, 'builtin');
+    mkdirSync(join(builtinRoot, 'shipped'), { recursive: true });
+    writeFileSync(
+      join(builtinRoot, 'shipped', 'SKILL.md'),
+      '---\nname: shipped\ndescription: ships with the app\n---\nbody\n'
+    );
+    const builtinCtx = { workspaceRoot, projectRoot, globalRoot: globalDir, builtinRoot };
+    const skillId = makeSkillId('builtin', join(builtinRoot, 'shipped', 'SKILL.md'));
+
+    // It loads like any other skill...
+    const entry = new SkillCatalog(builtinCtx).snapshot().entries.find((e) => e.slug === 'shipped');
+    expect(entry!.source).toBe('builtin');
+
+    // ...but the file belongs to the installation.
+    expect(() => deleteSkillById(skillId, builtinCtx)).toThrow(/cannot be deleted/);
+    expect(existsSync(join(builtinRoot, 'shipped', 'SKILL.md'))).toBe(true);
+  });
+
+  it('lets a workspace skill shadow a built-in one', () => {
+    const builtinRoot = join(tempDir, 'builtin2');
+    mkdirSync(join(builtinRoot, 'overridable'), { recursive: true });
+    writeFileSync(
+      join(builtinRoot, 'overridable', 'SKILL.md'),
+      '---\nname: overridable\ndescription: the shipped version\n---\nbody\n'
+    );
+    writeSkill(join(workspaceRoot, 'skills'), 'overridable', 'the user version');
+
+    const entries = new SkillCatalog({ workspaceRoot, projectRoot, globalRoot: globalDir, builtinRoot })
+      .snapshot()
+      .entries.filter((e) => e.slug === 'overridable');
+
+    expect(entries.find((e) => e.winner)!.source).toBe('workspace');
+    expect(entries.find((e) => e.source === 'builtin')!.shadowedBy).toBeDefined();
   });
 });

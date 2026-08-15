@@ -21,6 +21,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
+import { setBundledAssetsRoot } from '../../utils/paths.ts';
 import {
   invalidateSkillsCache,
   loadAllSkillEntries,
@@ -129,6 +130,9 @@ beforeEach(() => {
   // Create base directories
   mkdirSync(join(workspaceRoot, 'skills'), { recursive: true });
   mkdirSync(projectRoot, { recursive: true });
+  // The built-in tier resolves from bundled assets, which must not depend on
+  // where the test runner happens to be started from.
+  setBundledAssetsRoot(join(tempDir, 'no-bundled-assets'));
 
   // Precedence, not the trust gate, is what these tests are about.
   setProjectTrust(workspaceRoot, projectRoot, true);

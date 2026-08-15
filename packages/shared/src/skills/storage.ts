@@ -123,7 +123,13 @@ export function deleteSkillById(
   skillId: SkillId,
   ctx: SkillCatalogContext
 ): boolean {
-  const { entryPath } = resolveSkillId(skillId, ctx);
+  const { entryPath, source } = resolveSkillId(skillId, ctx);
+  // Built-in skills are app resources, replaced wholesale on update. Deleting
+  // one would remove a file the installation owns, so it is refused here
+  // rather than only in the UI. Disable it instead.
+  if (source === 'builtin') {
+    throw new Error('Built-in skills cannot be deleted. Disable it instead.');
+  }
   if (!existsSync(entryPath)) return false;
   try {
     rmSync(entryPath, { recursive: true });
