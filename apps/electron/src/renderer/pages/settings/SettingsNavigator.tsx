@@ -19,15 +19,9 @@ import {
 import { DropdownMenuProvider } from '@/components/ui/menu-context'
 import { cn } from '@/lib/utils'
 import { Separator } from '@/components/ui/separator'
-import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type { SettingsSubpage } from '../../../shared/types'
 import { SETTINGS_ITEMS } from '../../../shared/menu-schema'
 import { SETTINGS_ICONS } from '@/components/icons/SettingsIcons'
-
-export const meta: DetailsPageMeta = {
-  navigator: 'settings',
-  slug: 'navigator',
-}
 
 interface SettingsNavigatorProps {
   /**
@@ -92,12 +86,11 @@ function SettingsItemRow({ item, isSelected, isFirst, onSelect }: SettingsItemRo
           type="button"
           onClick={onSelect}
           className={cn(
-            'flex w-full items-start gap-2 pl-2 pr-4 py-3 text-left text-sm outline-none rounded-[8px]',
-            // Fast hover transition (75ms vs default 150ms)
+            'flex w-full items-start gap-2 rounded-md py-2.5 pl-2 pr-4 text-left text-sm outline-none',
             'transition-[background-color] duration-75',
             isSelected
-              ? 'bg-foreground/5 hover:bg-foreground/7'
-              : 'hover:bg-foreground/2'
+              ? 'bg-foreground/[0.055] hover:bg-foreground/[0.07]'
+              : 'hover:bg-foreground/[0.035]'
           )}
         >
           {/* Spacer for icon */}

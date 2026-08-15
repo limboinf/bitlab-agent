@@ -14,8 +14,8 @@ import { AGENTS_PLUGIN_NAME } from '@bitlab/shared/skills/types'
 import { getSkillIconSync } from './icon-cache'
 
 // Import and re-export parsing functions from shared (pure string operations, no renderer deps)
-import { parseMentions, stripAllMentions, resolveSkillMentions, type ParsedMentions } from '@bitlab/shared/mentions'
-export { parseMentions, stripAllMentions, resolveSkillMentions, type ParsedMentions }
+import { parseMentions, stripAllMentions, resolveMcpMentions, resolveSkillMentions, type ParsedMentions } from '@bitlab/shared/mentions'
+export { parseMentions, stripAllMentions, resolveMcpMentions, resolveSkillMentions, type ParsedMentions }
 
 // ============================================================================
 // Constants
@@ -83,6 +83,17 @@ export function findMentionMatches(
     })
   }
 
+  // Match MCP mentions: [mcp:server]
+  const mcpPattern = /\[mcp:([\w-]+)\]/g
+  while ((match = mcpPattern.exec(text)) !== null) {
+    matches.push({
+      type: 'mcp',
+      id: match[1]!,
+      fullMatch: match[0],
+      startIndex: match.index,
+    })
+  }
+
   // Match folder mentions: [folder:path]
   const folderPattern = /(\[folder:([^\]]+)\])/g
   while ((match = folderPattern.exec(text)) !== null) {
@@ -115,6 +126,9 @@ export function removeMention(text: string, type: MentionItemType, id: string): 
       break
     case 'folder':
       pattern = new RegExp(`\\[folder:${escapeRegExp(id)}\\]`, 'g')
+      break
+    case 'mcp':
+      pattern = new RegExp(`\\[mcp:${escapeRegExp(id)}\\]`, 'g')
       break
     case 'skill':
     default:
@@ -208,6 +222,8 @@ export function extractBadges(
       // Show folder name as label, full relative path stored for tooltip
       label = match.id.split('/').pop() || match.id
       filePath = match.id
+    } else if (match.type === 'mcp') {
+      label = match.id
     }
 
     // For skills, create fully-qualified rawText (pluginName:slug) so the agent

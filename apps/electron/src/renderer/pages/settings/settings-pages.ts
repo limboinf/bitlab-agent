@@ -21,6 +21,7 @@ import InputSettingsPage from './InputSettingsPage'
 import WorkspaceSettingsPage from './WorkspaceSettingsPage'
 import PermissionsSettingsPage from './PermissionsSettingsPage'
 import PluginsSettingsPage from './PluginsSettingsPage'
+import McpSettingsPage from './McpSettingsPage'
 import ShortcutsPage from './ShortcutsPage'
 import PreferencesPage from './PreferencesPage'
 
@@ -36,6 +37,7 @@ export const SETTINGS_PAGE_COMPONENTS: Record<SettingsSubpage, ComponentType> = 
   workspace: WorkspaceSettingsPage,
   permissions: PermissionsSettingsPage,
   plugins: PluginsSettingsPage,
+  mcp: McpSettingsPage,
   shortcuts: ShortcutsPage,
   preferences: PreferencesPage,
 }

@@ -18,6 +18,7 @@ import {
   useInlineSlashCommand,
   type SlashCommandId,
 } from '@/components/ui/slash-command-menu'
+import { useMcpServerOptions } from '@/hooks/useMcpServerOptions'
 import {
   InlineMentionMenu,
   useInlineMention,
@@ -130,6 +131,8 @@ export interface FreeFormInputProps {
   onPermissionModeChange?: (mode: PermissionMode) => void
   /** Enabled permission modes for Shift+Tab cycling (min 2 modes) */
   enabledModes?: PermissionMode[]
+  /** Offer configured MCP servers in `/mcp` and `@` (off when undefined). */
+  mcpPickerEnabled?: boolean
   // Controlled input value (for persisting across mode switches and conversation changes)
   /** Current input value - if provided, component becomes controlled */
   inputValue?: string
@@ -231,6 +234,7 @@ export function FreeFormInput({
   permissionMode = 'ask',
   onPermissionModeChange,
   enabledModes = DEFAULT_CYCLABLE_PERMISSION_MODES,
+  mcpPickerEnabled = true,
   inputValue,
   onInputChange,
   attachmentsValue,
@@ -259,15 +263,26 @@ export function FreeFormInput({
 }: FreeFormInputProps) {
   const { t } = useTranslation()
 
-  // Default rotating placeholders for onboarding/empty state (i18n-aware)
-  const defaultPlaceholders = React.useMemo(() => [
-    t("chatInput.placeholder.workOn"),
-    t("chatInput.placeholder.shiftTab"),
-    t("chatInput.placeholder.mention"),
-    t("chatInput.placeholder.newLine"),
-    t("chatInput.placeholder.sidebar", { key: cmdKey }),
-    t("chatInput.placeholder.focusMode", { key: cmdKey }),
-  ], [t])
+  // MCP servers offered by `/mcp` and `@`, with their live status.
+  const { servers: mcpServers } = useMcpServerOptions(mcpPickerEnabled)
+
+  // Rotating placeholders for the empty composer. They are the only place the
+  // input teaches its own affordances, so each one names a trigger the user
+  // can act on right there.
+  const defaultPlaceholders = React.useMemo(() => {
+    const hints = [
+      t("chatInput.placeholder.workOn"),
+      t("chatInput.placeholder.slash"),
+      t("chatInput.placeholder.mention"),
+      t("chatInput.placeholder.shiftTab"),
+      t("chatInput.placeholder.newLine"),
+      t("chatInput.placeholder.sidebar", { key: cmdKey }),
+      t("chatInput.placeholder.focusMode", { key: cmdKey }),
+    ]
+    // A hint for a feature nobody has set up is noise, not onboarding.
+    if (mcpServers.length > 0) hints.push(t("chatInput.placeholder.mcp"))
+    return hints
+  }, [t, mcpServers.length])
 
   const effectivePlaceholderProp = placeholder ?? defaultPlaceholders
 
@@ -352,13 +367,13 @@ export function FreeFormInput({
   const appShellContext = useOptionalAppShellContext()
   const isFocusedPanel = appShellContext?.isFocusedPanel ?? true
 
-  // Shuffle placeholder order once per mount so each session feels fresh.
-  // In compact mode, suppress desktop-keyboard guidance that is noisy or misleading
-  // on narrow/mobile-like layouts.
+  // In compact mode, suppress desktop-keyboard guidance that is noisy or
+  // misleading on narrow/mobile-like layouts. This filters the list actually
+  // shown (defaults included), not just an explicitly passed `placeholder`.
   const placeholderOptions = React.useMemo(() => {
-    if (!Array.isArray(placeholder)) return placeholder
-    if (!compactMode) return placeholder
-    return placeholder.filter((entry) => {
+    if (!Array.isArray(effectivePlaceholderProp)) return effectivePlaceholderProp
+    if (!compactMode) return effectivePlaceholderProp
+    return effectivePlaceholderProp.filter((entry) => {
       const lower = entry.toLowerCase()
       return !lower.includes('shift + tab')
         && !lower.includes('shift + return')
@@ -367,12 +382,16 @@ export function FreeFormInput({
         && !lower.includes('⌘')
         && !lower.includes('ctrl')
     })
-  }, [placeholder, compactMode])
+  }, [effectivePlaceholderProp, compactMode])
 
-  // Hide placeholder entirely when panel is unfocused in multi-panel layout
+  // Shuffle so each session opens on a different hint. Hide the placeholder
+  // entirely when the panel is unfocused in a multi-panel layout.
+  const placeholderCount = Array.isArray(placeholderOptions) ? placeholderOptions.length : 1
   const shuffledPlaceholder = React.useMemo(
-    () => Array.isArray(effectivePlaceholderProp) ? shuffleArray(effectivePlaceholderProp) : effectivePlaceholderProp,
-    [] // eslint-disable-line react-hooks/exhaustive-deps -- intentionally shuffle only on mount
+    () => Array.isArray(placeholderOptions) ? shuffleArray(placeholderOptions) : placeholderOptions,
+    // Shuffle once per hint set, not per render: the MCP hint is appended once
+    // the server list loads, and that is the only expected change.
+    [placeholderCount] // eslint-disable-line react-hooks/exhaustive-deps
   )
   const effectivePlaceholder = isFocusedPanel ? shuffledPlaceholder : ''
 
@@ -817,6 +836,36 @@ export function FreeFormInput({
     return () => window.removeEventListener('craft:paste-files', handlePasteFiles as unknown as EventListener)
   }, [disabled, sessionId, isFocusedPanel, richInputRef])
 
+  const mcpMenuItems = React.useMemo(
+    () => mcpServers.map((server) => ({
+      name: server.name,
+      ...(server.display ? { statusLabel: t(`settings.mcp.status.${server.display.status}`) } : {}),
+      ...(server.display?.toolCount !== undefined ? { toolCount: server.display.toolCount } : {}),
+    })),
+    [mcpServers, t],
+  )
+  const mcpMentionItems = React.useMemo(
+    () => (mcpPickerEnabled ? mcpMenuItems.map((server) => ({
+      name: server.name,
+      ...(server.statusLabel || server.toolCount !== undefined
+        ? {
+            status: [
+              server.statusLabel,
+              server.toolCount !== undefined
+                ? t('settings.mcp.server.toolCount', { count: server.toolCount })
+                : null,
+            ].filter(Boolean).join(' · '),
+          }
+        : {}),
+    })) : []),
+    [mcpMenuItems, mcpPickerEnabled, t],
+  )
+  const mcpLabels = React.useMemo(() => ({
+    section: t('mcpMention.section'),
+    description: t('mcpMention.itemDescription'),
+    toolCount: (count: number) => t('settings.mcp.server.toolCount', { count }),
+  }), [t])
+
   // Build active commands list for slash command menu
   const activeCommands = React.useMemo(() => {
     const active: SlashCommandId[] = []
@@ -832,18 +881,22 @@ export function FreeFormInput({
     if (commandId === 'safe') onPermissionModeChange?.('safe')
     else if (commandId === 'ask') onPermissionModeChange?.('ask')
     else if (commandId === 'allow-all') onPermissionModeChange?.('allow-all')
+    // `mcp:<server>` needs no side effect: the hook puts its token in the
+    // input, and the message carries the instruction from there.
     else if (commandId === 'compact' && !isProcessing) onSubmit('/compact', undefined)
   }, [onPermissionModeChange, isProcessing, onSubmit])
 
-  // Inline slash command hook (modes and features).
+  // Inline slash command hook (modes, MCP scope and features).
   const inlineSlash = useInlineSlashCommand({
     inputRef: richInputRef,
     onSelectCommand: handleSlashCommand,
     activeCommands,
     enabledModes,
+    mcpServers: mcpMenuItems,
+    mcpLabels,
   })
 
-  // Inline mention hook (for skills and files)
+  // Inline mention hook (skills, files and MCP servers)
   const inlineMention = useInlineMention({
     inputRef: richInputRef,
     skills,
@@ -851,6 +904,8 @@ export function FreeFormInput({
     onSelect: () => undefined,
     // Use workspace slug (not UUID) for SDK skill qualification
     workspaceId: workspaceSlug,
+    mcpServers: mcpMentionItems,
+    mcpSectionLabel: t('mcpMention.section'),
   })
 
   // Report height changes to parent (for external animation sync)
@@ -1086,6 +1141,9 @@ export function FreeFormInput({
     const mentions = parseMentions(input, skills.map(s => s.slug))
     const attachmentSnapshot = attachments
 
+    // The `[mcp:server]` token rides along with the message: the agent turns
+    // it into an explicit "use this server" instruction (see formatMcpDirective),
+    // and the transcript keeps rendering it as a chip.
     onSubmit(
       input.trim(),
       attachmentSnapshot.length > 0 ? attachmentSnapshot : undefined,
@@ -1334,8 +1392,7 @@ export function FreeFormInput({
         className={cn(
           'overflow-hidden transition-all',
           // Container styling - only when not wrapped by InputContainer
-          !unstyled && 'rounded-[16px] shadow-middle',
-          !unstyled && 'bg-background',
+          !unstyled && 'rounded-[24px] border border-foreground/[0.08] bg-background',
           isDraggingOver && 'ring-2 ring-foreground ring-offset-2 ring-offset-background bg-foreground/5'
         )}
         onDragEnter={handleDragEnter}
@@ -1492,7 +1549,7 @@ export function FreeFormInput({
           disabled={disabled}
           skills={skills}
           workspaceId={workspaceSlug}
-          className="pl-5 pr-4 pt-4 pb-3 overflow-y-auto min-h-[88px]"
+          className="overflow-y-auto min-h-[100px] px-5 pb-3 pt-4"
           style={{ maxHeight: inputMaxHeight }}
           data-tutorial="chat-input"
           spellCheck={spellCheck}
@@ -1507,7 +1564,7 @@ export function FreeFormInput({
             sessionId={sessionId}
           />
 
-          <div className={cn("flex items-center gap-1 px-2 py-2", !compactMode && "border-t border-border/50")}>
+          <div className="flex items-center gap-1 px-2 pb-2 pt-0.5">
           {/* Hidden file input for attach button (shared by compact and desktop) */}
           <input
             ref={fileInputRef}

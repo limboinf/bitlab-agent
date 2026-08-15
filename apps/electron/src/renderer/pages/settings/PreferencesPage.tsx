@@ -23,12 +23,6 @@ import {
   SettingsTextarea,
 } from '@/components/settings'
 import { EditPopover, EditButton, getEditConfig } from '@/components/ui/EditPopover'
-import type { DetailsPageMeta } from '@/lib/navigation-registry'
-
-export const meta: DetailsPageMeta = {
-  navigator: 'settings',
-  slug: 'preferences',
-}
 
 interface PreferencesFormState {
   name: string

@@ -2,7 +2,7 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from "react-i18next"
 import { Command as CommandPrimitive } from 'cmdk'
-import { Check, Minimize2 } from 'lucide-react'
+import { Check, Minimize2, Server } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   PERMISSION_MODE_CONFIG,
@@ -18,7 +18,23 @@ import { getInlineMenuFixedStyle } from './inline-menu-position'
 // Types
 // ============================================================================
 
-export type SlashCommandId = PermissionMode | 'compact'
+/**
+ * `mcp:<server>` names an MCP server to use for the next request. A template
+ * literal rather than an enum because the servers are the user's own
+ * configuration, not a fixed set.
+ */
+export type McpServerCommandId = `mcp:${string}`
+
+export type SlashCommandId = PermissionMode | 'compact' | McpServerCommandId
+
+/** The server a `/mcp` command names. */
+export function mcpServerOfCommand(id: SlashCommandId): string {
+  return id.slice('mcp:'.length)
+}
+
+export function isMcpServerCommand(id: SlashCommandId): id is McpServerCommandId {
+  return id.startsWith('mcp:')
+}
 
 /** Union type for all item types in the slash menu */
 export type SlashItemType = 'command'
@@ -31,6 +47,8 @@ export interface SlashCommand {
   shortcut?: string
   /** Optional color for the command (hex color string) */
   color?: string
+  /** Muted trailing text (MCP status and tool count, for instance) */
+  meta?: string
 }
 
 /** Section with header for the inline slash menu */
@@ -142,7 +160,10 @@ function CommandItemContent({ command, isActive }: { command: SlashCommand; isAc
   return (
     <>
       <div className="shrink-0 text-muted-foreground">{command.icon}</div>
-      <div className="flex-1 min-w-0">{label}</div>
+      <div className="flex-1 min-w-0 truncate">{label}</div>
+      {command.meta && (
+        <div className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{command.meta}</div>
+      )}
       {isActive && (
         <div className="shrink-0 h-4 w-4 rounded-full bg-current flex items-center justify-center">
           <Check className="h-2.5 w-2.5 text-white dark:text-black" strokeWidth={3} />
@@ -450,6 +471,14 @@ export interface SlashCommandInputElement {
   selectionStart: number
 }
 
+/** One MCP server offered by the `/mcp` section. */
+export interface McpScopeMenuItem {
+  name: string
+  /** Localized status label, e.g. "已连接". */
+  statusLabel?: string
+  toolCount?: number
+}
+
 export interface UseInlineSlashCommandOptions {
   /** Ref to input element (textarea or RichTextInput handle) */
   inputRef: React.RefObject<SlashCommandInputElement | null>
@@ -457,6 +486,10 @@ export interface UseInlineSlashCommandOptions {
   activeCommands?: SlashCommandId[]
   /** Permission modes the workspace exposes (defaults to the two-state set) */
   enabledModes?: PermissionMode[]
+  /** Enabled MCP servers; empty hides the MCP section entirely. */
+  mcpServers?: McpScopeMenuItem[]
+  /** Localized labels for the MCP section (the menu owns no copy of its own). */
+  mcpLabels?: { section: string; description: string; toolCount: (count: number) => string }
 }
 
 export interface UseInlineSlashCommandReturn {
@@ -475,6 +508,8 @@ export function useInlineSlashCommand({
   onSelectCommand,
   activeCommands = [],
   enabledModes = DEFAULT_CYCLABLE_PERMISSION_MODES,
+  mcpServers = [],
+  mcpLabels,
 }: UseInlineSlashCommandOptions): UseInlineSlashCommandReturn {
   const [isOpen, setIsOpen] = React.useState(false)
   const [filter, setFilter] = React.useState('')
@@ -497,6 +532,25 @@ export function useInlineSlashCommand({
       })
     }
 
+    // MCP section: picking a server drops its token into the message, the
+    // same shape an @-mention leaves behind — the message then carries an
+    // explicit "use this server" instruction with it.
+    if (mcpServers.length > 0 && mcpLabels) {
+      result.push({
+        id: 'mcp',
+        label: mcpLabels.section,
+        items: mcpServers.map((server): SlashCommand => ({
+          id: `mcp:${server.name}`,
+          label: server.name,
+          description: mcpLabels.description,
+          icon: <Server className={MENU_ICON_SIZE} />,
+          meta: [server.statusLabel, server.toolCount !== undefined ? mcpLabels.toolCount(server.toolCount) : null]
+            .filter(Boolean)
+            .join(' · '),
+        })),
+      })
+    }
+
     // Commands section
     result.push({
       id: 'commands',
@@ -505,7 +559,7 @@ export function useInlineSlashCommand({
     })
 
     return result
-  }, [enabledModes])
+  }, [enabledModes, mcpServers, mcpLabels])
 
   const handleInputChange = React.useCallback((value: string, cursorPosition: number) => {
     // Store current state for handleSelect
@@ -573,7 +627,12 @@ export function useInlineSlashCommand({
       const { value: currentValue, cursorPosition } = currentInputRef.current
       const before = currentValue.slice(0, slashStart)
       const after = currentValue.slice(cursorPosition)
-      result = (before + after).trim()
+      // Mode and feature commands act immediately and leave nothing behind;
+      // an MCP server is part of the message being written, so it stays in the
+      // input as a token (rendered as a chip) until the message is sent.
+      result = isMcpServerCommand(commandId)
+        ? `${before}[mcp:${mcpServerOfCommand(commandId)}] ${after}`
+        : (before + after).trim()
     }
 
     // Now safe to trigger state changes

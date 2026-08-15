@@ -28,7 +28,6 @@ import {
   PERMISSION_MODE_LABEL_KEYS,
   DEFAULT_CYCLABLE_PERMISSION_MODES,
 } from '@bitlab/shared/agent/mode-types'
-import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import { toast } from 'sonner'
 
 import {
@@ -38,11 +37,6 @@ import {
   SettingsToggle,
   SettingsMenuSelectRow,
 } from '@/components/settings'
-
-export const meta: DetailsPageMeta = {
-  navigator: 'settings',
-  slug: 'workspace',
-}
 
 // ============================================
 // Main Component

@@ -29,12 +29,6 @@ import {
 import { EditPopover, EditButton, getEditConfig } from '@/components/ui/EditPopover'
 import { getDocUrl } from '@bitlab/shared/docs/doc-links'
 import { routes } from '@/lib/navigate'
-import type { DetailsPageMeta } from '@/lib/navigation-registry'
-
-export const meta: DetailsPageMeta = {
-  navigator: 'settings',
-  slug: 'permissions',
-}
 
 /**
  * Build default permissions data from ~/.bitlab/permissions/default.json.

@@ -277,3 +277,29 @@ describe('extractBadges - skill qualification with workspace slug', () => {
   })
 
 })
+
+// ============================================================================
+// MCP mentions — the composer's "use this MCP server" chip
+// ============================================================================
+
+describe('MCP mentions', () => {
+  it('finds the token with its position so the chip can be rendered', () => {
+    const matches = findMentionMatches('查 [mcp:notion] 的纪要', [])
+    expect(matches).toEqual([{
+      type: 'mcp',
+      id: 'notion',
+      fullMatch: '[mcp:notion]',
+      startIndex: 2,
+    }])
+  })
+
+  it('removes one server without touching another', () => {
+    expect(removeMention('[mcp:notion] [mcp:linear]', 'mcp', 'notion')).toBe('[mcp:linear]')
+  })
+
+  it('renders as a badge labelled with the server name', () => {
+    const badges = extractBadges('[mcp:notion]', [], 'ws')
+    expect(badges).toHaveLength(1)
+    expect(badges[0]).toMatchObject({ type: 'mcp', label: 'notion', rawText: '[mcp:notion]' })
+  })
+})

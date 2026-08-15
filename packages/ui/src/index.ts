@@ -38,6 +38,8 @@ export {
   isAnnotationFollowUpSent,
   extractAnnotationSelectedText,
   normalizeFollowUpText,
+  getMcpActivityPresentation,
+  isExternalMcpToolName,
   // Inline execution for EditPopover
   InlineExecution,
   mapToolEventToActivity,
@@ -57,6 +59,8 @@ export {
   type InlineExecutionProps,
   type InlineExecutionStatus,
   type InlineActivityItem,
+  type McpActivityAction,
+  type McpActivityPresentation,
 } from './components/chat'
 
 // Markdown

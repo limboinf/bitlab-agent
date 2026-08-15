@@ -24,7 +24,6 @@ import { fullscreenOverlayOpenAtom } from '@/atoms/overlay'
 import { motion, AnimatePresence } from 'motion/react'
 import type { LlmConnectionWithStatus, ThinkingLevel, WorkspaceSettings, Workspace } from '../../../shared/types'
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVELS } from '@bitlab/shared/agent/thinking-levels'
-import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -99,11 +98,6 @@ function getModelOptionsForConnection(
     description: m.description,
     descriptionKey: m.descriptionKey,
   }))
-}
-
-export const meta: DetailsPageMeta = {
-  navigator: 'settings',
-  slug: 'ai',
 }
 
 // ============================================

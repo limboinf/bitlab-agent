@@ -12,7 +12,7 @@ import { getInlineMenuFixedStyle } from './inline-menu-position'
 // Types
 // ============================================================================
 
-export type MentionItemType = 'skill' | 'file' | 'folder'
+export type MentionItemType = 'skill' | 'file' | 'folder' | 'mcp'
 
 export interface MentionItem {
   id: string
@@ -22,6 +22,8 @@ export interface MentionItem {
   // Type-specific data
   skill?: LoadedSkill
   file?: { path: string; type: 'file' | 'directory'; relativePath: string }
+  /** MCP server status line, shown as the item's description. */
+  mcpStatus?: string
 }
 
 export interface MentionSection {
@@ -453,6 +455,10 @@ export interface UseInlineMentionOptions {
   onSelect: (item: MentionItem) => void
   /** Workspace ID for fully-qualified skill names */
   workspaceId?: string
+  /** Enabled MCP servers offered as `[mcp:name]` mentions. */
+  mcpServers?: Array<{ name: string; status?: string }>
+  /** Localized section label (the menu owns no copy of its own). */
+  mcpSectionLabel?: string
 }
 
 export interface UseInlineMentionReturn {
@@ -473,6 +479,8 @@ export function useInlineMention({
   basePath,
   onSelect,
   workspaceId,
+  mcpServers = [],
+  mcpSectionLabel = 'MCP',
 }: UseInlineMentionOptions): UseInlineMentionReturn {
   const [isOpen, setIsOpen] = React.useState(false)
   const [filter, setFilter] = React.useState('')
@@ -519,6 +527,21 @@ export function useInlineMention({
       })
     }
 
+    // MCP section: picking one scopes the session to that server (the mention
+    // is applied and removed on send, it is not text the model reads).
+    if (mcpServers.length > 0) {
+      result.push({
+        id: 'mcp',
+        label: mcpSectionLabel,
+        items: mcpServers.map(server => ({
+          id: server.name,
+          type: 'mcp' as const,
+          label: server.name,
+          ...(server.status ? { description: server.status, mcpStatus: server.status } : {}),
+        })),
+      })
+    }
+
     // Files section (from async search results)
     if (fileResults.length > 0) {
       result.push({
@@ -529,7 +552,7 @@ export function useInlineMention({
     }
 
     return result
-  }, [skills, fileResults])
+  }, [skills, fileResults, mcpServers, mcpSectionLabel])
 
   const handleInputChange = React.useCallback((value: string, cursorPosition: number) => {
     // Store current state for handleSelect
@@ -664,7 +687,7 @@ export function useInlineMention({
       const before = currentValue.slice(0, atStart)
       const after = currentValue.slice(cursorPosition)
 
-      const buildMentionText = (kind: 'skill' | 'file' | 'folder', value: string): string =>
+      const buildMentionText = (kind: MentionItemType, value: string): string =>
         '[' + kind + ':' + value + '] '
 
       // Build the mention text based on type using bracket syntax.
@@ -682,6 +705,8 @@ export function useInlineMention({
         mentionText = buildMentionText('file', item.file?.relativePath || item.id)
       } else if (item.type === 'folder') {
         mentionText = buildMentionText('folder', item.file?.relativePath || item.id)
+      } else if (item.type === 'mcp') {
+        mentionText = buildMentionText('mcp', item.id)
       } else {
         mentionText = buildMentionText('skill', item.id)
       }
