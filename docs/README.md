@@ -25,6 +25,7 @@ This directory is the English-language user documentation. A Chinese translation
 | Releases, updates, and telemetry | [releases.md](./releases.md) |
 | Sessions | [sessions.md](./sessions.md) |
 | Skills | [skills.md](./skills.md) |
+| Skills design proposal (Hub, marketplace, authoring) | [skills-design.md](./skills-design.md) |
 | Testing | [testing.md](./testing.md) |
 | Upstream synchronization | [upstream-sync.md](./upstream-sync.md) |
 
