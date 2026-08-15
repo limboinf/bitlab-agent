@@ -41,7 +41,7 @@ Plan the deck structure, draft slide titles, then run `pptx-tool` to materialize
 | `license` | no | Recorded and displayed |
 | `compatibility` | no | Environment prerequisites. Recorded and displayed |
 | `metadata` | no | Free-form string map. Bitlab reads `bitlab.icon` (emoji or URL; a URL is downloaded to `icon.<ext>` in the Skill directory, inline SVG and relative paths are rejected) and `bitlab.requiresMcp` (comma-separated MCP server names, resolved against workspace config) |
-| `allowed-tools` | no | Parsed and displayed. Grants nothing — every tool call still goes through the normal permission prompt |
+| `allowed-tools` | no | Pre-approves those tools for the turn that invokes the Skill (see below) |
 | `disable-model-invocation` | no | Hides the Skill from the catalog the model sees; it remains explicitly invocable |
 
 A top-level `icon` field is still read as a fallback, but `metadata.bitlab.icon` is the form to write. Per spec, `name` should match the directory name; a mismatch loads with a warning rather than failing.
@@ -75,6 +75,29 @@ Creating a Skill means creating the directory and `SKILL.md` yourself, or asking
 
 Paths derived from a slug or a Skill id are canonicalized and checked against their tier root before any filesystem operation, so neither a traversal nor an escaping symlink can reach a directory outside the tier.
 
+## Tool pre-approval
+
+A Skill's `allowed-tools` covers **the turn that invoked it** and clears when
+the user sends the next message. Invoking the Skill again re-applies it.
+
+It only ever widens. A tool that is not listed keeps its normal prompt, and
+nothing in a Skill can turn a refusal into an allowance:
+
+- `safe` mode blocks writes outright and never reaches the prompt decision, so
+  a grant there has nothing to widen.
+- Dangerous commands (`rm`, `sudo`, `curl`, …) are prompted no matter who
+  declared them. A Skill asking for `Bash(rm:*)` gets the declaration shown at
+  install time and the prompt anyway.
+
+Patterns are the specification's: `Read` grants the tool; `Bash(git:*)` grants
+one command family. The prefix is a command, not a substring — `Bash(git:*)`
+does not cover `gitleaks`. Only Bash matches on arguments; a file path is not a
+command, so `Write(src:*)` grants nothing.
+
+Persistent pre-approval is not this field's job — that belongs in
+`permissions.json`. Setting `skillToolApproval` to `false` in the global config
+makes every declaration inert without editing any Skill.
+
 ## Project trust
 
 Project-tier Skills execute instructions that arrive with a checkout, so they stay out of the runtime until the project root is trusted. Until then they are still listed, marked untrusted, and contribute nothing — the workspace or global copy of the same slug wins instead.
@@ -86,5 +109,4 @@ Trust is per project root, persisted in the workspace's `skills.json`, and revoc
 - No install or update — the only lifecycle operations are create-by-hand and delete.
 - Delete, open-in-editor, and reveal-in-file-manager are workspace-tier only.
 - Edits are picked up on a 5-minute TTL rather than a file watcher.
-- `allowed-tools` is displayed but grants nothing.
 - Shadowed Skills across tiers are recorded in the catalog but not yet surfaced in the UI.

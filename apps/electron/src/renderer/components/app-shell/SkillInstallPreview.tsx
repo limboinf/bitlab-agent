@@ -89,14 +89,15 @@ export function SkillInstallPreview({
           </div>
         ) : (
           <div className="flex flex-col gap-3 min-h-0">
-            {/* Declared, not granted. The engine still prompts for every call. */}
+            {/* What the skill asks for. The grant lasts one turn and widens
+                only — safe mode and dangerous commands still prompt. */}
             {plan.metadata?.allowedTools?.length ? (
               <div className="rounded-[8px] border border-border/60 px-3 py-2.5">
                 <p className="text-xs text-foreground/70">{t('skillInstall.declaresTools')}</p>
                 <p className="mt-1 font-mono text-[11px] text-foreground/80 break-words">
                   {plan.metadata.allowedTools.join('  ')}
                 </p>
-                <p className="mt-1.5 text-[11px] text-muted-foreground">{t('skillInstall.toolsGrantNothing')}</p>
+                <p className="mt-1.5 text-[11px] text-muted-foreground">{t('skillInstall.toolsScope')}</p>
               </div>
             ) : null}
 

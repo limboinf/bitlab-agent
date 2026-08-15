@@ -12,6 +12,7 @@
  */
 
 import { homedir } from 'os';
+import { grantsToolCall, parseToolPatterns, type ToolPattern } from '../../skills/tool-grants.ts';
 import {
   getPermissionMode,
   setPermissionMode,
@@ -68,6 +69,11 @@ export class PermissionManager {
   private permissionsContext: PermissionsContext;
 
   // Session-scoped whitelists for "always allow" feature
+  /**
+   * Tools an activated skill declared. Cleared when the user speaks again, so
+   * a grant never outlives the turn that earned it (§5.10).
+   */
+  private turnToolGrants: ToolPattern[] = [];
   private alwaysAllowedCommands: Set<string> = new Set();
   private alwaysAllowedDomains: Set<string> = new Set();
 
@@ -343,7 +349,26 @@ export class PermissionManager {
    * Clear all session-scoped whitelists.
    * Called on session clear or dispose.
    */
+  /** Apply an activated skill's `allowed-tools` for the current turn. */
+  grantToolsForTurn(declarations: readonly string[] | undefined): void {
+    this.turnToolGrants = parseToolPatterns(declarations);
+  }
+
+  /** Drop any per-turn grant. Called when the user sends the next message. */
+  clearTurnToolGrants(): void {
+    this.turnToolGrants = [];
+  }
+
+  /**
+   * Whether an activated skill pre-approved this call. Consulted only where a
+   * prompt would otherwise be raised — it widens, and never overrides a block.
+   */
+  isGrantedForTurn(toolName: string, input: Record<string, unknown>): boolean {
+    return grantsToolCall(this.turnToolGrants, toolName, input);
+  }
+
   clearWhitelists(): void {
+    this.turnToolGrants = [];
     this.alwaysAllowedCommands.clear();
     this.alwaysAllowedDomains.clear();
   }

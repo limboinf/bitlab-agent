@@ -970,7 +970,7 @@
   "skillInstall.scriptsNote_other": "{{count}} 个脚本。脚本按正常权限流程执行；安装时不会运行任何东西。",
   "skillInstall.source": "SKILL.md",
   "skillInstall.title": "安装 Skill",
-  "skillInstall.toolsGrantNothing": "仅为声明——每次工具调用仍会请求授权。",
+  "skillInstall.toolsScope": "仅在调用该 Skill 的那一轮预授权。safe 模式与危险命令仍会请求确认。",
   "skillsList.addSkill": "添加技能",
   "skillsList.deleteSkill": "删除技能",
   "skillsList.emptyDescription": "技能是可复用的说明，教智能体学习专门的行为。",

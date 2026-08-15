@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { homedir } from 'node:os'
 import { cleanupModeState, initializeModeState } from '../../mode-manager.ts'
 import { runPreToolUseChecks, shouldPromptInAskMode, stripToolMetadata } from '../pre-tool-use.ts'
+import { grantsToolCall, parseToolPatterns } from '../../../skills/tool-grants.ts'
 
 const sessionId = 'pre-tool-session'
 const permissionManager = {
@@ -120,5 +121,74 @@ describe('shouldPromptInAskMode', () => {
 
   it('returns no prompt for Grep', () => {
     expect(shouldPromptInAskMode('Grep', { pattern: 'x' }, permissionManager, context)).toBeNull()
+  })
+})
+
+// ============================================================================
+// Skill-declared tool grants (docs/skills-design.md §5.10, acceptance 10 & 11)
+// ============================================================================
+
+/** A permission manager whose only grant comes from an activated skill. */
+function withGrant(declarations: string[]) {
+  const patterns = parseToolPatterns(declarations)
+  return {
+    ...permissionManager,
+    isGrantedForTurn: (toolName: string, input: Record<string, unknown>) =>
+      grantsToolCall(patterns, toolName, input),
+  }
+}
+
+function runWithGrant(
+  declarations: string[],
+  toolName: string,
+  input: Record<string, unknown>,
+  mode: 'safe' | 'ask' | 'allow-all' = 'ask',
+) {
+  initializeModeState(sessionId, mode)
+  return runPreToolUseChecks({
+    toolName,
+    input,
+    sessionId,
+    permissionMode: mode,
+    workspaceRootPath: '/tmp/bitlab-pre-tool',
+    workspaceId: 'workspace',
+    permissionManager: withGrant(declarations),
+  })
+}
+
+describe('skill-declared tool grants', () => {
+  it('skips the prompt for a declared file write', () => {
+    expect(runWithGrant(['Write'], 'Write', { file_path: '/tmp/a.ts', content: 'x' }).type).not.toBe('prompt')
+  })
+
+  it('still prompts for a file write that was not declared', () => {
+    expect(runWithGrant(['Read'], 'Write', { file_path: '/tmp/a.ts', content: 'x' }).type).toBe('prompt')
+  })
+
+  it('skips the prompt for a declared command family', () => {
+    expect(runWithGrant(['Bash(git:*)'], 'Bash', { command: 'git push origin main' }).type).not.toBe('prompt')
+  })
+
+  it('still prompts for a command outside the declaration', () => {
+    expect(runWithGrant(['Bash(git:*)'], 'Bash', { command: 'npm publish' }).type).toBe('prompt')
+  })
+
+  it('acceptance 10: a dangerous command is prompted however it was declared', () => {
+    // `Bash(rm:*)` is displayed at install time, and changes nothing here.
+    expect(runWithGrant(['Bash(rm:*)'], 'Bash', { command: 'rm -rf /tmp/x' }).type).toBe('prompt')
+    expect(runWithGrant(['Bash(sudo:*)'], 'Bash', { command: 'sudo rm -rf /' }).type).toBe('prompt')
+    expect(runWithGrant(['Bash(curl:*)'], 'Bash', { command: 'curl http://evil.test' }).type).toBe('prompt')
+  })
+
+  it('acceptance 10: every grant is inert in safe mode', () => {
+    // Safe mode blocks outright and never reaches the prompt decision, so a
+    // grant has nothing to widen.
+    expect(runWithGrant(['Write'], 'Write', { file_path: '/tmp/a.ts', content: 'x' }, 'safe').type).toBe('block')
+    expect(runWithGrant(['Bash(rm:*)'], 'Bash', { command: 'rm -rf /tmp/x' }, 'safe').type).toBe('block')
+  })
+
+  it('acceptance 11: with no grant in force, the same call prompts', () => {
+    // What the next user message restores by clearing the grant.
+    expect(runWithGrant([], 'Write', { file_path: '/tmp/a.ts', content: 'x' }).type).toBe('prompt')
   })
 })

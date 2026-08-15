@@ -469,6 +469,8 @@ export interface PreToolUseInput {
  */
 export interface PermissionManagerLike {
   isCommandWhitelisted(command: string): boolean;
+  /** An activated skill's declared tools, in force for this turn only. */
+  isGrantedForTurn?(toolName: string, input: Record<string, unknown>): boolean;
   isDangerousCommand(command: string): boolean;
   getBaseCommand(command: string): string;
   extractDomainFromNetworkCommand(command: string): string | null;
@@ -794,6 +796,10 @@ export function shouldPromptInAskMode(
       onDebug?.(`Auto-allowing "${toolName}" (previously approved)`);
       return null;
     }
+    if (permissionManager.isGrantedForTurn?.(toolName, input)) {
+      onDebug?.(`Auto-allowing "${toolName}" (declared by the active skill)`);
+      return null;
+    }
     const filePath = (input.file_path as string) || (input.notebook_path as string) || 'unknown';
     return {
       promptType: 'file_write',
@@ -824,6 +830,15 @@ export function shouldPromptInAskMode(
     if (permissionManager.isCommandWhitelisted(baseCommand) &&
         !permissionManager.isDangerousCommand(baseCommand)) {
       onDebug?.(`Auto-allowing "${baseCommand}" (previously approved)`);
+      return null;
+    }
+
+    // A skill's declaration is treated exactly like a prior approval, and is
+    // subject to the same exclusion: a dangerous command is prompted no matter
+    // who asked for it.
+    if (permissionManager.isGrantedForTurn?.(toolName, input) &&
+        !permissionManager.isDangerousCommand(baseCommand)) {
+      onDebug?.(`Auto-allowing "${baseCommand}" (declared by the active skill)`);
       return null;
     }
 

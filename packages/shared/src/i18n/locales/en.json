@@ -970,7 +970,7 @@
   "skillInstall.scriptsNote_other": "{{count}} scripts. Scripts run through the normal permission prompts; nothing runs on install.",
   "skillInstall.source": "SKILL.md",
   "skillInstall.title": "Install skill",
-  "skillInstall.toolsGrantNothing": "Declared only — every tool call still asks for permission.",
+  "skillInstall.toolsScope": "Pre-approved for the turn that invokes this skill. Safe mode and dangerous commands still prompt.",
   "skillsList.addSkill": "Add Skill",
   "skillsList.deleteSkill": "Delete Skill",
   "skillsList.emptyDescription": "Skills are reusable instructions that teach your agent specialized behaviors.",

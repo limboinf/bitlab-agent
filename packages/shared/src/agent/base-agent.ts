@@ -7,6 +7,7 @@ import type { Workspace } from '../config/storage.ts';
 import { formatMcpDirective, parseMentions, resolveFileMentions, resolveMcpMentions, resolveSkillMentions } from '../mentions/index.ts';
 import { getSessionPath, getSessionPlansPath, getSessionDataPath } from '../sessions/storage.ts';
 import { loadAllSkills, GLOBAL_AGENT_SKILLS_DIR, PROJECT_AGENT_SKILLS_DIR } from '../skills/storage.ts';
+import { getSkillToolApprovalEnabled } from '../config/storage.ts';
 import { buildRegenerateTitlePrompt, buildTitlePrompt, validateTitle } from '../utils/title-generator.ts';
 import type {
   AgentBackend,
@@ -269,15 +270,20 @@ export abstract class BaseAgent implements AgentBackend {
     missingSkills: string[];
     mcpServers: string[];
     unmetMcp: Map<string, string[]>;
+    grantedTools: string[];
   } {
     const skills = loadAllSkills(this.config.workspace.dataRoot, this.config.workspace.folderPath ?? undefined);
     const parsed = parseMentions(message, skills.map(skill => skill.slug));
     const skillPaths = new Map<string, string>();
     const unmetMcp = new Map<string, string[]>();
+    const grantedTools: string[] = [];
     for (const slug of parsed.skills) {
       const skill = skills.find(candidate => candidate.slug === slug);
       const skillPath = skill ? join(skill.path, 'SKILL.md') : undefined;
-      if (skillPath && existsSync(skillPath)) skillPaths.set(slug, skillPath);
+      if (skillPath && existsSync(skillPath)) {
+        skillPaths.set(slug, skillPath);
+        if (skill?.metadata.allowedTools) grantedTools.push(...skill.metadata.allowedTools);
+      }
       const unmet = skill?.mcpRequirements?.filter(requirement => requirement.state !== 'satisfied') ?? [];
       if (unmet.length) unmetMcp.set(slug, unmet.map(requirement => requirement.server));
     }
@@ -292,6 +298,7 @@ export abstract class BaseAgent implements AgentBackend {
       missingSkills: parsed.invalidSkills,
       mcpServers: parsed.mcpServers,
       unmetMcp,
+      grantedTools,
     };
   }
 
@@ -313,7 +320,15 @@ export abstract class BaseAgent implements AgentBackend {
     attachments?: FileAttachment[],
     options?: ChatOptions
   ): AsyncGenerator<AgentEvent> {
-    const { skillPaths, cleanMessage, missingSkills, mcpServers, unmetMcp } = this.extractSkillPaths(message);
+    // A new user message ends the previous turn, and with it any grant an
+    // activated skill was given (§5.10).
+    this.permissionManager.clearTurnToolGrants();
+    const { skillPaths, cleanMessage, missingSkills, mcpServers, unmetMcp, grantedTools } =
+      this.extractSkillPaths(message);
+    // One switch turns the whole mechanism off without editing any skill.
+    this.permissionManager.grantToolsForTurn(
+      getSkillToolApprovalEnabled() ? grantedTools : undefined,
+    );
     if (missingSkills.length) {
       yield { type: 'error', message: `Skill(s) not found: ${missingSkills.join(', ')}` };
       yield { type: 'complete' };
