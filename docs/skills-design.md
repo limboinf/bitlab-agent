@@ -2,9 +2,16 @@
 
 Bitlab ships a Skills feature that predates the Pi migration. This document records what the code actually does today, what the ecosystem has standardized on, and a staged proposal for a Skills Hub — discovery, installation, authoring, and lifecycle management.
 
-Status: proposal. Nothing here is implemented. [`skills.md`](./skills.md) documents the shipped behavior.
+Status: **P0 through P2 are implemented.** [`skills.md`](./skills.md) documents the shipped behavior and is the reference for how things work now; this document is kept as the design record — the reasoning, the alternatives weighed, and what was deliberately deferred. §1 describes the state that motivated the work, in the past tense of a problem statement, not of current behavior.
 
 Revision note: §1.2 and §5.2 were rewritten after a review found the original root-cause analysis wrong. The claims below are backed by a reproducible probe against the pinned SDK — see [§1.6](#16-reproducing-the-probe).
+
+Corrections found during implementation, recorded because the errors were load-bearing:
+
+- **§1.4 said `globs` and `alwaysAllow` had "no consumer anywhere in the codebase". They had three.** `SkillInfoPage.tsx` rendered a whole "Permission Modes" table gated on `alwaysAllow`; `config/validators.ts` carried both in its schema; `EditPopover.tsx` advertised them to the agent when authoring a skill. The UI one mattered most: it told the user a skill had pre-approved permissions while the engine never read the field — the table was describing something that did not happen.
+- **§5.2 said `applySystemPromptOverride` had one call site. It had two.** The second was an ephemeral session created with `tools: []` and no resource loader, so deleting the helper outright would have broken it; it got its own minimal loader instead.
+- **§5.2's seam list was right but incomplete in one respect.** `DefaultResourceLoader` caches its resolved skills until the next `reload()`, and `reload()` rebuilds the extension runtime — too heavy to run on every `SKILL.md` edit. `BitlabResourceLoader` therefore answers `getSkills()` and `getSystemPrompt()` from the catalog on every call instead of delegating them.
+- **§1.1 noted that `~/.agents` is pinned to `homedir()`.** That also made the global tier untestable, so the catalog takes an optional root; the default is unchanged.
 
 ## 1. Current state, verified against the code
 
@@ -643,13 +650,15 @@ Headless needs an explicit, non-interactive channel: a `BITLAB_TRUSTED_PROJECT_R
 
 | Phase | Scope | Depends on |
 | --- | --- | --- |
-| **P0 — Correctness** | Unconditional resource loader (§5.2 precondition); `SkillCatalog` as the single resolver; `PiSkillBridge` via public seams; delete `applySystemPromptOverride`; project trust gate incl. the headless channel; `skillId` + path containment; delete the dead `Skill` qualification path; drop `globs`/`alwaysAllow`; UI↔runtime consistency tests | none |
-| **P1 — Management** | Installed tab grouped by tier with shadows; enable/disable with fallthrough; precise delete/open per `skillId`; full live reload (catalog revision → UI + session); catalog cost attributed in the context meter; MCP dependency resolution and display | P0 |
-| **P2 — Authoring & import** | `create-skill` and the Built-in tab; `skill_write` session tool; `SkillInstaller` with folder / `.zip` / Git; preview drawer incl. scripts and `compatibility`; validator surfaced in the UI; `allowed-tools` / `disallowed-tools` with Claude Code semantics plus the `skill_approval` switch (§5.10) | P1 |
-| **P3 — Marketplace** | Static registry, categories, install/update/uninstall, provenance, signature verification | P2 |
-| **P4 — Bundles** | Expert-Kit equivalent: Skills + MCP servers + permission presets as one unit | P3, MCP config work |
+| **P0 — Correctness** ✅ | Unconditional resource loader (§5.2 precondition); `SkillCatalog` as the single resolver; `PiSkillBridge` via public seams; delete `applySystemPromptOverride`; project trust gate incl. the headless channel; `skillId` + path containment; delete the dead `Skill` qualification path; drop `globs`/`alwaysAllow`; UI↔runtime consistency tests | none |
+| **P1 — Management** ✅ | Installed tab grouped by tier with shadows; enable/disable with fallthrough; precise delete/open per `skillId`; full live reload (catalog revision → UI + session); catalog cost attributed in the context meter; MCP dependency resolution and display | P0 |
+| **P2 — Authoring & import** ✅ | `create-skill` and the Built-in tab; `skill_write` session tool; `SkillInstaller` with folder / `.zip` / Git; preview drawer incl. scripts and `compatibility`; validator surfaced in the UI; `allowed-tools` / `disallowed-tools` with Claude Code semantics plus the `skill_approval` switch (§5.10) | P1 |
+| **P3 — Marketplace** (not started) | Static registry, categories, install/update/uninstall, provenance, signature verification | P2 |
+| **P4 — Bundles** (not started) | Expert-Kit equivalent: Skills + MCP servers + permission presets as one unit | P3, MCP config work |
 
 P0 is a correctness release: it fixes a security bug, removes dead code, and makes the feature do what its own documentation claims. It is worth shipping whether or not the marketplace ever exists.
+
+**Implementation notes.** Precedence resolves on the directory slug rather than the frontmatter `name` — the slug is what the user manipulates on disk and what `[skill:slug]` addresses, and the spec requires the two to match anyway; reconciling with Pi's name-based identity happens in the bridge, which also drops and reports two winners declaring the same name. `skill_write` was not built: `create-skill` proposes a file and the existing write tool saves it, already carrying the permission prompt, and a second way to write a file would be a second thing to keep honest. Archive extraction shells out to `unzip`, which covers macOS and Linux; the fetchers sit behind one interface so a Windows backend slots in without touching the validation pipeline.
 
 ### Acceptance tests
 
