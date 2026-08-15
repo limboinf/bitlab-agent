@@ -21,6 +21,7 @@
  *   BITLAB_WEBUI_PASSWORD       — optional shorter password for web login (falls back to BITLAB_SERVER_TOKEN)
  *   BITLAB_WEBUI_SECURE_COOKIE  — optional true/false override for the session cookie Secure flag
  *   BITLAB_WEBUI_WS_URL         — optional browser-facing ws:// or wss:// URL returned by /api/config
+ *   BITLAB_WEBUI_REQUIRE_LOGIN  — 'true' to require the login page even from this machine
  */
 
 import { join } from 'node:path'
@@ -135,6 +136,33 @@ const webuiSecureCookies = parseOptionalBooleanEnv('BITLAB_WEBUI_SECURE_COOKIE',
 const webuiWsUrl = parseOptionalWebSocketUrl('BITLAB_WEBUI_WS_URL', process.env.BITLAB_WEBUI_WS_URL)
 const serverToken = process.env.BITLAB_SERVER_TOKEN
 
+// Mirrors headless-start's own default so the bind address is known before
+// bootstrap runs — the WebUI handler is built first and needs it.
+const rpcHostForBind = process.env.BITLAB_RPC_HOST ?? '127.0.0.1'
+
+/**
+ * Whether a request arriving from 127.0.0.1 can be trusted as "someone sitting
+ * at this machine", which is what lets the local browser skip the login page.
+ *
+ * Off whenever loopback stops implying that:
+ *  - bound to a non-loopback address: the box is reachable from the network, and
+ *    a local foothold shouldn't inherit full agent access without a token;
+ *  - a reverse proxy is in front (BITLAB_WEBUI_WS_URL): every proxied request
+ *    arrives from 127.0.0.1, so the bypass would apply to the whole internet.
+ * Also off on explicit opt-out via BITLAB_WEBUI_REQUIRE_LOGIN.
+ */
+function resolveLoopbackBypass(): boolean {
+  if (parseOptionalBooleanEnv('BITLAB_WEBUI_REQUIRE_LOGIN', process.env.BITLAB_WEBUI_REQUIRE_LOGIN)) {
+    return false
+  }
+  if (webuiWsUrl) return false
+  return rpcHostForBind === '127.0.0.1'
+    || rpcHostForBind === 'localhost'
+    || rpcHostForBind === '::1'
+}
+
+const allowLoopbackWithoutAuth = resolveLoopbackBypass()
+
 // ---------------------------------------------------------------------------
 // Create WebUI handler early so it can be embedded in the WsRpcServer.
 // The handler is a pure function — it doesn't need the session manager yet
@@ -158,6 +186,7 @@ if (webuiEnabled && serverToken) {
     password: process.env.BITLAB_WEBUI_PASSWORD || undefined,
     secureCookies: webuiSecureCookies,
     publicWsUrl: webuiWsUrl,
+    allowLoopbackWithoutAuth,
     wsProtocol: rpcProtocol,
     // WebUI is served on the same port as WS — wsPort matches the RPC port
     wsPort: rpcPort,
@@ -181,6 +210,7 @@ const instance = await (async () => {
             return session !== null
           }
         : undefined,
+      allowLoopbackWithoutAuth: webuiEnabled ? allowLoopbackWithoutAuth : false,
       // Embed the WebUI HTTP handler on the WS server's port
       httpHandler: webuiNodeHandler,
       applyPlatformToSubsystems: (platform) => {
@@ -269,7 +299,14 @@ const serverProto = instance.protocol === 'wss' ? 'https' : 'http'
 console.log(`BITLAB_SERVER_URL=${instance.protocol}://${instance.host}:${instance.port}`)
 console.log(`BITLAB_SERVER_TOKEN=${instance.token}`)
 if (webuiHandler) {
-  console.log(`BITLAB_WEBUI_URL=${serverProto}://0.0.0.0:${instance.port}`)
+  // Report the address actually bound, not a hardcoded 0.0.0.0 — that wording
+  // read as "exposed to the whole network" when the default binds to loopback.
+  console.log(`BITLAB_WEBUI_URL=${serverProto}://${instance.host}:${instance.port}`)
+  console.log(
+    allowLoopbackWithoutAuth
+      ? 'BITLAB_WEBUI_LOCAL_LOGIN=skipped (loopback requests are trusted)'
+      : 'BITLAB_WEBUI_LOCAL_LOGIN=required',
+  )
 }
 
 // Block binding to a non-localhost address without TLS — tokens would be sent in cleartext.

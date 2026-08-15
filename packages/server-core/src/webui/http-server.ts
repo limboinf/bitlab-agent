@@ -23,6 +23,8 @@ import {
   buildSessionCookie,
   buildLogoutCookie,
 } from './auth'
+import { isLoopbackAddress } from './loopback'
+import type { RequestPeer } from './node-adapter'
 import type { PlatformServices } from '../runtime/platform'
 
 // ---------------------------------------------------------------------------
@@ -143,6 +145,16 @@ export interface WebuiHandlerOptions {
    * and 'direct' is used as the rate-limit key.
    */
   trustedProxies?: string[]
+  /**
+   * Skip the session-cookie check for requests whose TCP peer is loopback, so
+   * the browser on this machine doesn't have to log in to reach its own agent.
+   *
+   * The caller must leave this off whenever loopback stops meaning "this
+   * machine" — i.e. when a reverse proxy fronts the server (every proxied
+   * request arrives from 127.0.0.1) or when bound to a non-loopback address.
+   * See `resolveLoopbackBypass` in packages/server/src/index.ts.
+   */
+  allowLoopbackWithoutAuth?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -150,8 +162,8 @@ export interface WebuiHandlerOptions {
 // ---------------------------------------------------------------------------
 
 export interface WebuiHandler {
-  /** Web-standard fetch handler. */
-  fetch: (req: Request) => Promise<Response>
+  /** Web-standard fetch handler. `peer` carries socket facts the Request can't. */
+  fetch: (req: Request, peer?: RequestPeer) => Promise<Response>
   /** Call on shutdown to release timers. */
   dispose: () => void
 }
@@ -174,6 +186,7 @@ export function createWebuiHandler(options: WebuiHandlerOptions): WebuiHandler {
     getHealthCheck,
     logger,
     trustedProxies,
+    allowLoopbackWithoutAuth = false,
   } = options
 
   const rateLimiter = new RateLimiter(5, 60_000)
@@ -204,7 +217,17 @@ export function createWebuiHandler(options: WebuiHandlerOptions): WebuiHandler {
     return 'direct'
   }
 
-  async function fetch(req: Request): Promise<Response> {
+  /**
+   * A request is authorized when it carries a valid session cookie, or when it
+   * came from this machine and the local bypass is enabled. Peer address comes
+   * from the socket, never from a header.
+   */
+  async function isAuthorized(req: Request, peer: RequestPeer): Promise<boolean> {
+    if (allowLoopbackWithoutAuth && isLoopbackAddress(peer.remoteAddress)) return true
+    return (await validateSession(req.headers.get('cookie'), secret)) !== null
+  }
+
+  async function fetch(req: Request, peer: RequestPeer = {}): Promise<Response> {
     const url = new URL(req.url)
     const path = url.pathname
     const useSecureCookies = shouldUseSecureCookies(req, secureCookies)
@@ -291,8 +314,7 @@ export function createWebuiHandler(options: WebuiHandlerOptions): WebuiHandler {
 
     // ── Config endpoint (requires session cookie) ──
     if (path === '/api/config' && req.method === 'GET') {
-      const configSession = await validateSession(req.headers.get('cookie'), secret)
-      if (!configSession) {
+      if (!await isAuthorized(req, peer)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 })
       }
       return Response.json({
@@ -302,8 +324,7 @@ export function createWebuiHandler(options: WebuiHandlerOptions): WebuiHandler {
 
     // Return the default workspace ID so the webui can include it in the WS handshake
     if (path === '/api/config/workspaces' && req.method === 'GET') {
-      const configSession = await validateSession(req.headers.get('cookie'), secret)
-      if (!configSession) {
+      if (!await isAuthorized(req, peer)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 })
       }
       const { getActiveWorkspace } = await import('@bitlab/shared/config/storage')
@@ -313,11 +334,8 @@ export function createWebuiHandler(options: WebuiHandlerOptions): WebuiHandler {
       })
     }
 
-    // ── Everything below requires a valid session cookie ──
-    const cookieHeader = req.headers.get('cookie')
-    const session = await validateSession(cookieHeader, secret)
-
-    if (!session) {
+    // ── Everything below requires auth (session cookie, or local bypass) ──
+    if (!await isAuthorized(req, peer)) {
       const accept = req.headers.get('accept') ?? ''
       if (accept.includes('text/html') || path === '/' || path === '') {
         return Response.redirect('/login', 302)
@@ -419,11 +437,14 @@ export async function startWebuiHttpServer(
 
   const server = Bun.serve({
     port,
-    fetch: handler.fetch,
+    // Bun passes the Server as the second arg, not our peer info — ask it for
+    // the socket address explicitly so the loopback check sees a real value
+    // instead of silently falling back to "not local".
+    fetch: (req, srv) => handler.fetch(req, { remoteAddress: srv.requestIP(req)?.address }),
   })
 
   const boundPort = server.port ?? port
-  logger.info(`[webui] Web UI server listening on http://0.0.0.0:${boundPort}`)
+  logger.info(`[webui] Web UI server listening on port ${boundPort}`)
 
   return {
     port: boundPort,
