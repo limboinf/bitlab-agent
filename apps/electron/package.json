@@ -1,7 +1,7 @@
 {
   "name": "@bitlab/electron",
   "desktopName": "bitlab.desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Electron desktop app for Bitlab",
   "main": "dist/main.cjs",
   "private": true,

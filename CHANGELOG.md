@@ -13,6 +13,40 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.2.2] - 2026-08-15
+
+### Added
+
+- **MCP servers run inside your sessions.** Configure Model Context Protocol
+  servers per workspace over stdio, SSE, or streamable HTTP, and their tools and
+  resources become available to the agent in every session. Remote servers that
+  require OAuth are authorized through a loopback redirect flow and their tokens
+  refresh on their own. Servers you have not trusted ask before a tool runs, and
+  an unanswered request denies itself rather than hanging the turn.
+- **A Connectors settings page.** Add, edit, enable, and authorize MCP servers,
+  including transport, arguments, and environment variables, with a live probe
+  showing whether each server actually connects and what it exposes. Configured
+  servers also show up behind `@`-mentions and the `/mcp` command with their
+  current status, and MCP tool calls render as their own activity blocks in the
+  conversation.
+- **A browser on the same machine skips the WebUI login.** Requests arriving
+  from loopback are trusted by their TCP peer address, never by headers. This
+  stays off when the server is bound to a non-loopback address, when it sits
+  behind a reverse proxy, and whenever `BITLAB_WEBUI_REQUIRE_LOGIN` is set.
+
+### Changed
+
+- **A reorganized app shell.** Navigation gains an Extensions section grouping
+  Skills and Connectors, the sidebar is now Tasks, and section titles carry
+  counts. The session list keeps status in a fixed-width gutter showing one
+  status at a time, moves the flag beside the title, and drops per-row
+  separators at compact density. New sessions open on a leaner welcome screen.
+
+### Fixed
+
+- HTML previews no longer collapse into a single column — the overlay measures
+  the width the content actually wants instead of shrinking to fit.
+
 ## [0.2.1] - 2026-08-13
 
 ### Added
@@ -109,6 +143,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.2.2]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.2
 [0.2.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.1
 [0.2.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.0
 [0.1.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.1.0
