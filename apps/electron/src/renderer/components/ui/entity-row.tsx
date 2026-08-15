@@ -117,6 +117,9 @@ export interface EntityRowProps {
   className?: string
   /** Separator padding class (default: 'pl-12 pr-4') */
   separatorClassName?: string
+  /** Vertical rhythm. 'compact' is for high-count scanning lists (sessions):
+   *  single-line rows at ~32px so a tall sidebar shows twice as many. */
+  density?: 'default' | 'compact'
 }
 
 export function EntityRow({
@@ -145,7 +148,9 @@ export function EntityRow({
   dataAttributes,
   className,
   separatorClassName = 'pl-12 pr-4',
+  density = 'default',
 }: EntityRowProps) {
+  const isCompactDensity = density === 'compact'
   const [menuOpen, setMenuOpen] = useState(false)
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [compactMenuOpen, setCompactMenuOpen] = useState(false)
@@ -277,11 +282,12 @@ export function EntityRow({
       <button
         {...(buttonProps as React.ButtonHTMLAttributes<HTMLButtonElement>)}
         className={cn(
-          "entity-row-btn flex w-full items-start gap-2 pl-2 pr-4 py-3 text-left text-sm outline-none rounded-[8px]",
+          "entity-row-btn flex w-full items-start gap-2 pl-2 pr-4 text-left text-sm outline-none rounded-md",
+          isCompactDensity ? "py-[5px]" : "py-3",
           "transition-[background-color] duration-75",
           (isSelected || isInMultiSelect)
-            ? "bg-foreground/3"
-            : "hover:bg-foreground/2",
+            ? "bg-foreground/[0.055]"
+            : "hover:bg-foreground/[0.035]",
           (buttonProps as Record<string, unknown>)?.className as string | undefined,
         )}
         onMouseDown={wrappedOnMouseDown}
@@ -294,12 +300,15 @@ export function EntityRow({
         onContextMenu={useCompactMenu ? onContextMenuCompact : undefined}
       >
         {/* Content column */}
-        <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+        <div className={cn("flex flex-col min-w-0 flex-1", isCompactDensity ? "gap-0.5" : "gap-1.5")}>
           {/* Title */}
           {titleTrailing ? (
-            <div className="flex items-center gap-[10px] w-full min-w-0">
+            <div className={cn("flex items-center w-full min-w-0", isCompactDensity ? "gap-2" : "gap-[10px]")}>
               {icon && (
-                <div className="shrink-0 flex items-center gap-[10px] [&>*]:w-3 [&>*]:h-3">
+                <div className={cn(
+                  "shrink-0 flex items-center [&>*]:w-3 [&>*]:h-3",
+                  isCompactDensity ? "gap-2" : "gap-[10px]",
+                )}>
                   {icon}
                 </div>
               )}

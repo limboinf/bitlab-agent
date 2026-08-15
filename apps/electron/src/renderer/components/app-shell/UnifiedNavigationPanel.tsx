@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Archive, ArrowLeft, Check, CheckCheck, Flag, Inbox, Settings, Zap } from 'lucide-react'
+import { Archive, Check, CheckCheck, ChevronRight, Flag, Inbox, Plug, Settings, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   ContextMenu,
@@ -15,13 +15,14 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@bitlab/ui'
 import { useFocusZone } from '@/hooks/keyboard'
 import { mergeRefs } from '@/lib/merge-refs'
+import * as storage from '@/lib/local-storage'
 import type { Workspace } from '../../../shared/types'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import { SidebarMenu } from './SidebarMenu'
 import { SquarePenRounded } from '../icons/SquarePenRounded'
 import { PanelHeader } from './PanelHeader'
 
-export type UnifiedNavigationSection = 'sessions' | 'skills' | 'settings'
+export type UnifiedNavigationSection = 'sessions' | 'skills' | 'mcp' | 'settings'
 export type SessionNavigationView = 'all' | 'flagged' | 'archived'
 
 interface UnifiedNavigationPanelProps {
@@ -38,6 +39,8 @@ interface UnifiedNavigationPanelProps {
   activeSection: UnifiedNavigationSection
   activeSessionView: SessionNavigationView
   title: string
+  /** Optional badge rendered next to the title (e.g., total skill count) */
+  titleBadge?: React.ReactNode
   sessionCounts: {
     all: number
     flagged: number
@@ -63,6 +66,7 @@ export function UnifiedNavigationPanel({
   activeSection,
   activeSessionView,
   title,
+  titleBadge,
   sessionCounts,
   onSelectSessionView,
   onMarkAllSessionsRead,
@@ -73,6 +77,17 @@ export function UnifiedNavigationPanel({
   const { t } = useTranslation()
   const navigationRootRef = React.useRef<HTMLDivElement>(null)
   const isSessionsSection = activeSection === 'sessions'
+  const [extensionsOpen, setExtensionsOpen] = React.useState(() =>
+    storage.get(storage.KEYS.sidebarExtensionsOpen, true),
+  )
+
+  React.useEffect(() => {
+    if (activeSection === 'skills' || activeSection === 'mcp') {
+      setExtensionsOpen(true)
+      storage.set(storage.KEYS.sidebarExtensionsOpen, true)
+    }
+  }, [activeSection])
+
   const focusFirst = React.useCallback(() => {
     navigationRootRef.current
       ?.querySelector<HTMLElement>('[data-navigation-primary="true"]')
@@ -84,6 +99,13 @@ export function UnifiedNavigationPanel({
     () => mergeRefs<HTMLDivElement>(navigationRootRef, zoneRef),
     [zoneRef],
   )
+
+  const toggleExtensions = React.useCallback(() => {
+    setExtensionsOpen((open) => {
+      storage.set(storage.KEYS.sidebarExtensionsOpen, !open)
+      return !open
+    })
+  }, [])
 
   const sessionTitleMenu = isSessionsSection ? (
     <>
@@ -119,83 +141,100 @@ export function UnifiedNavigationPanel({
 
   return (
     <div ref={setRootRef} className="flex h-full min-w-0 flex-col select-none">
-      {isSessionsSection ? (
-        <>
-          <div className="shrink-0 px-2 pb-1.5">
-            <WorkspaceSwitcher
-              variant="sidebar"
-              workspaces={workspaces}
-              activeWorkspaceId={activeWorkspaceId}
-              onSelect={onSelectWorkspace}
-              onWorkspaceCreated={onWorkspaceCreated}
-              onWorkspaceRemoved={onWorkspaceRemoved}
-              workspaceUnreadMap={workspaceUnreadMap}
+      <div className="shrink-0 px-2 pb-1 pt-1">
+        <WorkspaceSwitcher
+          variant="sidebar"
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
+          onSelect={onSelectWorkspace}
+          onWorkspaceCreated={onWorkspaceCreated}
+          onWorkspaceRemoved={onWorkspaceRemoved}
+          workspaceUnreadMap={workspaceUnreadMap}
+        />
+      </div>
+
+      <div className="shrink-0 px-2 pb-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div>
+              <ContextMenu modal>
+                <ContextMenuTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(event) => onNewSession(event.metaKey || event.ctrlKey)}
+                    className={cn(
+                      'flex h-8 w-full items-center justify-start gap-2 rounded-md px-2',
+                      'text-left text-[13px] font-medium text-foreground/90',
+                      'outline-none transition-colors hover:bg-foreground/4',
+                      'focus-visible:bg-foreground/4 focus-visible:ring-1 focus-visible:ring-ring',
+                    )}
+                    data-navigation-primary="true"
+                    data-tutorial="new-chat-button"
+                  >
+                    <SquarePenRounded className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    <span className="truncate">{t('navigation.newChat')}</span>
+                  </button>
+                </ContextMenuTrigger>
+                <StyledContextMenuContent>
+                  <ContextMenuProvider>
+                    <SidebarMenu type="newSession" />
+                  </ContextMenuProvider>
+                </StyledContextMenuContent>
+              </ContextMenu>
+            </div>
+          </TooltipTrigger>
+          {newSessionHotkey && (
+            <TooltipContent side="right">{newSessionHotkey}</TooltipContent>
+          )}
+        </Tooltip>
+      </div>
+
+      <nav className="shrink-0 px-2 pb-1.5" aria-label={t('sidebar.extensions')}>
+        <button
+          type="button"
+          onClick={toggleExtensions}
+          className={cn(
+            'flex h-7 w-full items-center gap-1.5 rounded-md px-2',
+            'text-left text-[12px] font-medium text-muted-foreground',
+            'outline-none transition-colors hover:bg-foreground/4 hover:text-foreground',
+            'focus-visible:ring-1 focus-visible:ring-ring',
+          )}
+          aria-expanded={extensionsOpen}
+        >
+          <ChevronRight
+            className={cn(
+              'h-3 w-3 shrink-0 transition-transform',
+              extensionsOpen && 'rotate-90',
+            )}
+          />
+          <span className="truncate">{t('sidebar.extensions')}</span>
+        </button>
+        {extensionsOpen && (
+          <div className="ml-3 border-l border-border/40 pl-1">
+            <NavigationButton
+              icon={<Zap className="h-3.5 w-3.5" />}
+              label={t('sidebar.skills')}
+              active={activeSection === 'skills'}
+              onClick={() => onSelectSection('skills')}
+            />
+            <NavigationButton
+              icon={<Plug className="h-3.5 w-3.5" />}
+              label={t('sidebar.connectors')}
+              active={activeSection === 'mcp'}
+              onClick={() => onSelectSection('mcp')}
             />
           </div>
-
-          <div className="shrink-0 px-2 pb-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div>
-                  <ContextMenu modal>
-                    <ContextMenuTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(event) => onNewSession(event.metaKey || event.ctrlKey)}
-                        className={cn(
-                          'flex h-8 w-full items-center justify-start gap-2 rounded-[7px] px-2',
-                          'text-left text-[13px] font-medium text-foreground/90',
-                          'outline-none transition-colors hover:bg-foreground/4',
-                          'focus-visible:bg-foreground/4 focus-visible:ring-1 focus-visible:ring-ring',
-                        )}
-                        data-navigation-primary="true"
-                        data-tutorial="new-chat-button"
-                      >
-                        <SquarePenRounded className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                        <span className="truncate">{t('navigation.newChat')}</span>
-                      </button>
-                    </ContextMenuTrigger>
-                    <StyledContextMenuContent>
-                      <ContextMenuProvider>
-                        <SidebarMenu type="newSession" />
-                      </ContextMenuProvider>
-                    </StyledContextMenuContent>
-                  </ContextMenu>
-                </div>
-              </TooltipTrigger>
-              {newSessionHotkey && (
-                <TooltipContent side="right">{newSessionHotkey}</TooltipContent>
-              )}
-            </Tooltip>
-          </div>
-        </>
-      ) : (
-        <div className="shrink-0 px-2 pb-1.5 pt-0.5">
-          <button
-            type="button"
-            onClick={onReturnToSessions}
-            className={cn(
-              'flex h-8 w-full items-center justify-start gap-2 rounded-[7px] px-2',
-              'text-left text-[13px] font-medium text-foreground/90',
-              'outline-none transition-colors hover:bg-foreground/4',
-              'focus-visible:bg-foreground/4 focus-visible:ring-1 focus-visible:ring-ring',
-            )}
-            data-navigation-primary="true"
-            aria-label={t('common.back')}
-          >
-            <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-            <span className="truncate">{t('common.back')}</span>
-          </button>
-        </div>
-      )}
+        )}
+      </nav>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="mx-2 border-t border-border/40" aria-hidden="true" />
+        <div className="mx-2 border-t border-border/30" aria-hidden="true" />
         <PanelHeader
           title={title}
+          badge={titleBadge}
           titleMenu={sessionTitleMenu}
           actions={headerActions}
-          className="h-8 pl-2.5 [&_h1]:text-xs [&_h1]:font-medium"
+          className="h-8 pl-2.5 [&_h1]:text-xs [&_h1]:font-medium [&_h1]:text-muted-foreground"
         />
         {isSessionsSection ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
@@ -205,20 +244,20 @@ export function UnifiedNavigationPanel({
       </div>
 
       <nav
-        className="grid shrink-0 gap-0.5 border-t border-border/50 px-2 pb-2 pt-1.5"
+        className="grid shrink-0 gap-0.5 border-t border-border/40 px-2 pb-2 pt-1.5"
         aria-label="Workspace navigation"
       >
-        <NavigationButton
-          icon={<Zap className="h-3.5 w-3.5" />}
-          label={t('sidebar.skills')}
-          active={activeSection === 'skills'}
-          onClick={() => onSelectSection('skills')}
-        />
         <NavigationButton
           icon={<Settings className="h-3.5 w-3.5" />}
           label={t('sidebar.settings')}
           active={activeSection === 'settings'}
-          onClick={() => onSelectSection('settings')}
+          onClick={() => {
+            if (activeSection === 'settings') {
+              onReturnToSessions()
+              return
+            }
+            onSelectSection('settings')
+          }}
         />
       </nav>
     </div>
@@ -284,14 +323,17 @@ function NavigationButton({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex w-full items-center gap-2 rounded-[6px] px-2 py-[7px] text-left text-[13px]',
+        'relative flex w-full items-center gap-2 rounded-md px-2 py-[6px] text-left text-[13px]',
         'outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring',
         active
-          ? 'bg-foreground/5 text-foreground'
-          : 'text-foreground/70 hover:bg-foreground/3 hover:text-foreground',
+          ? 'bg-foreground/[0.06] text-foreground'
+          : 'text-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground',
       )}
       aria-current={active ? 'page' : undefined}
     >
+      {active && (
+        <span className="absolute left-0 inset-y-1.5 w-[2px] rounded-full bg-accent" aria-hidden="true" />
+      )}
       <span className="shrink-0 text-foreground/65">{icon}</span>
       <span className="truncate">{label}</span>
     </button>

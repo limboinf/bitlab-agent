@@ -57,6 +57,7 @@ import {
   isAnnotationFollowUpSent,
   extractAnnotationSelectedText,
   normalizeFollowUpText,
+  isExternalMcpToolName,
   type Turn,
   type AssistantTurn,
   type UserTurn,
@@ -73,7 +74,7 @@ import { CHAT_LAYOUT } from "@/config/layout"
 import { collectFileChangesFromActivities, getFirstFileChangeIdForActivity } from "@/lib/file-changes"
 import { resolveBranchNewPanelOption } from "./branching"
 import { handleErrorMessageAction } from "./error-message-actions"
-import { CapabilityDiscovery } from "./CapabilityDiscovery"
+import { WelcomeHero } from "./WelcomeHero"
 
 // ============================================================================
 // CSS Custom Highlight API helper
@@ -118,7 +119,7 @@ type OverlayState =
 
 function isStackedActivityTool(activity: ActivityItem): boolean {
   const toolName = activity.toolName?.toLowerCase() || ''
-  return toolName === 'bash' || toolName.startsWith('mcp__') || toolName.startsWith('browser_')
+  return toolName === 'bash' || isExternalMcpToolName(toolName) || toolName.startsWith('browser_')
 }
 
 function getTurnKey(turn: Turn): string {
@@ -1500,14 +1501,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
               {/* Use relative + top, not translate: transform makes position:fixed
                   @ / / menus attach to this box and jump to the top-right. */}
               <div className="relative -top-[3vh] flex w-full max-w-[720px] flex-col items-center">
-                <CapabilityDiscovery
+                <WelcomeHero
                   workspaceName={activeWorkspace?.name ?? t('welcome.workspaceFallback')}
-                  onSelectSuggestion={(prompt) => {
-                    onInputChange?.(prompt)
-                    window.dispatchEvent(new CustomEvent('craft:focus-input', {
-                      detail: { sessionId: session.id },
-                    }))
-                  }}
                 />
                 <div className="mt-8 w-full">
                   {renderChatInputZone('mt-0 pb-0')}
@@ -2193,7 +2188,7 @@ function MessageBubble({
   if (message.role === 'assistant') {
     return (
       <div className="flex justify-start group">
-        <div className="relative max-w-[90%] bg-background shadow-minimal rounded-[8px] pl-6 pr-4 py-3 break-words min-w-0 select-text">
+        <div className="relative max-w-[90%] break-words min-w-0 select-text py-1 pr-4 pl-1">
           {/* Pop-out button - visible on hover */}
           {onPopOut && !message.isStreaming && (
             <button

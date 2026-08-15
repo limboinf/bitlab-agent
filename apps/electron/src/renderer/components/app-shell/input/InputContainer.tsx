@@ -26,8 +26,8 @@ const TRANSITION_EASE = [0.4, 0, 0.2, 1] as const
 
 // Fallback heights (used on first render before measurement)
 const FALLBACK_HEIGHTS: Record<InputMode | string, number> = {
-  freeform: 114,
-  'freeform-compact': 70,  // Smaller for compact mode
+  freeform: 148,
+  'freeform-compact': 64,  // Smaller for compact mode
   permission: 200,
   credential: 240,  // Taller for form fields + hint
   admin_approval: 220,
@@ -253,7 +253,7 @@ export function InputContainer({
           className="absolute top-0 left-0 right-0 invisible pointer-events-none"
           aria-hidden="true"
         >
-          <div className="rounded-[8px] bg-background overflow-hidden">
+          <div className="overflow-hidden rounded-[24px] bg-background">
             {renderContent(true)}
           </div>
         </div>
@@ -262,9 +262,10 @@ export function InputContainer({
       {/* Visible animated container */}
       <motion.div
         className={cn(
-          "input-container relative rounded-[12px] overflow-hidden transition-colors",
-          isFocusedPanel ? "shadow-middle" : "shadow-minimal",
-          "bg-background"
+          'input-container relative overflow-hidden rounded-[24px] bg-background transition-colors',
+          isFocusedPanel
+            ? 'border border-foreground/[0.10]'
+            : 'border border-foreground/[0.07]',
         )}
         style={{
           height: heightMotionValue,

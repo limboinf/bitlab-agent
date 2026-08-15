@@ -46,7 +46,7 @@ export function ChatInputZone({
     <div className={cn(
       CHAT_LAYOUT.maxWidth,
       'mx-auto w-full mt-1',
-      compactMode ? 'px-2 pb-3' : 'px-3 @xs/panel:px-4 pb-4',
+      compactMode ? 'px-3 pb-3' : 'px-6 @xs/panel:px-10 pb-8',
       className,
     )}>
       {shouldShowOptionBadges && (

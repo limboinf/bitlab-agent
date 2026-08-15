@@ -37,6 +37,7 @@ import {
 import { buildRouteFromNavigationState } from "../../../shared/route-parser"
 import type { SettingsSubpage } from "../../../shared/types"
 import { SkillsListPanel } from "./SkillsListPanel"
+import { McpListPanel } from "./McpListPanel"
 import { FabNewChat } from "./FabNewChat"
 import { EditPopover, getEditConfig } from "@/components/ui/EditPopover"
 import SettingsNavigator from "@/pages/settings/SettingsNavigator"
@@ -672,6 +673,10 @@ function AppShellContent({
     navigate(routes.view.skills())
   }, [])
 
+  const handleConnectorsClick = useCallback(() => {
+    navigate(routes.view.settings('mcp'))
+  }, [])
+
   // Handler for settings view. With no arg → bare `settings` route (navigator-only
   // in compact mode, App fallback on desktop). With an arg → `settings/<subpage>`.
   const handleSettingsClick = useCallback((subpage?: SettingsSubpage) => {
@@ -734,17 +739,20 @@ function AppShellContent({
   // Get title based on the retained navigation states.
   const listTitle = React.useMemo(() => {
     if (isSkillsNavigation(navState)) return t('sidebar.allSkills')
+    if (isSettingsNavigation(navState) && navState.subpage === 'mcp') return t('sidebar.connectors')
     if (isSettingsNavigation(navState)) return t('sidebar.settings')
     if (sessionFilter?.kind === 'flagged') return t('sidebar.flagged')
     if (sessionFilter?.kind === 'archived') return t('sidebar.archived')
-    return t('sidebar.allSessions')
+    return t('sidebar.tasks')
   }, [navState, t, sessionFilter])
 
   const activeNavigationSection: UnifiedNavigationSection = isSkillsNavigation(navState)
     ? 'skills'
-    : isSettingsNavigation(navState)
-      ? 'settings'
-      : 'sessions'
+    : isSettingsNavigation(navState) && navState.subpage === 'mcp'
+      ? 'mcp'
+      : isSettingsNavigation(navState)
+        ? 'settings'
+        : 'sessions'
 
   const activeSessionView: SessionNavigationView = sessionFilter?.kind === 'flagged'
     ? 'flagged'
@@ -769,12 +777,16 @@ function AppShellContent({
       handleSkillsClick()
       return
     }
+    if (section === 'mcp') {
+      handleConnectorsClick()
+      return
+    }
     if (section === 'settings') {
       handleSettingsClick()
       return
     }
     handleAllSessionsClick()
-  }, [handleAllSessionsClick, handleSettingsClick, handleSkillsClick])
+  }, [handleAllSessionsClick, handleConnectorsClick, handleSettingsClick, handleSkillsClick])
 
   // Keep the last sessions location while still on sessions, so "返回" from
   // skills/settings restores that chat / main surface (not browser history steps).
@@ -847,6 +859,16 @@ function AppShellContent({
       activeSection={activeNavigationSection}
       activeSessionView={activeSessionView}
       title={listTitle}
+      titleBadge={
+        isSkillsNavigation(navState) && activeWorkspaceId ? (
+          <span
+            className="text-xs tabular-nums text-muted-foreground"
+            aria-label={t('skillsList.totalCount', { count: skills.length })}
+          >
+            {skills.length}
+          </span>
+        ) : undefined
+      }
       sessionCounts={{
         all: activeSessionMetas.length,
         flagged: flaggedCount,
@@ -867,7 +889,10 @@ function AppShellContent({
           selectedSkillSlug={navState.details?.type === 'skill' ? navState.details.skillSlug : null}
         />
       )}
-      {isSettingsNavigation(navState) && (
+      {isSettingsNavigation(navState) && navState.subpage === 'mcp' && (
+        <McpListPanel onSelectServer={handleConnectorsClick} onAddConnector={handleConnectorsClick} />
+      )}
+      {isSettingsNavigation(navState) && navState.subpage !== 'mcp' && (
         <SettingsNavigator
           selectedSubpage={navState.subpage}
           onSelectSubpage={handleSettingsClick}
@@ -921,29 +946,16 @@ function AppShellContent({
 
   return (
     <AppShellProvider value={appShellContextValue}>
-        {/* === TOP BAR === */}
-        <TopBar
-          activeSessionId={effectiveSessionId}
-          onBack={goBack}
-          onForward={goForward}
-          canGoBack={canGoBack}
-          canGoForward={canGoForward}
-          onToggleSidebar={handleToggleSidebar}
-          onAddSessionPanel={() => handleNewChat(true)}
-          onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
-          isCompact={isAutoCompact}
-        />
-
       {/* === OUTER LAYOUT: Unified Panel Stack | Right Sidebar === */}
       <div
         ref={shellRef}
         className="flex items-stretch relative"
         style={{
           height: '100%',
-          paddingRight: isAutoCompact ? 0 : PANEL_EDGE_INSET,
-          paddingBottom: isAutoCompact ? 0 : PANEL_EDGE_INSET,
+          paddingRight: 0,
+          paddingBottom: 0,
           paddingLeft: 0,
-          gap: PANEL_GAP,
+          gap: 0,
         }}
       >
         <PanelStackContainer
@@ -989,7 +1001,7 @@ function AppShellContent({
           className="absolute cursor-col-resize z-panel flex justify-center"
           style={{
             width: PANEL_SASH_HIT_WIDTH,
-            top: PANEL_STACK_VERTICAL_OVERFLOW,
+            top: 'var(--topbar-height)',
             bottom: PANEL_STACK_VERTICAL_OVERFLOW,
             left: PANEL_EDGE_INSET + navigationPanelWidth + (PANEL_GAP / 2) - PANEL_SASH_HALF_HIT_WIDTH,
             transition: isResizingNavigation ? undefined : 'left 0.15s ease-out',
@@ -1009,6 +1021,19 @@ function AppShellContent({
         )}
 
       </div>
+
+      {/* Overlay chrome — transparent so sidebar/content colors run to the window top. */}
+      <TopBar
+        activeSessionId={effectiveSessionId}
+        onBack={goBack}
+        onForward={goForward}
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onToggleSidebar={handleToggleSidebar}
+        onAddSessionPanel={() => handleNewChat(true)}
+        onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
+        isCompact={isAutoCompact}
+      />
 
     </AppShellProvider>
   )

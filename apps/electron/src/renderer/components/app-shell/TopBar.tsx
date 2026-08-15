@@ -1,9 +1,8 @@
 /**
- * TopBar - Persistent top bar above all panels (Slack-style)
+ * TopBar - Transparent overlay chrome (toggle / history / add panel).
  *
- * Layout: [Sidebar] [Back] [Forward] ... [Browser strip] [+]
- *
- * Fixed at top of window, 48px tall.
+ * Sits on top of the workbench so sidebar and main colors run to the window
+ * top. Layout: [Sidebar] [Back] [Forward] ... [Browser strip] [+]
  * macOS: offset left to avoid stoplight controls.
  */
 
@@ -99,7 +98,7 @@ export function TopBar({
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 z-panel titlebar-drag-region"
+      className="fixed top-0 left-0 right-0 z-panel bg-transparent titlebar-drag-region"
       style={{ height: 'var(--topbar-height)' }}
     >
       <div className="flex h-full w-full items-center justify-between gap-2">

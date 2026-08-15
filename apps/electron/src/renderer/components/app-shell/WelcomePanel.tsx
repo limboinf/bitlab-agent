@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { ArrowUp } from 'lucide-react'
 import { useAppShellContext, useActiveWorkspace } from '@/context/AppShellContext'
 import { cn } from '@/lib/utils'
-import { CapabilityDiscovery } from './CapabilityDiscovery'
+import { WelcomeHero } from './WelcomeHero'
 
 /** Default landing surface shown when every content panel has been closed. */
 export function WelcomePanel() {
@@ -42,18 +42,14 @@ export function WelcomePanel() {
       className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-background @container/welcome"
       aria-labelledby="welcome-title"
     >
-      {/* Centered stack: hero + chips + input — visual weight upper-middle, not bottom */}
+      {/* Centered stack: hero + input — visual weight upper-middle, not bottom */}
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-10">
         <section className="flex w-full max-w-[720px] -translate-y-[4vh] flex-col items-center">
-          <CapabilityDiscovery
-            workspaceName={workspaceName}
-            onSelectSuggestion={(prompt) => void openChat(prompt)}
-            disabled={isDisabled}
-          />
+          <WelcomeHero workspaceName={workspaceName} />
 
           <form
             onSubmit={handleSubmit}
-            className="mt-8 w-full rounded-2xl border border-foreground/10 bg-background shadow-middle"
+            className="mt-8 w-full rounded-[24px] border border-foreground/[0.08] bg-background"
           >
             <label htmlFor="welcome-prompt" className="sr-only">
               {t('welcome.inputLabel')}
@@ -63,7 +59,7 @@ export function WelcomePanel() {
               id="welcome-prompt"
               value={input}
               disabled={isDisabled}
-              rows={2}
+              rows={4}
               placeholder={t('welcome.inputPlaceholder')}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
@@ -72,9 +68,9 @@ export function WelcomePanel() {
                   void openChat()
                 }
               }}
-              className="block min-h-[72px] w-full resize-none bg-transparent px-5 pb-2 pt-4 text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground/65 disabled:opacity-50"
+              className="block min-h-[100px] w-full resize-none bg-transparent px-5 pb-2 pt-4 text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground/65 disabled:opacity-50"
             />
-            <div className="flex items-center justify-between gap-3 border-t border-border/40 px-3 py-2.5 pl-4">
+            <div className="flex items-center justify-between gap-3 px-3 pb-2.5 pl-4">
               <span className="min-w-0 truncate text-xs text-muted-foreground">
                 {workspace?.folderPath ?? t('welcome.inputHint')}
               </span>
@@ -83,12 +79,12 @@ export function WelcomePanel() {
                 disabled={isDisabled || input.trim().length === 0}
                 aria-label={t('welcome.startChat')}
                 className={cn(
-                  'flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity',
+                  'flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity',
                   'hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
                   'disabled:opacity-25',
                 )}
               >
-                <ArrowUp className="size-4" aria-hidden="true" />
+                <ArrowUp className="size-3.5" aria-hidden="true" />
               </button>
             </div>
           </form>

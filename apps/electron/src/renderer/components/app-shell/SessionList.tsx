@@ -587,7 +587,7 @@ export function SessionList({
       <EntityList<SessionListRow>
         groups={rowData.groups}
         getKey={(row) => row.item.id}
-        renderItem={(row, _indexInGroup, isFirstInGroup) => {
+        renderItem={(row) => {
           const flatIndex = rowIndexMap.get(row.item.id) ?? 0
           const rowProps = interactions.getRowProps(row, flatIndex)
           return (
@@ -596,7 +596,6 @@ export function SessionList({
               index={flatIndex}
               itemProps={rowProps.buttonProps as Record<string, unknown>}
               isSelected={rowProps.isSelected}
-              isFirstInGroup={isFirstInGroup}
               isInMultiSelect={rowProps.isInMultiSelect ?? false}
               onSelect={() => handleSelectSession(row, flatIndex)}
               onToggleSelect={() => handleToggleSelect(row, flatIndex)}

@@ -607,6 +607,10 @@ html[data-font="inter"] {
     box-shadow: var(--shadow-minimal);
   }
 
+  .shadow-minimal-flat {
+    box-shadow: var(--shadow-minimal-flat);
+  }
+
   .shadow-dragging {
     box-shadow: var(--shadow-dragging);
   }
@@ -744,9 +748,11 @@ html[data-font="inter"] {
 
    In scenic mode, panels become translucent with backdrop blur (glassmorphism).
    The glass effect provides visual depth while showing the background image through.
-   Target panels by their shadow classes (shadow-middle, shadow-strong).
+   Target workbench surfaces by role, plus leftover elevated cards.
 ============================================================================= */
 
+  html[data-scenic] [data-panel-role="navigator"],
+  html[data-scenic] [data-panel-role="content"],
   html[data-scenic] .shadow-middle,
   html[data-scenic] .shadow-strong {
   backdrop-filter: blur(8px);
@@ -766,6 +772,8 @@ html[data-scenic] .input-container {
 /* Scenic mode: Gradient border effect for glass panels
    Uses a pseudo-element with a white linear gradient (40% at top, 5% at bottom).
    The mask-composite technique creates a border-only effect from a filled gradient. */
+html[data-scenic] [data-panel-role="navigator"]::before,
+html[data-scenic] [data-panel-role="content"]::before,
 html[data-scenic] .shadow-middle::before,
 html[data-scenic] .shadow-strong::before {
   content: '';
@@ -792,6 +800,8 @@ html[data-scenic] .shadow-strong::before {
    Without this, interactive elements (buttons, dropdowns) in the header area
    can be visually obscured or have click issues due to stacking context with backdrop-filter.
    Creates explicit stacking for direct children so they sit above ::before (z-index: 1). */
+html[data-scenic] [data-panel-role="navigator"] > *,
+html[data-scenic] [data-panel-role="content"] > *,
 html[data-scenic] .shadow-middle > *,
 html[data-scenic] .shadow-strong > * {
   position: relative;
