@@ -13,7 +13,7 @@ jobs:
   report:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Build drift report
@@ -25,7 +25,7 @@ jobs:
             echo
             git diff --stat a60ebc1a5a7c..refs/remotes/upstream/main
           } > upstream-drift.txt
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs')

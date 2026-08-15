@@ -19,7 +19,7 @@ describe("optimized release workflow", () => {
     expect(jobs.promote?.if).toContain("push");
     expect(jobs.promote?.needs).toBe("preflight");
     expect(source).toContain("release-candidate-${{ inputs.tag || github.ref_name }}-${{ github.sha }}");
-    expect(source).toContain("actions/download-artifact@v4");
+    expect(source).toMatch(/actions\/download-artifact@v\d+/);
     expect(source).toContain("run-id: ${{ steps.candidate.outputs.run_id }}");
   });
 
