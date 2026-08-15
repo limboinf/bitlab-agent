@@ -1,5 +1,17 @@
 #!/usr/bin/env bun
 
+// pi-agent-mcp.e2e.test.ts spawns the real pi-agent-server bundle, and `dist/` is
+// gitignored — a fresh clone (CI included) has nothing to spawn. Rebuilding takes
+// well under a second and also keeps the bundle in sync with the sources under test.
+const bundle = Bun.spawnSync(['bun', 'run', 'build'], {
+  cwd: new URL('../packages/pi-agent-server/', import.meta.url).pathname,
+  stdout: 'inherit',
+  stderr: 'inherit',
+})
+if (bundle.exitCode !== 0) {
+  throw new Error('Unable to build the pi-agent-server bundle required by the e2e tests')
+}
+
 const sourceRoots = ['apps', 'packages', 'scripts']
 const tracked = Bun.spawnSync(
   ['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...sourceRoots],
