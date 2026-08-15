@@ -271,18 +271,21 @@ export abstract class BaseAgent implements AgentBackend {
     mcpServers: string[];
     unmetMcp: Map<string, string[]>;
     grantedTools: string[];
+    deniedTools: string[];
   } {
     const skills = loadAllSkills(this.config.workspace.dataRoot, this.config.workspace.folderPath ?? undefined);
     const parsed = parseMentions(message, skills.map(skill => skill.slug));
     const skillPaths = new Map<string, string>();
     const unmetMcp = new Map<string, string[]>();
     const grantedTools: string[] = [];
+    const deniedTools: string[] = [];
     for (const slug of parsed.skills) {
       const skill = skills.find(candidate => candidate.slug === slug);
       const skillPath = skill ? join(skill.path, 'SKILL.md') : undefined;
       if (skillPath && existsSync(skillPath)) {
         skillPaths.set(slug, skillPath);
         if (skill?.metadata.allowedTools) grantedTools.push(...skill.metadata.allowedTools);
+        if (skill?.metadata.disallowedTools) deniedTools.push(...skill.metadata.disallowedTools);
       }
       const unmet = skill?.mcpRequirements?.filter(requirement => requirement.state !== 'satisfied') ?? [];
       if (unmet.length) unmetMcp.set(slug, unmet.map(requirement => requirement.server));
@@ -299,6 +302,7 @@ export abstract class BaseAgent implements AgentBackend {
       mcpServers: parsed.mcpServers,
       unmetMcp,
       grantedTools,
+      deniedTools,
     };
   }
 
@@ -323,12 +327,15 @@ export abstract class BaseAgent implements AgentBackend {
     // A new user message ends the previous turn, and with it any grant an
     // activated skill was given (§5.10).
     this.permissionManager.clearTurnToolGrants();
-    const { skillPaths, cleanMessage, missingSkills, mcpServers, unmetMcp, grantedTools } =
+    const { skillPaths, cleanMessage, missingSkills, mcpServers, unmetMcp, grantedTools, deniedTools } =
       this.extractSkillPaths(message);
     // One switch turns the whole mechanism off without editing any skill.
     this.permissionManager.grantToolsForTurn(
       getSkillToolApprovalEnabled() ? grantedTools : undefined,
     );
+    // Refusals are honoured regardless of that switch: it governs whether a
+    // skill may widen permissions, not whether it may narrow its own.
+    this.permissionManager.denyToolsForTurn(deniedTools);
     if (missingSkills.length) {
       yield { type: 'error', message: `Skill(s) not found: ${missingSkills.join(', ')}` };
       yield { type: 'complete' };

@@ -42,6 +42,7 @@ icon: "📊"
 | `compatibility` | 否 | 环境前置条件。记录并展示 |
 | `metadata` | 否 | 自由的字符串映射。Bitlab 读取 `bitlab.icon`（emoji 或 URL；URL 会被下载为 Skill 目录下的 `icon.<ext>`，内联 SVG 与相对路径会被拒绝）与 `bitlab.requiresMcp`（逗号分隔的 MCP server 名，按 workspace 配置解析） |
 | `allowed-tools` | 否 | 为调用该 Skill 的那一轮预授权这些工具（见下） |
+| `disallowed-tools` | 否 | Skill 声明自己不会使用的工具。在其所在轮次直接拒绝（见下） |
 | `disable-model-invocation` | 否 | 从模型看到的目录中隐藏该 Skill，但仍可被显式调用 |
 
 顶层 `icon` 字段仍作为兜底被读取，但要写就写 `metadata.bitlab.icon`。按规范 `name` 应与目录名一致；不一致时会带一条警告加载，而不是失败。
@@ -85,6 +86,8 @@ Skill 的 `allowed-tools` 只覆盖**调用它的那一轮**，用户发出下�
 - 危险命令（`rm`、`sudo`、`curl` 等）无论被谁声明都照样提示。声明 `Bash(rm:*)` 的 Skill 只会在安装时把这条声明展示出来，调用时依然要确认。
 
 模式沿用规范写法：`Read` 授予该工具；`Bash(git:*)` 授予一个命令族。前缀比对的是命令而非子串——`Bash(git:*)` 不会覆盖 `gitleaks`。只有 Bash 会比对参数；文件路径不是命令，所以 `Write(src:*)` 什么也不授予。
+
+`disallowed-tools` 是它的对应物：Skill 声明自己不会使用的工具，在该轮次会被直接拒绝。它的判定位于所有放宽之上——包括该 Skill 自己的 `allowed-tools`，也包括 `allow-all` 模式——因此同时声明两者也无法绕过拒绝；`skillToolApproval` 开关同样关不掉它：那个开关管的是 Skill 能否放宽权限，而不是能否收紧自己。
 
 持久化的预授权不归这个字段管，那是 `permissions.json` 的职责。把全局配置里的 `skillToolApproval` 设为 `false`，可以在不改动任何 Skill 的前提下让所有声明失效。
 

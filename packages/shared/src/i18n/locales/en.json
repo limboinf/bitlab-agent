@@ -951,6 +951,7 @@
   "skillInstall.conflict": "A skill named {{name}} already exists there. Installing replaces it.",
   "skillInstall.contents_one": "{{count}} file",
   "skillInstall.contents_other": "{{count}} files",
+  "skillInstall.declaresDisallowed": "This skill declares it will not use:",
   "skillInstall.declaresTools": "This skill declares allowed-tools:",
   "skillInstall.failed": "Install failed",
   "skillInstall.gitPrompt": "Repository URL",

@@ -471,6 +471,8 @@ export interface PermissionManagerLike {
   isCommandWhitelisted(command: string): boolean;
   /** An activated skill's declared tools, in force for this turn only. */
   isGrantedForTurn?(toolName: string, input: Record<string, unknown>): boolean;
+  /** Tools an activated skill declared off-limits for this turn. */
+  isDeniedForTurn?(toolName: string, input: Record<string, unknown>): boolean;
   isDangerousCommand(command: string): boolean;
   getBaseCommand(command: string): string;
   extractDomainFromNetworkCommand(command: string): string | null;
@@ -561,6 +563,20 @@ export function runPreToolUseChecks(ctx: PreToolUseInput): PreToolUseCheckResult
     const reasonWithContext = withPermissionModeContext(modeResult.reason, sessionId, effectivePermissionMode);
     onDebug?.(`Permission mode ${effectivePermissionMode}: blocking ${toolName} — ${reasonWithContext}`);
     return { type: 'block', reason: reasonWithContext };
+  }
+
+  // ============================================================
+  // 2. SKILL-DECLARED REFUSALS
+  // ============================================================
+  // An activated skill can name tools it has no business calling. This runs
+  // above every allowance — including its own `allowed-tools` — so a skill
+  // cannot declare both and talk its way past the refusal.
+  if (permissionManager.isDeniedForTurn?.(toolName, input)) {
+    onDebug?.(`Blocking ${toolName} — the active skill declared it off-limits`);
+    return {
+      type: 'block',
+      reason: `The active Skill declares that it does not use ${toolName}.`,
+    };
   }
 
   // ============================================================

@@ -192,3 +192,61 @@ describe('skill-declared tool grants', () => {
     expect(runWithGrant([], 'Write', { file_path: '/tmp/a.ts', content: 'x' }).type).toBe('prompt')
   })
 })
+
+function withDenial(allowed: string[], disallowed: string[]) {
+  const allowPatterns = parseToolPatterns(allowed)
+  const denyPatterns = parseToolPatterns(disallowed)
+  return {
+    ...permissionManager,
+    isGrantedForTurn: (toolName: string, input: Record<string, unknown>) =>
+      grantsToolCall(allowPatterns, toolName, input),
+    isDeniedForTurn: (toolName: string, input: Record<string, unknown>) =>
+      grantsToolCall(denyPatterns, toolName, input),
+  }
+}
+
+function runWithDenial(
+  allowed: string[],
+  disallowed: string[],
+  toolName: string,
+  input: Record<string, unknown>,
+  mode: 'safe' | 'ask' | 'allow-all' = 'ask',
+) {
+  initializeModeState(sessionId, mode)
+  return runPreToolUseChecks({
+    toolName,
+    input,
+    sessionId,
+    permissionMode: mode,
+    workspaceRootPath: '/tmp/bitlab-pre-tool',
+    workspaceId: 'workspace',
+    permissionManager: withDenial(allowed, disallowed),
+  })
+}
+
+describe('skill-declared refusals', () => {
+  it('blocks a tool the skill declared off-limits', () => {
+    const result = runWithDenial([], ['Write'], 'Write', { file_path: '/tmp/a.ts', content: 'x' })
+
+    expect(result.type).toBe('block')
+    expect(result.type === 'block' && result.reason).toContain('does not use Write')
+  })
+
+  it('blocks a declared command family', () => {
+    expect(runWithDenial([], ['Bash(rm:*)'], 'Bash', { command: 'rm -rf /tmp/x' }).type).toBe('block')
+    expect(runWithDenial([], ['Bash(rm:*)'], 'Bash', { command: 'ls' }).type).not.toBe('block')
+  })
+
+  it('refuses even when the same skill also granted it', () => {
+    // Declaring both must not talk its way past the refusal.
+    expect(runWithDenial(['Write'], ['Write'], 'Write', { file_path: '/tmp/a.ts', content: 'x' }).type).toBe('block')
+  })
+
+  it('outranks a permission mode that would otherwise allow everything', () => {
+    expect(runWithDenial([], ['Write'], 'Write', { file_path: '/tmp/a.ts', content: 'x' }, 'allow-all').type).toBe('block')
+  })
+
+  it('leaves undeclared tools alone', () => {
+    expect(runWithDenial([], ['Write'], 'Read', { file_path: '/tmp/a.ts' }, 'allow-all').type).not.toBe('block')
+  })
+})

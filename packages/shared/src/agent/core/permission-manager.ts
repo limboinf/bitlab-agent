@@ -74,6 +74,8 @@ export class PermissionManager {
    * a grant never outlives the turn that earned it (§5.10).
    */
   private turnToolGrants: ToolPattern[] = [];
+  /** Tools the same skill declared it has no business calling. */
+  private turnToolDenials: ToolPattern[] = [];
   private alwaysAllowedCommands: Set<string> = new Set();
   private alwaysAllowedDomains: Set<string> = new Set();
 
@@ -354,9 +356,23 @@ export class PermissionManager {
     this.turnToolGrants = parseToolPatterns(declarations);
   }
 
+  /** Apply an activated skill's `disallowed-tools` for the current turn. */
+  denyToolsForTurn(declarations: readonly string[] | undefined): void {
+    this.turnToolDenials = parseToolPatterns(declarations);
+  }
+
+  /**
+   * Whether an activated skill declared this call off-limits. Checked before
+   * any allowance, so declaring both cannot talk its way past the refusal.
+   */
+  isDeniedForTurn(toolName: string, input: Record<string, unknown>): boolean {
+    return grantsToolCall(this.turnToolDenials, toolName, input);
+  }
+
   /** Drop any per-turn grant. Called when the user sends the next message. */
   clearTurnToolGrants(): void {
     this.turnToolGrants = [];
+    this.turnToolDenials = [];
   }
 
   /**
@@ -369,6 +385,7 @@ export class PermissionManager {
 
   clearWhitelists(): void {
     this.turnToolGrants = [];
+    this.turnToolDenials = [];
     this.alwaysAllowedCommands.clear();
     this.alwaysAllowedDomains.clear();
   }

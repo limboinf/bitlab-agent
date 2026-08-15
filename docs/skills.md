@@ -42,6 +42,7 @@ Plan the deck structure, draft slide titles, then run `pptx-tool` to materialize
 | `compatibility` | no | Environment prerequisites. Recorded and displayed |
 | `metadata` | no | Free-form string map. Bitlab reads `bitlab.icon` (emoji or URL; a URL is downloaded to `icon.<ext>` in the Skill directory, inline SVG and relative paths are rejected) and `bitlab.requiresMcp` (comma-separated MCP server names, resolved against workspace config) |
 | `allowed-tools` | no | Pre-approves those tools for the turn that invokes the Skill (see below) |
+| `disallowed-tools` | no | Tools the Skill declares it will not use. Refused outright for its turn (see below) |
 | `disable-model-invocation` | no | Hides the Skill from the catalog the model sees; it remains explicitly invocable |
 
 A top-level `icon` field is still read as a fallback, but `metadata.bitlab.icon` is the form to write. Per spec, `name` should match the directory name; a mismatch loads with a warning rather than failing.
@@ -93,6 +94,13 @@ Patterns are the specification's: `Read` grants the tool; `Bash(git:*)` grants
 one command family. The prefix is a command, not a substring — `Bash(git:*)`
 does not cover `gitleaks`. Only Bash matches on arguments; a file path is not a
 command, so `Write(src:*)` grants nothing.
+
+`disallowed-tools` is the counterpart: tools the Skill declares it will not
+use are refused for its turn. It is checked above every allowance — including
+the Skill's own `allowed-tools`, and including `allow-all` mode — so declaring
+both cannot talk its way past the refusal, and the `skillToolApproval` switch
+does not disable it: that switch governs whether a Skill may widen
+permissions, not whether it may narrow its own.
 
 Persistent pre-approval is not this field's job — that belongs in
 `permissions.json`. Setting `skillToolApproval` to `false` in the global config

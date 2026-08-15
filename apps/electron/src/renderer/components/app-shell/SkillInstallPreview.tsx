@@ -101,6 +101,15 @@ export function SkillInstallPreview({
               </div>
             ) : null}
 
+            {plan.metadata?.disallowedTools?.length ? (
+              <div className="rounded-[8px] border border-border/60 px-3 py-2.5">
+                <p className="text-xs text-foreground/70">{t('skillInstall.declaresDisallowed')}</p>
+                <p className="mt-1 font-mono text-[11px] text-foreground/80 break-words">
+                  {plan.metadata.disallowedTools.join('  ')}
+                </p>
+              </div>
+            ) : null}
+
             {plan.metadata?.compatibility && (
               <p className="text-xs text-muted-foreground">
                 {t('skillInfo.compatibility')}: {plan.metadata.compatibility}

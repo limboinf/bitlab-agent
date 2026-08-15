@@ -951,6 +951,7 @@
   "skillInstall.conflict": "那里已存在名为 {{name}} 的 Skill，安装将覆盖它。",
   "skillInstall.contents_one": "{{count}} 个文件",
   "skillInstall.contents_other": "{{count}} 个文件",
+  "skillInstall.declaresDisallowed": "此 Skill 声明不会使用：",
   "skillInstall.declaresTools": "此 Skill 声明了 allowed-tools：",
   "skillInstall.failed": "安装失败",
   "skillInstall.gitPrompt": "仓库 URL",

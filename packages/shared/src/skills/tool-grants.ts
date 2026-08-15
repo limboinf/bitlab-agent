@@ -12,6 +12,11 @@
  *   - deny paths still win. Safe mode blocks writes outright and never reaches
  *     the prompt decision, and dangerous commands stay prompted regardless.
  *
+ * `disallowed-tools` is the narrowing counterpart — not in the spec, but Claude
+ * Code supports it and a skill that says which tools it has no business calling
+ * is worth honouring. It refuses the call outright, and it is checked before
+ * any grant, so a skill cannot allow and disallow its way past itself.
+ *
  * Patterns are the spec's own: a bare tool name (`Read`), or a tool with an
  * argument prefix (`Bash(git:*)`). Names match the SDK's canonical casing,
  * which is what the permission engine sees.
