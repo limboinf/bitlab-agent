@@ -37,6 +37,7 @@ import {
 import { buildRouteFromNavigationState } from "../../../shared/route-parser"
 import type { SettingsSubpage } from "../../../shared/types"
 import { SkillsListPanel } from "./SkillsListPanel"
+import { SkillImportMenu } from "./SkillImportMenu"
 import { McpListPanel } from "./McpListPanel"
 import { FabNewChat } from "./FabNewChat"
 import { EditPopover, getEditConfig } from "@/components/ui/EditPopover"
@@ -859,6 +860,16 @@ function AppShellContent({
     void window.electronAPI.markAllSessionsRead(activeWorkspaceId)
   }, [activeWorkspaceId, setSessionMetaMap])
 
+  // Tiers an install may target: the ones backed by a writable directory.
+  // Built-in ships with the app and is never a destination.
+  const installTargets = React.useMemo(
+    () =>
+      snapshot.tiers
+        .map(tier => tier.source)
+        .filter(source => source !== 'builtin'),
+    [snapshot],
+  )
+
   const navigationHeaderActions = (
     <>
       {isSessionsNavigation(navState) && (
@@ -869,10 +880,17 @@ function AppShellContent({
         />
       )}
       {isSkillsNavigation(navState) && activeWorkspace && (
-        <EditPopover
-          trigger={<HeaderIconButton icon={<Plus className="h-4 w-4" />} tooltip={t('sidebarMenu.addSkill')} />}
-          {...getEditConfig('add-skill', activeWorkspace.dataRoot)}
-        />
+        <>
+          <SkillImportMenu
+            workspaceId={activeWorkspace.id}
+            targets={installTargets}
+            onInstalled={setSnapshot}
+          />
+          <EditPopover
+            trigger={<HeaderIconButton icon={<Plus className="h-4 w-4" />} tooltip={t('sidebarMenu.addSkill')} />}
+            {...getEditConfig('add-skill', activeWorkspace.dataRoot)}
+          />
+        </>
       )}
     </>
   )

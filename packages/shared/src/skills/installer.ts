@@ -67,6 +67,14 @@ function stagingRoot(): string {
 }
 
 /**
+ * Peek at the declared name before full parsing, so validation can be told what
+ * directory the skill is destined for rather than the temp one it arrived in.
+ */
+function nameFromFrontmatter(markdown: string): string | undefined {
+  return /^name:\s*["']?([^"'\n]+)["']?\s*$/m.exec(markdown)?.[1]?.trim();
+}
+
+/**
  * Walk a staged tree, refusing anything that escapes it.
  *
  * The checks run against the staging directory rather than the destination, so
@@ -249,8 +257,16 @@ export function prepareInstall(source: InstallSource, ctx?: SkillCatalogContext,
   }
 
   const skillMarkdown = readFileSync(join(skillRoot, 'SKILL.md'), 'utf-8');
-  const slug = basename(skillRoot);
-  const parsed = parseSkillFrontmatter(skillMarkdown, join(skillRoot, 'SKILL.md'), slug);
+  // The staging root is a temp name we invented, so it says nothing about what
+  // the author called the skill — only a wrapping directory inside the source
+  // does. Validating against the temp name would report a mismatch on every
+  // repository whose root is the skill.
+  const sourceSlug = skillRoot === stagingDir ? undefined : basename(skillRoot);
+  const parsed = parseSkillFrontmatter(
+    skillMarkdown,
+    join(skillRoot, 'SKILL.md'),
+    sourceSlug ?? nameFromFrontmatter(skillMarkdown) ?? ''
+  );
   if (!parsed) {
     return rejected(stagingDir, source, 'invalid-frontmatter', [
       {
@@ -265,7 +281,7 @@ export function prepareInstall(source: InstallSource, ctx?: SkillCatalogContext,
     stagingRoot: stagingDir,
     stagingDir: skillRoot,
     source,
-    slug: parsed.metadata.name || slug,
+    slug: parsed.metadata.name || sourceSlug || '',
     metadata: parsed.metadata,
     skillMarkdown,
     files,

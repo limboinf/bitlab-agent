@@ -238,3 +238,34 @@ function readdirSyncSafe(dir: string): string[] {
     return [];
   }
 }
+
+describe('name validation against the right directory', () => {
+  it('does not report a mismatch when the source root is the skill', () => {
+    // A git clone or a flat archive lands the skill at the staging root, whose
+    // name is a temp string we invented — comparing against it would warn on
+    // every such source.
+    const source = join(sources, 'root-level');
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, 'SKILL.md'), '---\nname: proper-name\ndescription: at the root\n---\nbody\n');
+
+    const plan = prepareInstall({ kind: 'folder', location: source }, ctx, 'workspace');
+
+    expect(plan.slug).toBe('proper-name');
+    expect(plan.diagnostics.map((d) => d.code)).not.toContain('name-mismatch');
+    discardPlan(plan);
+  });
+
+  it('still reports a mismatch when a wrapping directory disagrees', () => {
+    const staging = join(sources, 'wrapped');
+    mkdirSync(join(staging, 'stated-directory'), { recursive: true });
+    writeFileSync(
+      join(staging, 'stated-directory', 'SKILL.md'),
+      '---\nname: different-name\ndescription: wrapped\n---\nbody\n'
+    );
+
+    const plan = prepareInstall({ kind: 'folder', location: staging }, ctx, 'workspace');
+
+    expect(plan.diagnostics.map((d) => d.code)).toContain('name-mismatch');
+    discardPlan(plan);
+  });
+});
