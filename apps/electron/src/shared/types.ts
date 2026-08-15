@@ -464,6 +464,27 @@ export interface ElectronAPI {
     deleteApiKey(providerId: string): Promise<void>
   }
 
+  // MCP servers (Settings → MCP) — CRUD, discovery/import, probes, OAuth.
+  // Mirrors lib/mcp-rpc.ts McpApi; buildClientApi nests the dotted CHANNEL_MAP
+  // keys under this namespace.
+  mcp: {
+    list(): Promise<import('@/lib/mcp-rpc').McpListResult>
+    save(server: import('@bitlab/shared/config').BitlabMcpServer): Promise<unknown>
+    delete(params: { id: string }): Promise<unknown>
+    saveSettings(settings: import('@bitlab/shared/config').BitlabMcpSettings): Promise<unknown>
+    test(server: import('@bitlab/shared/config').BitlabMcpServer): Promise<import('@/lib/mcp-rpc').McpTestResult>
+    auth(params: { id: string }): Promise<import('@bitlab/shared/config').McpOperationResult>
+    cancelAuth(): Promise<{ ok: boolean }>
+    signOut(params: { id: string }): Promise<import('@bitlab/shared/config').McpOperationResult>
+    reconnect(params: { id: string }): Promise<import('@bitlab/shared/config').McpOperationResult>
+    credentials(params: { id: string }): Promise<import('@/lib/mcp-rpc').McpCredentialStatus>
+    discover(params?: { workspaceRoot?: string }): Promise<import('@/lib/mcp-rpc').McpDiscoverResult>
+    import(params: { servers: unknown[] }): Promise<unknown>
+    onChanged(callback: () => void): () => void
+    onNotify(callback: (notice: { sessionId: string; message: string; level: 'info' | 'warning' | 'error' }) => void): () => void
+    onStatus(callback: (payload: { sessionId: string; snapshot: import('@bitlab/shared/config').McpStatusSnapshotDto }) => void): () => void
+  }
+
   // Appearance settings
   getRichToolDescriptions(): Promise<boolean>
   setRichToolDescriptions(enabled: boolean): Promise<void>

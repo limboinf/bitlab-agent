@@ -17,7 +17,6 @@ import { useTheme } from '@/context/ThemeContext'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { routes } from '@/lib/navigate'
 import { Monitor, Sun, Moon } from 'lucide-react'
-import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type { ToolIconMapping } from '../../../shared/types'
 
 import {
@@ -38,11 +37,6 @@ import { showBackgroundFinishedChipAtom } from '@/atoms/background-finished'
 import { Info_DataTable, SortableHeader } from '@/components/info/Info_DataTable'
 import { Info_Badge } from '@/components/info/Info_Badge'
 import type { PresetTheme } from '@config/theme'
-
-export const meta: DetailsPageMeta = {
-  navigator: 'settings',
-  slug: 'appearance',
-}
 
 // ============================================
 // Tool Icons Table

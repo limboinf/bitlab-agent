@@ -18,7 +18,6 @@ import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
 import { routes } from '@/lib/navigate'
-import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type { KeyedSearchProviderId, SearchConfig, SearchProviderId } from '@bitlab/shared/config'
 
 import {
@@ -28,11 +27,6 @@ import {
   SettingsInput,
   SettingsSecretInput,
 } from '@/components/settings'
-
-export const meta: DetailsPageMeta = {
-  navigator: 'settings',
-  slug: 'plugins',
-}
 
 const DEFAULT_CONFIG: SearchConfig = { provider: 'auto', providers: {} }
 

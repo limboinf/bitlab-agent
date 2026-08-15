@@ -42,6 +42,7 @@ export const SETTINGS_PAGES = [
   { id: 'workspace' as const, labelKey: 'settings.workspace.title', descriptionKey: 'settings.workspace.description' },
   { id: 'permissions' as const, labelKey: 'settings.permissions.title', descriptionKey: 'settings.permissions.description' },
   { id: 'plugins' as const, labelKey: 'settings.plugins.title', descriptionKey: 'settings.plugins.description' },
+  { id: 'mcp' as const, labelKey: 'settings.mcp.title', descriptionKey: 'settings.mcp.description' },
   { id: 'shortcuts' as const, labelKey: 'settings.shortcuts.title', descriptionKey: 'settings.shortcuts.description' },
   { id: 'preferences' as const, labelKey: 'settings.preferences.title', descriptionKey: 'settings.preferences.description' },
 ] satisfies readonly SettingsPageDefinition[]

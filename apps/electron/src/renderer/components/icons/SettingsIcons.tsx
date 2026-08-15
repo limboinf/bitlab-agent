@@ -11,6 +11,7 @@ import {
   Building2,
   Keyboard,
   Palette,
+  Plug,
   ShieldCheck,
   Sparkles,
   ToggleRight,
@@ -27,6 +28,7 @@ export const InputIcon = ({ className }: IconProps) => <Keyboard className={clas
 export const WorkspaceIcon = ({ className }: IconProps) => <Building2 className={className} />
 export const PermissionsIcon = ({ className }: IconProps) => <ShieldCheck className={className} />
 export const PluginsIcon = ({ className }: IconProps) => <Blocks className={className} />
+export const McpSettingsIcon = ({ className }: IconProps) => <Plug className={className} />
 export const ShortcutsIcon = ({ className }: IconProps) => <Keyboard className={className} />
 export const PreferencesIcon = ({ className }: IconProps) => <UserCircle className={className} />
 
@@ -42,6 +44,7 @@ export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconPro
   workspace: WorkspaceIcon,
   permissions: PermissionsIcon,
   plugins: PluginsIcon,
+  mcp: McpSettingsIcon,
   shortcuts: ShortcutsIcon,
   preferences: PreferencesIcon,
 }

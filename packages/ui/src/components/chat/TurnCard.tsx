@@ -24,6 +24,7 @@ import {
   FilePenLine,
   GitBranch,
   Brain,
+  Plug,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Markdown } from '../markdown'
@@ -41,6 +42,7 @@ import { getDiffStats, getUnifiedDiffStats } from '../code-viewer'
 import { TurnCardActionsMenu } from './TurnCardActionsMenu'
 import { computeLastChildSet, groupActivitiesByParent, isActivityGroup, formatDuration, formatTokens, deriveTurnPhase, shouldShowThinkingIndicator, type ActivityGroup, type AssistantTurn } from './turn-utils'
 import { getInlineToolDetail, INLINE_DETAIL_MAX_LINES, type InlineToolDetail } from './tool-detail'
+import { getMcpActivityPresentation } from './mcp-activity'
 import { extractAnnotationSelectedText } from './follow-up-helpers'
 import {
   formatAnnotationFollowUpTooltipText,
@@ -387,7 +389,7 @@ export interface TurnCardProps {
   isLastResponse?: boolean
   /** Session folder path for stripping from file paths in tool display */
   sessionFolderPath?: string
-  /** Display mode: 'detailed' shows all info, 'informative' hides MCP/API names and params */
+  /** Display mode: 'detailed' includes optional MCP details and native tool parameters */
   displayMode?: 'informative' | 'detailed'
   /** Animate response appearance (for playground demos) */
   animateResponse?: boolean
@@ -450,6 +452,19 @@ function getToolDisplayName(name: string): string {
   }
 
   return displayNames[stripped] || stripped
+}
+
+function getMcpActionLabel(action: NonNullable<ReturnType<typeof getMcpActivityPresentation>>['action']): string {
+  switch (action) {
+    case 'authorize': return i18n.t('turnCard.mcp.authorize')
+    case 'callTool': return i18n.t('turnCard.mcp.callTool')
+    case 'connect': return i18n.t('turnCard.mcp.connect')
+    case 'describeTool': return i18n.t('turnCard.mcp.describeTool')
+    case 'listTools': return i18n.t('turnCard.mcp.listTools')
+    case 'readInstructions': return i18n.t('turnCard.mcp.readInstructions')
+    case 'searchTools': return i18n.t('turnCard.mcp.searchTools')
+    case 'status': return i18n.t('turnCard.mcp.status')
+  }
 }
 
 /**
@@ -773,7 +788,7 @@ interface ActivityRowProps {
   isLastChild?: boolean
   /** Session folder path for stripping from file paths in tool display */
   sessionFolderPath?: string
-  /** Display mode: 'detailed' shows all info, 'informative' hides MCP/API names and params */
+  /** Display mode: 'detailed' includes optional MCP details and native tool parameters */
   displayMode?: 'informative' | 'detailed'
   /** Open a file from rendered markdown in an expanded reasoning/commentary row */
   onOpenFile?: (path: string) => void
@@ -1078,23 +1093,12 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
   const toolDisplay = formatToolDisplay(activity)
   const fullDisplayName = toolDisplay.name || 'Processing'
 
-  // Detect MCP/API tools (toolName starts with "mcp__")
-  const isMcpOrApiTool = activity.toolName?.startsWith('mcp__') ?? false
-
-  // For MCP/API tools, extract source name and tool slug
-  // e.g., "ClickUp: clickup_search" -> sourceName="ClickUp", toolSlug="clickup_search"
-  let sourceName = fullDisplayName
-  let toolSlug: string | undefined = undefined
-  if (isMcpOrApiTool) {
-    const colonIndex = fullDisplayName.indexOf(':')
-    if (colonIndex > 0) {
-      sourceName = fullDisplayName.substring(0, colonIndex).trim()
-      toolSlug = fullDisplayName.substring(colonIndex + 1).trim()
-    }
-  }
-
-  // For non-MCP tools or informative mode, use the appropriate display name
-  const displayedName: string = isMcpOrApiTool ? sourceName : fullDisplayName
+  const mcpPresentation = getMcpActivityPresentation({
+    toolName: activity.toolName,
+    toolInput: activity.toolInput,
+    displayName: activity.toolDisplayMeta?.displayName ?? activity.displayName,
+  })
+  const isMcpTool = mcpPresentation !== null
 
   // Intent for MCP tools, description for Bash commands
   const intentOrDescription = activity.intent || (activity.toolInput?.description as string | undefined)
@@ -1102,6 +1106,10 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
   const diffStats = computeEditWriteDiffStats(activity.toolName, activity.toolInput)
   const isComplete = activity.status === 'completed' || activity.status === 'error'
   const isBackgrounded = activity.status === 'backgrounded'
+  const sessionLlmModel = activity.toolName === 'mcp__session__call_llm'
+    && typeof activity.toolInput?.model === 'string'
+    ? activity.toolInput.model
+    : undefined
 
   // Reading a tool result unfolds in place; the overlay stays one click away
   // for the long tail (full diffs, output past the inline budget).
@@ -1129,11 +1137,26 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
         onClick={inlineDetail ? () => setIsExpanded(v => !v) : undefined}
       >
         <ActivityStatusIcon status={activity.status} toolName={activity.toolName} customIcon={toolDisplay.icon} />
-        {/* MCP/API tools: Source name (shrink-0) then error badge (if any) then compound label (flex-1) */}
-        {isMcpOrApiTool && !isBackgrounded && (
+        {/* External MCP calls have a dedicated identity instead of blending into native tools. */}
+        {isMcpTool && !isBackgrounded && (
           <>
-            <span className="shrink-0">{sourceName}</span>
-            {/* Error badge for MCP/API tools */}
+            <span className="inline-flex h-[18px] shrink-0 items-center gap-1 rounded-[4px] bg-foreground/[0.055] px-1.5 text-[10px] font-medium tracking-[0.04em] text-foreground/70">
+              <Plug className="size-2.5" />
+              MCP
+            </span>
+            {mcpPresentation.serverName && (
+              <span className="shrink-0 font-medium text-foreground/80">
+                {mcpPresentation.serverName}
+              </span>
+            )}
+            <span className="shrink-0 text-foreground/55">
+              {getMcpActionLabel(mcpPresentation.action)}
+            </span>
+            {mcpPresentation.toolName && (
+              <span className="max-w-[220px] shrink min-w-0 truncate rounded-[4px] bg-background px-1.5 py-0.5 text-[11px] text-foreground/70 shadow-minimal">
+                {mcpPresentation.toolName}
+              </span>
+            )}
             {activity.status === 'error' && activity.error && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1149,30 +1172,18 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
                 </TooltipContent>
               </Tooltip>
             )}
-            {/* Model badge for LLM Query */}
-            {activity.toolName === 'mcp__session__call_llm' && activity.toolInput?.model && (
-              <span className="px-1.5 py-0.5 bg-background shadow-minimal rounded-[4px] text-[10px] text-foreground/60 shrink-0">
-                {String(activity.toolInput.model)}
-              </span>
-            )}
-            {(intentOrDescription || (displayMode === 'detailed' && (toolSlug || inputSummary))) && (
+            {(activity.intent || (displayMode === 'detailed' && mcpPresentation.detail)) && (
               <span className={cn("truncate flex-1 min-w-0", onOpenDetails && isComplete && "group-hover/row:underline")}>
-                {intentOrDescription && (
+                {activity.intent && (
                   <>
                     <span className="opacity-60"> · </span>
-                    <span>{intentOrDescription}</span>
+                    <span>{activity.intent}</span>
                   </>
                 )}
-                {displayMode === 'detailed' && toolSlug && (
+                {displayMode === 'detailed' && mcpPresentation.detail && (
                   <>
                     <span className="opacity-60"> · </span>
-                    <span className="opacity-70">{toolSlug}</span>
-                  </>
-                )}
-                {displayMode === 'detailed' && inputSummary && (
-                  <>
-                    <span className="opacity-60"> · </span>
-                    <span className="opacity-50">{inputSummary}</span>
+                    <span className="opacity-50">{mcpPresentation.detail}</span>
                   </>
                 )}
               </span>
@@ -1180,11 +1191,16 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
           </>
         )}
         {/* Native tools: Tool name (shrink-0) */}
-        {!isMcpOrApiTool && (
-          <span className={cn("shrink-0", onOpenDetails && isComplete && "group-hover/row:underline")}>{displayedName}</span>
+        {!isMcpTool && (
+          <span className={cn("shrink-0", onOpenDetails && isComplete && "group-hover/row:underline")}>{fullDisplayName}</span>
+        )}
+        {sessionLlmModel && (
+          <span className="px-1.5 py-0.5 bg-background shadow-minimal rounded-[4px] text-[10px] text-foreground/60 shrink-0">
+            {sessionLlmModel}
+          </span>
         )}
         {/* Diff stats and filename badges - after tool name */}
-        {!isMcpOrApiTool && !isBackgrounded && diffStats && (
+        {!isMcpTool && !isBackgrounded && diffStats && (
           <span className="flex items-center gap-1.5 text-[10px] shrink-0">
             {diffStats.deletions > 0 && (
               <span
@@ -1224,7 +1240,7 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
           </span>
         )}
         {/* Filename badge for Read tool (no diff stats) */}
-        {!isMcpOrApiTool && !isBackgrounded && !diffStats && activity.toolName === 'Read' && typeof activity.toolInput?.file_path === 'string' && (
+        {!isMcpTool && !isBackgrounded && !diffStats && activity.toolName === 'Read' && typeof activity.toolInput?.file_path === 'string' && (
           <span className="flex items-center gap-1.5 text-[10px] shrink-0">
             <span className="px-1.5 py-0.5 bg-background shadow-minimal rounded-[4px] text-[11px] text-foreground/70">
               {normalizePath(activity.toolInput.file_path).split('/').pop()}
@@ -1232,7 +1248,7 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
           </span>
         )}
         {/* Error badge for native tools */}
-        {!isMcpOrApiTool && activity.status === 'error' && activity.error && (
+        {!isMcpTool && activity.status === 'error' && activity.error && (
           <Tooltip>
             <TooltipTrigger asChild>
               <span
@@ -1249,7 +1265,7 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
         )}
         {/* Native tools: Compound label with description + params (flex-1) */}
         {/* In informative mode, hide inputSummary (command details) - only show description */}
-        {!isMcpOrApiTool && !isBackgrounded && (intentOrDescription || (displayMode === 'detailed' && inputSummary)) && (
+        {!isMcpTool && !isBackgrounded && (intentOrDescription || (displayMode === 'detailed' && inputSummary)) && (
           <span className={cn("truncate flex-1 min-w-0", onOpenDetails && isComplete && "group-hover/row:underline")}>
             {intentOrDescription && (
               <>
@@ -1272,7 +1288,7 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
             <span className="truncate min-w-0 max-w-[300px] text-accent">{backgroundInfo}</span>
           </>
         )}
-        {/* No spacer needed - both MCP/API and native tools now have flex-1 on their compound spans */}
+        {/* Both MCP and native compound descriptions manage their own remaining width. */}
         {inlineDetail && (
           <motion.div
             initial={false}
@@ -1345,7 +1361,7 @@ interface ActivityGroupRowProps {
   animationIndex?: number
   /** Session folder path for stripping from file paths in tool display */
   sessionFolderPath?: string
-  /** Display mode: 'detailed' shows all info, 'informative' hides MCP/API names and params */
+  /** Display mode: 'detailed' includes optional MCP details and native tool parameters */
   displayMode?: 'informative' | 'detailed'
   /** Open a file from rendered markdown in an expanded reasoning/commentary row */
   onOpenFile?: (path: string) => void
