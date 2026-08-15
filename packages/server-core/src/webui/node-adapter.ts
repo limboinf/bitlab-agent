@@ -9,7 +9,13 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
-type WebHandler = (req: Request) => Promise<Response> | Response
+/** Connection facts the handler can't recover from the Request itself. */
+export interface RequestPeer {
+  /** TCP peer address of the socket. The only spoof-proof "who connected" signal. */
+  remoteAddress?: string
+}
+
+type WebHandler = (req: Request, peer: RequestPeer) => Promise<Response> | Response
 
 /**
  * Wrap a web-standard fetch handler as a Node HTTP request listener.
@@ -62,7 +68,9 @@ async function handleRequest(
     body,
   })
 
-  const response = await handler(request)
+  const response = await handler(request, {
+    remoteAddress: nodeReq.socket.remoteAddress,
+  })
 
   // Write web-standard Response back to Node ServerResponse.
   // Headers.forEach iterates each value separately, which correctly

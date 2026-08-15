@@ -23,6 +23,7 @@ import {
   type PushTarget,
   type ErrorCode,
 } from '@bitlab/shared/protocol'
+import { isLoopbackAddress } from '../webui/loopback'
 import type { RpcServer, HandlerFn, RequestContext } from './types'
 import { serializeEnvelope, deserializeEnvelope } from './codec'
 import { createLogger } from '@bitlab/shared/utils'
@@ -91,6 +92,13 @@ export interface WsRpcServerOptions {
    * If provided, a valid session cookie is accepted as an alternative to a bearer token.
    */
   validateSessionCookie?: (cookieHeader: string | null) => Promise<boolean>
+  /**
+   * Accept handshakes from loopback peers without a token or session cookie, so
+   * the local browser reaches its own agent without logging in. Mirrors the
+   * WebUI HTTP bypass — the caller must gate it the same way (see
+   * `resolveLoopbackBypass` in packages/server/src/index.ts).
+   */
+  allowLoopbackWithoutAuth?: boolean
   /** Server identity stamp on outgoing events. Default: 'local' */
   serverId?: string
   /** TLS configuration. When provided, the server listens on wss:// instead of ws://. */
@@ -138,6 +146,7 @@ export class WsRpcServer implements RpcServer {
   private readonly requireAuth: boolean
   private readonly validateToken: ((token: string) => Promise<boolean>) | null
   private readonly validateSessionCookie: ((cookieHeader: string | null) => Promise<boolean>) | null
+  private readonly allowLoopbackWithoutAuth: boolean
   private readonly serverId: string
   private readonly tlsOptions: WsRpcTlsOptions | null
   private readonly serverVersion: string
@@ -152,6 +161,7 @@ export class WsRpcServer implements RpcServer {
     this.requireAuth = opts?.requireAuth ?? false
     this.validateToken = opts?.validateToken ?? null
     this.validateSessionCookie = opts?.validateSessionCookie ?? null
+    this.allowLoopbackWithoutAuth = opts?.allowLoopbackWithoutAuth ?? false
     this.serverId = opts?.serverId ?? 'local'
     this.serverVersion = opts?.serverVersion ?? ''
     this.tlsOptions = opts?.tls ?? null
@@ -329,7 +339,7 @@ export class WsRpcServer implements RpcServer {
       }
 
       this.wss.on('connection', (ws, req) => {
-        this.onConnection(ws, req.headers.cookie ?? null)
+        this.onConnection(ws, req.headers.cookie ?? null, req.socket.remoteAddress)
       })
     })
   }
@@ -368,7 +378,11 @@ export class WsRpcServer implements RpcServer {
   // Connection handling
   // -------------------------------------------------------------------------
 
-  private onConnection(ws: WebSocket, upgradeRequestCookie: string | null): void {
+  private onConnection(
+    ws: WebSocket,
+    upgradeRequestCookie: string | null,
+    peerAddress?: string,
+  ): void {
     // Reject if at capacity
     if (this.maxClients > 0 && this.clients.size >= this.maxClients) {
       transportLog.warn('Connection rejected: at capacity', {
@@ -438,6 +452,12 @@ export class WsRpcServer implements RpcServer {
           // 2. Fallback: try session cookie from HTTP upgrade request (web UI path)
           if (!authenticated && this.validateSessionCookie && upgradeRequestCookie) {
             authenticated = await this.validateSessionCookie(upgradeRequestCookie)
+          }
+
+          // 3. Fallback: local browser on this machine, when the bypass is on.
+          //    Peer address comes from the socket, so it can't be forged by a header.
+          if (!authenticated && this.allowLoopbackWithoutAuth && isLoopbackAddress(peerAddress)) {
+            authenticated = true
           }
 
           if (!authenticated) {

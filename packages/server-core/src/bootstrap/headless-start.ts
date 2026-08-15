@@ -46,6 +46,8 @@ export interface ServerBootstrapOptions<TSessionManager, THandlerDeps> {
   tls?: WsRpcTlsOptions
   /** Cookie-based session validator for web UI auth on WebSocket upgrade. */
   validateSessionCookie?: (cookieHeader: string | null) => Promise<boolean>
+  /** Accept loopback handshakes without auth (local WebUI convenience). */
+  allowLoopbackWithoutAuth?: boolean
   /**
    * Optional HTTP request handler for non-WebSocket requests on the RPC port.
    * When provided, the WsRpcServer serves HTTP (e.g. WebUI) on the same port.
@@ -298,6 +300,7 @@ export async function bootstrapServer<TSessionManager, THandlerDeps>(
     requireAuth: true,
     validateToken: async (t) => t === serverToken,
     validateSessionCookie: options.validateSessionCookie,
+    allowLoopbackWithoutAuth: options.allowLoopbackWithoutAuth,
     serverId: options.serverId ?? 'headless',
     serverVersion: options.serverVersion,
     tls: options.tls,
