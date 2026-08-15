@@ -7,6 +7,7 @@ import type {
 } from '@bitlab/core/types'
 import type { PermissionMode } from '@bitlab/shared/agent/mode-types'
 import type { ThinkingLevel } from '@bitlab/shared/agent/thinking-levels'
+import type { McpOperationResult, McpServerStatusDto, McpSessionStatusDto } from '@bitlab/shared/config'
 import type {
   CreateSessionOptions,
   FileAttachment,
@@ -140,4 +141,20 @@ export interface ISessionManager {
   refreshConnectionRuntime(connectionSlug: string): Promise<void>
   /** Push changed web_search settings (provider/key) to running sessions. */
   refreshSearchConfig(): Promise<void>
+  /** Push the persisted MCP adapter config to running sessions (hot update). */
+  refreshMcpConfig(): void
+  /** Latest MCP status snapshots across live sessions. */
+  getMcpStatusSnapshots(): McpSessionStatusDto[]
+  /** What each MCP server was last seen doing, outliving its session. */
+  getLastKnownMcpStatuses(): McpServerStatusDto[]
+  /** Forget a remembered MCP status (server reconfigured or removed). */
+  forgetMcpStatus(serverName: string): void
+  /**
+   * Browser OAuth sign-in for one MCP server. Runs inside a live session's
+   * subprocess (a silent transient session is created when none exist).
+   */
+  authenticateMcpServer(serverId: string): Promise<McpOperationResult>
+  cancelMcpAuth(): Promise<{ ok: boolean }>
+  signOutMcpServer(serverId: string): Promise<McpOperationResult>
+  reconnectMcpServer(serverId: string): Promise<McpOperationResult>
 }

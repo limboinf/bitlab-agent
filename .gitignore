@@ -52,3 +52,4 @@ credentials.enc
 .bitlab-dev/
 .bitlab-electron/
 .playwright-mcp/
+.zcode/

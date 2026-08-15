@@ -158,6 +158,7 @@
     "marked": "^17.0.1",
     "markitdown-js": "^0.0.14",
     "open": "^11.0.0",
+    "pi-mcp-adapter": "^2.25.0",
     "prosemirror-highlight": "^0.15.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

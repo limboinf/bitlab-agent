@@ -48,10 +48,20 @@ import {
   ConfigWatcher,
   getLlmConnections,
   getMiniModel,
+  getMcpServers,
+  getMcpSettings,
+  getActiveWorkspace,
   getWorkspaces,
   modelSupportsImages,
   resolveTitleLanguageName,
   type ConfigWatcherCallbacks,
+  type McpApprovalDecision,
+  type McpApprovalRequestDto,
+  type McpServerStatusDto,
+  type McpOperationResult,
+  type McpSessionStatusDto,
+  type McpStatusSnapshotDto,
+  type StoredConfig,
 } from '@bitlab/shared/config'
 import { getCredentialManager } from '@bitlab/shared/credentials'
 import type { LoadedSkill } from '@bitlab/shared/skills'
@@ -85,6 +95,7 @@ import { getWorkspaceAllowedDirs, validateFilePath } from '@bitlab/server-core/h
 import { normalizeThinkingLevel, type ThinkingLevel } from '@bitlab/shared/agent/thinking-levels'
 import type { PermissionMode } from '@bitlab/shared/agent/mode-types'
 import { buildBackendRuntimeSignature, buildRestartRequiredSignature, isImageAttachment } from './runtime-config'
+import { McpRuntimeState, formatMcpApprovalCommand, type McpStatusSessionEvent } from './mcp-runtime'
 import {
   crossesConnection,
   currentSelection,
@@ -306,6 +317,27 @@ export interface SessionCompletionEvent {
   stopReason: 'complete' | 'cancelled' | 'error'
 }
 
+/**
+ * The MCP-capable slice of the Pi agent. Shared's `AgentBackend` interface
+ * does not declare the MCP surface yet (the callbacks live on BaseAgent, the
+ * methods on PiAgent), so this structural type is the server-core-side view
+ * used to wire and invoke it. Everything is optional because non-Pi backends
+ * never grow these members.
+ */
+export type McpCapableAgent = AgentBackend & {
+  onMcpStatus?: ((snapshot: McpStatusSnapshotDto) => void) | null
+  onMcpApprovalRequest?: ((request: McpApprovalRequestDto) => void) | null
+  onMcpNotify?: ((notice: { message: string; level: 'info' | 'warning' | 'error' }) => void) | null
+  refreshMcpConfig?: () => void
+  resolveMcpApproval?: (requestId: string, decision: McpApprovalDecision) => void
+  /** Spawn the subprocess + Pi session without a prompt (auth prerequisite). */
+  ensureReady?: () => Promise<string | null>
+  /** Browser OAuth sign-in / connect for one MCP server (round-trips the subprocess). */
+  requestMcpAuth?: (serverName: string, timeoutMs?: number) => Promise<McpOperationResult>
+  /** Clear one MCP server's stored OAuth credentials (adapter `/mcp logout`). */
+  requestMcpLogout?: (serverName: string, url: string, timeoutMs?: number) => Promise<McpOperationResult>
+}
+
 export interface MidStreamDeliveryOutcome {
   shouldQueue: boolean
   wasInterrupted: boolean
@@ -332,6 +364,16 @@ export class SessionManager implements ISessionManager {
   private rpcServer: RpcServer | null = null
   private browserHostPins = new Map<string, string>()
   private lastTimestamp = 0
+  /** Latest MCP status snapshot per live session + fail-closed approval timers. */
+  private mcpRuntime = new McpRuntimeState()
+  /** Session Settings runs MCP operations in (see withMcpUtilityAgent). */
+  private mcpUtilitySessionId: string | null = null
+  /**
+   * Watermark of the persisted MCP config as last pushed to live agents.
+   * Lets the config-watcher path distinguish external edits (hand-edited
+   * config.json) from our own writes, which already refreshed the agents.
+   */
+  private lastMcpConfigHash: string | null = null
 
   waitForInit(): Promise<void> {
     return this.initPromise ?? Promise.resolve()
@@ -597,6 +639,8 @@ export class SessionManager implements ISessionManager {
     await this.cancelProcessing(sessionId, true)
     managed.agent?.destroy()
     unregisterSessionScopedToolCallbacks(sessionId)
+    // Drop cached MCP status + any pending approval auto-deny timers.
+    this.mcpRuntime.clearSession(sessionId)
     sessionPersistenceQueue.cancel(sessionId)
     deleteStoredSession(managed.workspace.dataRoot, sessionId)
     this.sessions.delete(sessionId)
@@ -1151,6 +1195,24 @@ export class SessionManager implements ISessionManager {
     agent.onPermissionRequest = request => {
       this.handleAgentEvent(managed, { ...request, type: 'permission_request', permissionType: request.type })
     }
+    // MCP status/approvals surface (pi backend only; other backends keep the
+    // optional members unset). Wired through the structural cast because
+    // AgentBackend does not declare this surface yet — see McpCapableAgent.
+    const mcpAgent = agent as McpCapableAgent
+    mcpAgent.onMcpStatus = snapshot => this.handleMcpStatus(managed, snapshot)
+    mcpAgent.onMcpApprovalRequest = request => this.handleMcpApprovalRequest(managed, request)
+    mcpAgent.onMcpNotify = notice => {
+      appLogger.info(`[MCP] ${notice.level}: ${notice.message.slice(0, 300)}`)
+      this.eventSink(RPC_CHANNELS.mcp.NOTIFY, { to: 'all' }, {
+        sessionId: managed.id,
+        ...notice,
+      })
+    }
+    // Pipe backend debug lines (including the pi subprocess's MCP stderr
+    // banner: "MCP enabled: N server(s)", reload traces) into the app log so
+    // MCP lifecycle issues are diagnosable from the Electron console.
+    const appLogger = platform.logger
+    agent.onDebug = message => appLogger.debug(`[session:${managed.id.slice(0, 8)}] ${message}`)
     agent.onPlanSubmitted = planPath => {
       const message: Message = { id: generateMessageId(), role: 'plan', content: planPath, timestamp: this.nextTimestamp() }
       managed.messages.push(message)
@@ -1284,6 +1346,280 @@ export class SessionManager implements ISessionManager {
     await Promise.all([...this.sessions.values()]
       .map(managed => managed.agent?.refreshSearchConfig?.())
       .filter(Boolean))
+  }
+
+  /**
+   * Push the persisted MCP config to every live agent subprocess (hot update).
+   * Also refreshes the external-change watermark so the config-watcher path
+   * does not re-broadcast changes that originated from our own handlers.
+   */
+  refreshMcpConfig(): void {
+    const servers = getMcpServers().filter(server => server.enabled)
+    const summary = servers.map(s => `${s.name}(${s.trusted ? 'trusted' : 'approval'})`).join(', ') || 'none'
+    const hash = this.mcpConfigHash()
+    this.lastMcpConfigHash = hash
+    let pushed = 0
+    for (const managed of this.sessions.values()) {
+      if (!managed.agent) continue
+      ;(managed.agent as McpCapableAgent).refreshMcpConfig?.()
+      pushed++
+    }
+    platform?.logger.info(`[MCP] config pushed to ${pushed} live session(s); enabled servers: ${summary}`)
+  }
+
+  /** Latest MCP status snapshots across live sessions (for `mcp:list`). */
+  getMcpStatusSnapshots(): McpSessionStatusDto[] {
+    return this.mcpRuntime.getStatusSnapshots()
+  }
+
+  /** What each MCP server was last seen doing, outliving its session. */
+  getLastKnownMcpStatuses(): McpServerStatusDto[] {
+    return this.mcpRuntime.getLastKnownStatuses()
+  }
+
+  /** Forget a remembered MCP status (server reconfigured or removed). */
+  forgetMcpStatus(serverName: string): void {
+    this.mcpRuntime.forgetLastKnown(serverName)
+  }
+
+  /**
+   * Run one MCP operation in a session dedicated to Settings.
+   *
+   * Never a chat session: those may be mid-turn, and driving a connect or a
+   * sign-out through one interferes with work the user can see. The session is
+   * created silently (no create event, nothing in the session list) and
+   * deleted as soon as the operation settles, so a crash cannot strand it.
+   */
+  private async withMcpUtilityAgent<T>(
+    run: (agent: McpCapableAgent) => Promise<T>,
+    onUnavailable: (message: string) => T,
+  ): Promise<T> {
+    const workspace = getActiveWorkspace() ?? this.getWorkspaces()[0]
+    if (!workspace) return onUnavailable('No workspace available to run MCP operations')
+    const managed = this.toManaged(await this.createSession(workspace.id, {}, { emitCreatedEvent: false }))
+    this.mcpUtilitySessionId = managed.id
+    try {
+      const agent = await this.getOrCreateAgent(managed) as McpCapableAgent
+      if (typeof agent.requestMcpAuth !== 'function') {
+        return onUnavailable('This session backend does not support MCP operations')
+      }
+      await agent.ensureReady?.()
+      return await run(agent)
+    } finally {
+      await this.disposeMcpUtilitySession(managed.id)
+    }
+  }
+
+  /**
+   * Drop the utility session. `expectedId` guards the teardown that follows an
+   * operation: a cancel may already have disposed it and started nothing else.
+   */
+  private async disposeMcpUtilitySession(expectedId?: string): Promise<void> {
+    const sessionId = this.mcpUtilitySessionId
+    if (!sessionId || (expectedId && sessionId !== expectedId)) return
+    this.mcpUtilitySessionId = null
+    await this.deleteSession(sessionId).catch(() => {})
+  }
+
+  /**
+   * Browser OAuth sign-in for one MCP server. Tokens land in the shared
+   * credential store, so every session picks them up on its next connect.
+   */
+  async authenticateMcpServer(serverId: string): Promise<McpOperationResult> {
+    const server = getMcpServers().find(item => item.id === serverId)
+    if (!server) return { ok: false, message: 'Server not found', code: 'not_found' }
+    if (server.transport.type !== 'http') {
+      return { ok: false, message: 'OAuth sign-in applies to HTTP MCP servers only', code: 'not_http' }
+    }
+    try {
+      const result = await this.withMcpUtilityAgent(
+        agent => agent.requestMcpAuth!(server.name),
+        message => ({ ok: false, message, code: 'no_session' } satisfies McpOperationResult),
+      )
+      if (result.ok) {
+        platform?.logger.info(`[MCP] OAuth sign-in succeeded for "${server.name}"`)
+        this.eventSink(RPC_CHANNELS.mcp.CHANGED, { to: 'all' })
+      }
+      return result
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      // A cancelled sign-in tears the utility session down mid-flight, which
+      // surfaces here as a rejected request rather than a failure.
+      const cancelled = this.mcpUtilitySessionId === null
+      platform?.logger.warn(`[MCP] OAuth sign-in ${cancelled ? 'cancelled' : 'failed'} for "${server.name}": ${message}`)
+      return { ok: false, message, code: cancelled ? 'cancelled' : 'connect_failed' }
+    }
+  }
+
+  /**
+   * Abandon an in-flight sign-in. The browser flow lives in the utility
+   * session's subprocess, so dropping the session is what actually stops it.
+   */
+  async cancelMcpAuth(): Promise<{ ok: boolean }> {
+    if (!this.mcpUtilitySessionId) return { ok: false }
+    platform?.logger.info('[MCP] sign-in cancelled by the user')
+    await this.disposeMcpUtilitySession()
+    return { ok: true }
+  }
+
+  /** Clear one server's stored OAuth credentials. */
+  async signOutMcpServer(serverId: string): Promise<McpOperationResult> {
+    const server = getMcpServers().find(item => item.id === serverId)
+    if (!server) return { ok: false, message: 'Server not found', code: 'not_found' }
+    if (server.transport.type !== 'http') {
+      return { ok: false, message: 'OAuth sign-out applies to HTTP MCP servers only', code: 'not_http' }
+    }
+    const url = server.transport.url
+    try {
+      const result = await this.withMcpUtilityAgent(
+        agent => agent.requestMcpLogout!(server.name, url),
+        message => ({ ok: false, message, code: 'no_session' } satisfies McpOperationResult),
+      )
+      if (result.ok) {
+        platform?.logger.info(`[MCP] signed out of "${server.name}"`)
+        this.forgetMcpStatus(server.name)
+        this.eventSink(RPC_CHANNELS.mcp.CHANGED, { to: 'all' })
+      }
+      return result
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      platform?.logger.warn(`[MCP] sign-out failed for "${server.name}": ${message}`)
+      return { ok: false, message, code: 'logout_failed' }
+    }
+  }
+
+  /**
+   * Reconnect one server in every live chat session.
+   *
+   * Deliberately NOT the utility session: a connection belongs to the agent
+   * that will call the tools, so reconnecting anywhere else would report
+   * success while the user's session stays broken. With no live session there
+   * is nothing to reconnect — the next session connects on its own.
+   */
+  async reconnectMcpServer(serverId: string): Promise<McpOperationResult> {
+    const server = getMcpServers().find(item => item.id === serverId)
+    if (!server) return { ok: false, message: 'Server not found', code: 'not_found' }
+    if (!server.enabled) return { ok: false, message: 'Server is disabled', code: 'server_disabled' }
+
+    const agents = [...this.sessions.values()]
+      .filter(managed => managed.id !== this.mcpUtilitySessionId)
+      .map(managed => managed.agent as McpCapableAgent | null | undefined)
+      .filter((agent): agent is McpCapableAgent => typeof agent?.requestMcpAuth === 'function')
+    if (!agents.length) {
+      return { ok: false, message: 'No running session to reconnect in', code: 'no_live_session' }
+    }
+
+    const results = await Promise.all(agents.map(async agent => {
+      try {
+        return await agent.requestMcpAuth!(server.name)
+      } catch (error) {
+        return {
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+          code: 'connect_failed',
+        } satisfies McpOperationResult
+      }
+    }))
+    const failure = results.find(result => !result.ok)
+    platform?.logger.info(`[MCP] reconnect "${server.name}" in ${agents.length} session(s) — ${failure ? `failed: ${failure.code}` : 'ok'}`)
+    this.eventSink(RPC_CHANNELS.mcp.CHANGED, { to: 'all' })
+    return failure ?? { ok: true, message: `Reconnected "${server.name}"` }
+  }
+
+  private toManaged(session: Session): ManagedSession {
+    const managed = this.sessions.get(session.id)
+    if (!managed) throw new Error(`Session ${session.id} not tracked`)
+    return managed
+  }
+
+  resolveMcpApproval(sessionId: string, requestId: string, decision: McpApprovalDecision): boolean {    const agent = this.sessions.get(sessionId)?.agent as McpCapableAgent | null | undefined
+    if (!agent?.resolveMcpApproval) {
+      platform?.logger.warn(`[MCP] approval ${decision} for ${requestId} could not route — session ${sessionId.slice(0, 8)} has no MCP agent`)
+      return false
+    }
+    agent.resolveMcpApproval(requestId, decision)
+    this.mcpRuntime.clearApprovalTimer(sessionId, requestId)
+    platform?.logger.info(`[MCP] approval ${decision} → ${requestId} (${sessionId.slice(0, 8)})`)
+    return true
+  }
+
+  private mcpConfigHash(): string {
+    return JSON.stringify([getMcpServers(), getMcpSettings()])
+  }
+
+  private handleMcpStatus(managed: ManagedSession, snapshot: McpStatusSnapshotDto): void {
+    const firstForSession = !this.mcpRuntime.hasStatus(managed.id)
+    this.mcpRuntime.recordStatus(managed.id, snapshot)
+    const summary = snapshot.servers
+      .map(server => `${server.name}:${server.status}(${server.toolCount} tools)`)
+      .join(', ')
+    const line = `[MCP] status ${managed.id.slice(0, 8)} — ${summary || 'no servers'}`
+    if (firstForSession) platform?.logger.info(line)
+    else platform?.logger.debug(line)
+    // Same envelope/channel as every other session event, but emitted through
+    // the sink directly: shared's SessionEvent union does not include the MCP
+    // event types yet, and the sink's payload parameter is intentionally
+    // untyped (`...args: any[]`).
+    this.eventSink(RPC_CHANNELS.sessions.EVENT, { to: 'workspace', workspaceId: managed.workspace.id }, {
+      type: 'mcp_status',
+      sessionId: managed.id,
+      snapshot,
+    } satisfies McpStatusSessionEvent)
+    // Settings → MCP is not scoped to a workspace and must not have to re-list
+    // to notice a connect, a failure or a sign-in taking effect, so the same
+    // snapshot also goes out on the MCP channel to every client.
+    this.eventSink(RPC_CHANNELS.mcp.STATUS, { to: 'all' }, {
+      sessionId: managed.id,
+      snapshot,
+    })
+  }
+
+  private handleMcpApprovalRequest(managed: ManagedSession, request: McpApprovalRequestDto): void {
+    // Answers the user already gave, honored before anything is shown:
+    //   - full access is the session saying "stop asking me"; an MCP tool call
+    //     is a tool call, and the adapter's own gate knows nothing about the
+    //     session's permission mode;
+    //   - "always allow" for this tool, remembered per session here because
+    //     the adapter's cache does not survive an agent-session rebuild.
+    const preApproved = managed.permissionMode === 'allow-all'
+      || this.mcpRuntime.isApproved(managed.id, request.serverName, request.originalToolName)
+    if (preApproved) {
+      const reason = managed.permissionMode === 'allow-all' ? 'full access' : 'always allowed'
+      platform?.logger.info(`[MCP] auto-approved ${managed.id.slice(0, 8)} — ${request.prefixedToolName} (${reason})`)
+      ;(managed.agent as McpCapableAgent | null)?.resolveMcpApproval?.(request.requestId, 'allow_for_session')
+      return
+    }
+    platform?.logger.info(`[MCP] approval requested ${managed.id.slice(0, 8)} — ${request.prefixedToolName}`)
+    // Fail-closed guard: the adapter awaits a claimed approval handler
+    // indefinitely (only an aborted turn unblocks it), so an unanswered
+    // request is denied after 120s instead of hanging the tool call.
+    this.mcpRuntime.scheduleApprovalAutoDeny(managed.id, request.requestId, () => {
+      ;(managed.agent as McpCapableAgent | null)?.resolveMcpApproval?.(request.requestId, 'deny')
+    }, undefined, { serverName: request.serverName, originalToolName: request.originalToolName })
+    // Ride the standard permission_request pipeline: same queueing, native
+    // notification, and inline approval prompt as every other tool approval.
+    // The renderer resolves through sessions:respondToPermission, which routes
+    // back to resolveMcpApproval by requestId (see respondToPermission).
+    this.emit(managed.workspace.id, {
+      type: 'permission_request',
+      sessionId: managed.id,
+      request: {
+        sessionId: managed.id,
+        requestId: request.requestId,
+        toolName: request.prefixedToolName,
+        command: formatMcpApprovalCommand(request.args),
+        description: `MCP tool call on server "${request.serverName}"`,
+        type: 'mcp',
+      },
+    })
+  }
+
+  /** Config-watcher path: external config.json edits propagate to live agents. */
+  private handleExternalMcpConfigChange(config: StoredConfig): void {
+    const hash = JSON.stringify([config.mcpServers ?? [], config.mcpSettings ?? null])
+    if (hash === this.lastMcpConfigHash) return
+    this.eventSink(RPC_CHANNELS.mcp.CHANGED, { to: 'all' })
+    this.refreshMcpConfig()
   }
 
   async refreshConnectionRuntime(connectionSlug: string): Promise<void> {
@@ -1424,9 +1760,19 @@ export class SessionManager implements ISessionManager {
     alwaysAllow: boolean,
     _options?: PermissionResponseOptions,
   ): boolean {
-    const agent = this.sessions.get(sessionId)?.agent
-    if (!agent) return false
-    agent.respondToPermission(requestId, allowed, alwaysAllow)
+    const managed = this.sessions.get(sessionId)
+    if (!managed?.agent) return false
+    // MCP tool approvals share this channel but their requestIds live in the
+    // MCP runtime, not the agent's permission pipeline. Map the UI's
+    // Allow / Always Allow / Deny onto the adapter's decision set.
+    if (this.mcpRuntime.hasPendingApproval(sessionId, requestId)) {
+      const decision: McpApprovalDecision = !allowed ? 'deny' : alwaysAllow ? 'allow_for_session' : 'allow_once'
+      // Remember before resolving: resolving clears the pending record the
+      // tool identity is stored under.
+      if (decision === 'allow_for_session') this.mcpRuntime.rememberApproval(sessionId, requestId)
+      return this.resolveMcpApproval(sessionId, requestId, decision)
+    }
+    managed.agent.respondToPermission(requestId, allowed, alwaysAllow)
     return true
   }
 
@@ -1926,6 +2272,9 @@ export class SessionManager implements ISessionManager {
     if (this.configWatchers.has(workspaceRootPath)) return
 
     const callbacks: ConfigWatcherCallbacks = {
+      onConfigChange: config => {
+        this.handleExternalMcpConfigChange(config)
+      },
       onLlmConnectionsChange: () => {
         this.eventSink(RPC_CHANNELS.llmConnections.CHANGED, { to: 'all' })
       },
@@ -2041,11 +2390,13 @@ export class SessionManager implements ISessionManager {
   cleanup(): void {
     for (const watcher of this.configWatchers.values()) watcher.stop()
     this.configWatchers.clear()
+    this.mcpUtilitySessionId = null
     for (const managed of this.sessions.values()) {
       managed.agent?.destroy()
       unregisterSessionScopedToolCallbacks(managed.id)
     }
     this.sessions.clear()
+    this.mcpRuntime.clearAll()
     this.browserHostPins.clear()
     this.rpcServer = null
     this.browserPaneManager = null

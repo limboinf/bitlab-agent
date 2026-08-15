@@ -81,7 +81,7 @@ function createMockDeps(): HandlerDeps {
 async function getExpectedCoreChannels(): Promise<Set<string>> {
   // Core handler channels (now in server-core)
   const [
-    auth, files, llm, sessions, settings, skills, system, workspace, onboarding,
+    auth, files, llm, sessions, settings, skills, system, workspace, onboarding, mcp,
   ] = await Promise.all([
     import('@bitlab/server-core/handlers/rpc/auth'),
     import('@bitlab/server-core/handlers/rpc/files'),
@@ -92,6 +92,7 @@ async function getExpectedCoreChannels(): Promise<Set<string>> {
     import('@bitlab/server-core/handlers/rpc/system'),
     import('@bitlab/server-core/handlers/rpc/workspace'),
     import('@bitlab/server-core/handlers/rpc/onboarding'),
+    import('@bitlab/server-core/handlers/rpc/mcp'),
   ])
 
   return new Set([
@@ -104,6 +105,7 @@ async function getExpectedCoreChannels(): Promise<Set<string>> {
     ...system.CORE_HANDLED_CHANNELS,
     ...workspace.CORE_HANDLED_CHANNELS,
     ...onboarding.HANDLED_CHANNELS,
+    ...mcp.HANDLED_CHANNELS,
   ])
 }
 

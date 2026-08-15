@@ -17,8 +17,8 @@
 import http from 'node:http';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
-import { mkdirSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdirSync, mkdtempSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 
 // Pi SDK
 import {
@@ -84,6 +84,26 @@ import { applySystemPromptOverride } from './system-prompt-override.ts';
 import { computeContextBreakdown } from './context-breakdown.ts';
 import type { ContextBreakdown, ToolWireShape } from './context-breakdown.ts';
 
+// MCP (pi-mcp-adapter runs in-process as an inline Pi extension)
+import type {
+  AdapterMcpConfig,
+  McpApprovalDecision,
+  McpApprovalRequestPayload,
+  McpStatusSnapshot,
+} from './mcp/types.ts';
+import {
+  buildAdapterExtension,
+  clearPendingMcpApprovals,
+  createMcpHostExtension,
+  hasMcpServers,
+  interpretMcpAuthResult,
+  resolveMcpApproval,
+  setCurrentMcpConfig,
+  createMcpUiBridge,
+  type McpProxyToolResult,
+} from './mcp/mcp-extension.ts';
+import { BitlabMcpResourceLoader } from './mcp/resource-loader.ts';
+
 // ============================================================
 // Types — JSONL Protocol
 // ============================================================
@@ -127,6 +147,13 @@ interface InitMessage {
    * the main process only — this subprocess just holds what it was handed.
    */
   searchApiKeys?: Partial<Record<KeyedSearchProviderId, string>>;
+  /**
+   * MCP adapter config snapshot built by the main process from Bitlab's
+   * config.json (see shared/src/config/mcp.ts buildAdapterMcpConfig). The
+   * adapter NEVER reads ambient MCP config files — this programmatic snapshot
+   * is the only source. Absent or empty `mcpServers` = MCP disabled.
+   */
+  mcpConfig?: AdapterMcpConfig;
 }
 
 interface RuntimeConfigUpdateMessage {
@@ -159,6 +186,10 @@ type InboundMessage =
   | { type: 'steer'; message: string }
   | { type: 'token_update'; piAuth: { provider: string; credential: PiCredential } }
   | { type: 'search_config_update'; searchConfig: SearchConfig; searchApiKeys: Partial<Record<KeyedSearchProviderId, string>> }
+  | { type: 'update_mcp_config'; mcpConfig: AdapterMcpConfig }
+  | { type: 'mcp_approval_response'; requestId: string; decision: McpApprovalDecision }
+  | { type: 'mcp_auth'; id: string; serverName: string }
+  | { type: 'mcp_logout'; id: string; serverName: string; url: string }
   | { type: 'shutdown' };
 
 /** Proxy tool definition from main process */
@@ -247,6 +278,40 @@ interface OutboundOAuthCredentialUpdate {
   credential: Extract<PiCredential, { type: 'oauth' }>;
   previousRefresh?: string;
 }
+/**
+ * MCP server status snapshot published by the pi-mcp-adapter extension
+ * (channel `pi-mcp-adapter/status/v1`). Forwarded verbatim.
+ */
+interface OutboundMcpStatus { type: 'mcp_status'; snapshot: McpStatusSnapshot }
+/**
+ * MCP tool-call approval ask. The adapter waits for the paired
+ * `mcp_approval_response` — see mcp-extension.ts for the fail-closed rules.
+ */
+interface OutboundMcpApprovalRequest extends McpApprovalRequestPayload {
+  type: 'mcp_approval_request';
+}
+/** Adapter ui.notify forwarded from the UI bridge (auth progress, notices). */
+interface OutboundMcpNotify {
+  type: 'mcp_notify';
+  message: string;
+  level: 'info' | 'warning' | 'error';
+}
+/**
+ * Result of an MCP operation round-trip (`mcp_auth`, `mcp_logout`).
+ *
+ * `code` is the adapter's own outcome tag (`auth_required`, `connect_failed`,
+ * `not_found`, …) or one of this server's own (`no_session`, `no_proxy_tool`).
+ * The main process maps it to user-facing text; `message` is the adapter's
+ * prose, which is written for an agent ("run mcp({connect:…})") and is only a
+ * fallback for codes the UI does not know.
+ */
+interface OutboundMcpOpResult {
+  type: 'mcp_op_result';
+  id: string;
+  ok: boolean;
+  message: string;
+  code?: string;
+}
 interface OutboundError { type: 'error'; message: string; code?: string }
 
 type OutboundMessage =
@@ -264,6 +329,10 @@ type OutboundMessage =
   | OutboundRuntimeConfigUpdateResult
   | OutboundSessionIdUpdate
   | OutboundOAuthCredentialUpdate
+  | OutboundMcpStatus
+  | OutboundMcpApprovalRequest
+  | OutboundMcpNotify
+  | OutboundMcpOpResult
   | OutboundError;
 
 class OAuthSyncAuthStorageBackend implements AuthStorageBackend {
@@ -358,6 +427,35 @@ let lastContextUsageLine: string | null = null;
 // Callback server for call_llm
 let callbackServer: http.Server | null = null;
 let callbackPort = 0;
+
+// MCP loader attached to the ACTIVE session (null when the session was created
+// without MCP — a later update_mcp_config then recreates the session instead
+// of hot-reloading it, mirroring the register_tools precedent).
+let activeMcpLoader: BitlabMcpResourceLoader | null = null;
+
+/**
+ * Rebuild the context-meter's tool composition inputs from the session's live
+ * tool list. Needed with MCP enabled: adapter tools (`mcp`, `mcp__<server>_<tool>`)
+ * register dynamically after servers connect, so the creation-time snapshot
+ * alone undercounts.
+ */
+function refreshActiveToolWireShapesFromSession(): void {
+  if (!piSession) return;
+  try {
+    const tools = (piSession.agent.state.tools ?? []) as Array<{
+      name: string;
+      description?: string;
+      parameters?: unknown;
+    }>;
+    activeToolWireShapes = tools.map(tool => ({
+      name: tool.name,
+      description: tool.description ?? '',
+      parameters: tool.parameters,
+    }));
+  } catch {
+    // Meter only — never let it break the protocol.
+  }
+}
 
 // ============================================================
 // JSONL I/O
@@ -676,6 +774,20 @@ async function ensureSession(): Promise<AgentSession> {
   //     our hooked versions take effect (permissions + large-response summarization).
   //   - Do NOT pass tool *objects* to `tools` — `allowedToolNames = new Set(options.tools)`
   //     then `.has(name)` returns false for every string lookup → zero tools active.
+  //
+  // MCP EXCEPTION: when MCP servers are configured we must OMIT `tools`
+  // entirely. `_refreshToolRegistry` (agent-session.js) filters the whole tool
+  // REGISTRY through `isAllowedTool(name) = allowedToolNames?.has(name)`; the
+  // adapter's tools are dynamically named (`mcp`, `mcpScript`,
+  // `mcp__<server>_<tool>` — the exact set is only known after servers connect)
+  // so any static allowlist would silently filter them out. With `tools`
+  // omitted the constructor's `_buildRuntime({ activeToolNames: ['read',
+  // 'bash', 'edit', 'write'], includeAllExtensionTools: true })` activates ALL
+  // customTools (our hook-wrapped builtins/web/proxy — they ride the same
+  // `allCustomTools` list as extension tools) plus every extension tool, and
+  // `_refreshToolRegistry`'s "new registry names" branch auto-activates MCP
+  // tools registered later (post-connect). Nothing essential is restricted by
+  // dropping the allowlist: it only ever contained our own customTools' names.
   const builtinDefs = [
     createReadToolDefinition(cwd),
     createBashToolDefinition(cwd),
@@ -688,7 +800,8 @@ async function ensureSession(): Promise<AgentSession> {
   const proxyTools = buildProxyTools();
   const wrappedAll = wrapToolsWithHooks([...builtinDefs, ...webTools, ...proxyTools]);
   const toolAllowlist = wrappedAll.map(t => t.name);
-  debugLog(`Session tools: ${builtinDefs.length} builtin + ${webTools.length} web + ${proxyTools.length} proxy = ${wrappedAll.length} total`);
+  const mcpEnabled = hasMcpServers(initConfig.mcpConfig);
+  debugLog(`Session tools: ${builtinDefs.length} builtin + ${webTools.length} web + ${proxyTools.length} proxy = ${wrappedAll.length} total${mcpEnabled ? ' (+ MCP extension tools)' : ''}`);
 
   // Build session options
   const sessionOptions: CreateAgentSessionOptions = {
@@ -696,16 +809,19 @@ async function ensureSession(): Promise<AgentSession> {
     authStorage,
     modelRegistry,
     customTools: wrappedAll,
-    tools: toolAllowlist,
+    // See the MCP EXCEPTION note above — omitted when MCP is enabled.
+    ...(mcpEnabled ? {} : { tools: toolAllowlist }),
   };
 
   // Extension isolation: set agentDir to a temp directory under session path
   // to prevent loading global Pi extensions from ~/.pi/agent
+  let agentDir: string | undefined;
+  let settingsManager: PiSettingsManager | undefined;
   if (initConfig.sessionPath) {
-    const agentDir = initConfig.agentDir || join(initConfig.sessionPath, '.pi-agent');
+    agentDir = initConfig.agentDir || join(initConfig.sessionPath, '.pi-agent');
     mkdirSync(agentDir, { recursive: true });
     sessionOptions.agentDir = agentDir;
-    const settingsManager = PiSettingsManager.create(cwd, agentDir);
+    settingsManager = PiSettingsManager.create(cwd, agentDir);
     const shellPath = process.env.BITLAB_GIT_BASH_PATH?.trim();
     if (shellPath) settingsManager.applyOverrides({ shellPath });
     sessionOptions.settingsManager = settingsManager;
@@ -748,6 +864,53 @@ async function ensureSession(): Promise<AgentSession> {
 
   }
 
+  // MCP: run pi-mcp-adapter in-process as inline Pi extensions through a
+  // custom ResourceLoader. The adapter's factory snapshots `currentMcpConfig`
+  // at invocation time, so session.reload() (hot config update) rebuilds the
+  // MCP surface from the latest config.
+  if (mcpEnabled) {
+    // Isolate the adapter's own agent-dir-based state (metadata cache at
+    // <agentDir>/mcp-cache.json, legacy OAuth import dir) the same way the
+    // session isolates extensions. Without this the adapter writes to
+    // ~/.pi/agent. (The Pi SDK reads this env var too, but every path it
+    // guards is one we already pass explicitly.)
+    const mcpAgentDir = agentDir ?? join(mkdtempSync(join(tmpdir(), 'bitlab-pi-agent-')), 'pi-agent');
+    mkdirSync(mcpAgentDir, { recursive: true });
+    process.env.PI_CODING_AGENT_DIR = mcpAgentDir;
+    const mcpSettingsManager = settingsManager ?? PiSettingsManager.create(cwd, mcpAgentDir);
+    const shellPath = process.env.BITLAB_GIT_BASH_PATH?.trim();
+    if (shellPath && !settingsManager) mcpSettingsManager.applyOverrides({ shellPath });
+
+    setCurrentMcpConfig(initConfig.mcpConfig ?? null);
+    const mcpLoader = new BitlabMcpResourceLoader({
+      cwd,
+      agentDir: mcpAgentDir,
+      settingsManager: mcpSettingsManager,
+      adapterExtension: buildAdapterExtension(undefined, debugLog),
+      hostExtension: createMcpHostExtension({
+        onStatusSnapshot: (snapshot) => {
+          send({ type: 'mcp_status', snapshot });
+          // The MCP tool surface changes as servers connect/disconnect — keep
+          // the context meter's composition inputs current.
+          refreshActiveToolWireShapesFromSession();
+        },
+        onApprovalRequest: (payload) => {
+          send({ type: 'mcp_approval_request', ...payload });
+        },
+        onDebug: debugLog,
+      }),
+    });
+    // SDK contract: when a resourceLoader is passed, createAgentSession does
+    // NOT reload it — the caller must do that first.
+    await mcpLoader.reload();
+    sessionOptions.resourceLoader = mcpLoader;
+    activeMcpLoader = mcpLoader;
+    debugLog(`MCP enabled: ${Object.keys(initConfig.mcpConfig?.mcpServers ?? {}).length} server(s)`);
+  } else {
+    setCurrentMcpConfig(null);
+    activeMcpLoader = null;
+  }
+
   // Set model if specified
   if (initConfig.model) {
     try {
@@ -787,6 +950,28 @@ async function ensureSession(): Promise<AgentSession> {
   // Create the session — tools flow through customTools + allowlist (see comment above).
   const { session } = await createAgentSession(sessionOptions);
   piSession = session;
+
+  // MCP: the Pi SDK only emits `session_start` to extensions from
+  // `bindExtensions()` — the TUI entry point. An embedded SDK session never
+  // calls it, and pi-mcp-adapter relies on that event to create its runtime
+  // state (lazy servers initialize EXCLUSIVELY there; without it every proxy
+  // and direct tool call returns "MCP not initialized"). We bind a minimal
+  // uiContext bridge at the same time: its presence sets the adapter's
+  // `state.ui`, which the one-shot browser OAuth flow requires.
+  if (mcpEnabled) {
+    try {
+      const mcpUiBridge = createMcpUiBridge({
+        onNotify: (message, level) => {
+          send({ type: 'mcp_notify', message, level });
+        },
+        onDebug: debugLog,
+      });
+      await session.bindExtensions({ uiContext: mcpUiBridge as never });
+      debugLog('MCP: session_start emitted + UI bridge bound — adapter state initializing');
+    } catch (error) {
+      debugLog(`MCP: bindExtensions failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   toolsChanged = false;
   activeToolWireShapes = wrappedAll.map(tool => ({
@@ -1755,12 +1940,168 @@ async function handleSetThinkingLevel(msg: Extract<InboundMessage, { type: 'set_
     debugLog(`[set_thinking_level] Thinking level changed to: ${msg.level} (mapped: ${piLevel})`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    debugLog(`[set_thinking_level] Failed to set thinking level: ${errorMsg}`);
+    debugLog(`[set_thinking_level] Failed: ${errorMsg}`);
+  }
+}
+
+/**
+ * Hot MCP config update. The main process rebuilt the full adapter config
+ * snapshot; apply it to the live session.
+ *
+ * When the session runs with the MCP resource loader we use `session.reload()`
+ * (agent-session.js): it emits session_shutdown to the OLD extension runner
+ * (the previous adapter instance gracefully stops its servers and publishes a
+ * shutdown status snapshot), reloads the resource loader — which re-invokes
+ * our inline factories, building a FRESH adapter from `currentMcpConfig` —
+ * and rebuilds the tool registry with `includeAllExtensionTools: true` while
+ * PRESERVING conversation state (agent, messages, model, active tool names
+ * are untouched). Verified limitations, documented for posterity:
+ *   - reload() re-reads settings from disk and drops applyOverrides()
+ *     values (shellPath) — re-applied right after.
+ *   - headless SDK sessions never emit session_start (only the TUI modes
+ *     call bindExtensions), so after reload the fresh adapter initializes
+ *     via its own load-time path: eager/keep-alive servers reconnect
+ *     automatically; lazy servers reconnect on first use.
+ *
+ * When the session was created WITHOUT the loader (MCP first enabled after
+ * session creation) extensions cannot be injected into a live session — mark
+ * `toolsChanged` so the session is recreated on the next prompt (same
+ * precedent as register_tools).
+ */
+async function handleUpdateMcpConfig(msg: Extract<InboundMessage, { type: 'update_mcp_config' }>): Promise<void> {
+  if (!initConfig) {
+    debugLog('[update_mcp_config] received before init — ignored');
+    return;
+  }
+
+  initConfig.mcpConfig = msg.mcpConfig;
+  const serverCount = Object.keys(msg.mcpConfig.mcpServers ?? {}).length;
+  debugLog(`[update_mcp_config] Received config with ${serverCount} server(s)`);
+
+  if (!piSession) {
+    // No session yet — the next ensureSession() builds with this config.
+    return;
+  }
+
+  if (!activeMcpLoader) {
+    toolsChanged = true;
+    debugLog('[update_mcp_config] Session has no MCP loader — session will be recreated on next prompt');
+    return;
+  }
+
+  const shellPath = process.env.BITLAB_GIT_BASH_PATH?.trim();
+  setCurrentMcpConfig(msg.mcpConfig);
+  try {
+    await piSession.reload();
+    // No explicit bindExtensions needed here: the session-bound uiContext (set
+    // at creation) makes AgentSession.reload()'s hasBindings check pass, so
+    // reload re-emits `session_start` itself and the adapter re-initializes
+    // from the fresh config.
+    // reload() re-reads settings from disk, dropping in-memory overrides.
+    if (shellPath) piSession.settingsManager.applyOverrides({ shellPath });
+    refreshActiveToolWireShapesFromSession();
+    sendContextUsage();
+    debugLog('[update_mcp_config] Session reloaded with new MCP config');
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    debugLog(`[update_mcp_config] reload failed: ${errorMsg}`);
+    send({ type: 'error', message: `MCP config update failed: ${errorMsg}`, code: 'mcp_update_error' });
+  }
+}
+
+/** Resolve a pending MCP tool-approval handshake from the main process. */
+function handleMcpApprovalResponse(msg: Extract<InboundMessage, { type: 'mcp_approval_response' }>): void {
+  const resolved = resolveMcpApproval(msg.requestId, msg.decision);
+  if (!resolved) {
+    debugLog(`No pending MCP approval for requestId: ${msg.requestId}`);
+  } else {
+    debugLog(`[mcp_approval_response] ${msg.decision} for ${msg.requestId}`);
+  }
+}
+
+/**
+ * Drive an MCP OAuth sign-in: run the adapter's `mcp` proxy tool with
+ * `{ connect: server }`. On 401 (and autoAuth + the bound UI bridge), the
+ * adapter opens the default browser, completes the flow on its localhost
+ * callback, retries the connect, and stores tokens in the shared
+ * MCP_OAUTH_DIR. The tool result's details.error carries the failure mode.
+ */
+async function handleMcpAuth(msg: Extract<InboundMessage, { type: 'mcp_auth' }>): Promise<void> {
+  const fail = (message: string, code: string) => send({ type: 'mcp_op_result', id: msg.id, ok: false, message, code });
+  try {
+    if (!piSession) {
+      fail('No session yet — MCP auth requires an initialized session', 'no_session');
+      return;
+    }
+    const proxyTool = (piSession.agent.state.tools ?? []).find(tool => tool.name === 'mcp');
+    if (!proxyTool) {
+      fail('MCP proxy tool not registered (no MCP servers enabled?)', 'no_proxy_tool');
+      return;
+    }
+    debugLog(`[mcp_auth] connecting to "${msg.serverName}" (auto OAuth on 401)`);
+    // `connect` is a top-level proxy parameter, NOT an `action` value: the
+    // adapter's dispatch only recognizes 'ui-messages' | 'auth-start' |
+    // 'auth-complete' there, and `{ action: 'connect', server }` falls through
+    // to its list mode, which never attempts a connection or OAuth.
+    const result = await proxyTool.execute(
+      `mcp-auth-${msg.id}`,
+      { connect: msg.serverName } as never,
+      undefined as never,
+      undefined as never,
+    );
+    const { ok, message, code } = interpretMcpAuthResult(result as McpProxyToolResult | undefined);
+    debugLog(`[mcp_auth] ${ok ? 'ok' : 'failed'}: ${message.slice(0, 300)}`);
+    send({ type: 'mcp_op_result', id: msg.id, ok, message, ...(code ? { code } : {}) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    debugLog(`[mcp_auth] threw: ${message}`);
+    fail(message, 'connect_failed');
+  }
+}
+
+/**
+ * Clear one server's stored OAuth credentials and drop its connection.
+ *
+ * The adapter's `removeAuth` is not on its public surface; its `/mcp logout`
+ * command is, and `AgentSession.prompt()` executes a registered extension
+ * command in place (no LLM round-trip, nothing appended to the transcript).
+ * The command reports through the UI bridge rather than a return value, so
+ * the outcome is verified against the credential store afterwards.
+ */
+async function handleMcpLogout(msg: Extract<InboundMessage, { type: 'mcp_logout' }>): Promise<void> {
+  const fail = (message: string, code: string) => send({ type: 'mcp_op_result', id: msg.id, ok: false, message, code });
+  try {
+    if (!piSession) {
+      fail('No session yet — MCP sign-out requires an initialized session', 'no_session');
+      return;
+    }
+    // Guard the prompt(): without the adapter's command registered, the text
+    // would be sent to the model as an ordinary message.
+    if (!(piSession.agent.state.tools ?? []).some(tool => tool.name === 'mcp')) {
+      fail('MCP proxy tool not registered (no MCP servers enabled?)', 'no_proxy_tool');
+      return;
+    }
+    debugLog(`[mcp_logout] clearing credentials for "${msg.serverName}"`);
+    await piSession.prompt(`/mcp logout ${msg.serverName}`);
+    const { inspectMcpOAuthTokensForUrl } = await import('pi-mcp-adapter/oauth');
+    const status = inspectMcpOAuthTokensForUrl(msg.serverName, msg.url);
+    if (status.status === 'present') {
+      fail('Credentials are still stored for this server', 'logout_failed');
+      return;
+    }
+    send({ type: 'mcp_op_result', id: msg.id, ok: true, message: `Signed out of "${msg.serverName}"` });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    debugLog(`[mcp_logout] threw: ${message}`);
+    fail(message, 'logout_failed');
   }
 }
 
 function handleShutdown(): void {
   debugLog('Shutdown requested');
+
+  // Fail-close any MCP approval handshake still awaiting a main-process answer.
+  clearPendingMcpApprovals();
 
   // Unsubscribe events
   if (unsubscribeEvents) {
@@ -1886,6 +2227,22 @@ async function processMessage(msg: InboundMessage): Promise<void> {
       }
       break;
 
+    case 'update_mcp_config':
+      await handleUpdateMcpConfig(msg);
+      break;
+
+    case 'mcp_approval_response':
+      handleMcpApprovalResponse(msg);
+      break;
+
+    case 'mcp_auth':
+      await handleMcpAuth(msg);
+      break;
+
+    case 'mcp_logout':
+      await handleMcpLogout(msg);
+      break;
+
     case 'shutdown':
       handleShutdown();
       break;
@@ -1895,7 +2252,73 @@ async function processMessage(msg: InboundMessage): Promise<void> {
   }
 }
 
+// ============================================================
+// One-shot MCP OAuth credential lookup (no session)
+// ============================================================
+
+/** CLI flags for the credential modes. Must match server-core's mcp-oauth. */
+const MCP_OAUTH_TOKEN_FLAG = '--mcp-oauth-token';
+const MCP_OAUTH_STATUS_FLAG = '--mcp-oauth-status';
+
+/**
+ * `--mcp-oauth-token <server> <url>` prints `{ accessToken }` and exits.
+ *
+ * MCP OAuth tokens live in the OS credential store behind pi-mcp-adapter,
+ * which runs here and never in the main process. Settings' connection test
+ * needs the same bearer the adapter would send, so it spawns this instead of
+ * a whole session: no Pi session, no MCP connection, no browser — just a
+ * credential read (the adapter refreshes an expired token on its own).
+ */
+async function runMcpOAuthTokenMode(serverName: string, url: string): Promise<void> {
+  let accessToken: string | undefined;
+  try {
+    // Literal specifier (unlike the adapter root import in mcp/mcp-extension.ts):
+    // the `oauth` subpath typechecks cleanly and bundles, so the lookup keeps
+    // working where node_modules is not shipped. Imported lazily so a normal
+    // session never loads the credential store.
+    const { getMcpOAuthTokensForUrl } = await import('pi-mcp-adapter/oauth');
+    accessToken = (await getMcpOAuthTokensForUrl(serverName, url))?.accessToken;
+  } catch (error) {
+    debugLog(`[mcp_oauth_token] lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // The token itself is the only thing on stdout, and only ever the token —
+  // never the error, which can quote the endpoint and its query.
+  process.stdout.write(`${JSON.stringify(accessToken ? { accessToken } : {})}\n`);
+  process.exit(0);
+}
+
+/**
+ * `--mcp-oauth-status <server> <url>` prints whether credentials are stored
+ * and when they expire — never the token itself. Reads only: no refresh, no
+ * network, so Settings can render "signed in" without touching the server.
+ */
+async function runMcpOAuthStatusMode(serverName: string, url: string): Promise<void> {
+  let payload: Record<string, unknown> = { status: 'absent' };
+  try {
+    const { inspectMcpOAuthTokensForUrl } = await import('pi-mcp-adapter/oauth');
+    const status = inspectMcpOAuthTokensForUrl(serverName, url);
+    payload = status.status === 'present'
+      ? { status: 'present', ...(status.tokens.expiresAt ? { expiresAt: status.tokens.expiresAt } : {}) }
+      : { status: status.status };
+  } catch (error) {
+    debugLog(`[mcp_oauth_status] lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+    payload = { status: 'unavailable' };
+  }
+  process.stdout.write(`${JSON.stringify(payload)}\n`);
+  process.exit(0);
+}
+
 function main(): void {
+  const [flag, serverName, url] = process.argv.slice(2);
+  if (flag === MCP_OAUTH_TOKEN_FLAG) {
+    void runMcpOAuthTokenMode(serverName ?? '', url ?? '');
+    return;
+  }
+  if (flag === MCP_OAUTH_STATUS_FLAG) {
+    void runMcpOAuthStatusMode(serverName ?? '', url ?? '');
+    return;
+  }
+
   debugLog('Pi agent server starting');
 
   const rl = createInterface({ input: process.stdin });

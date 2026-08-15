@@ -31,6 +31,13 @@ import {
 import { type ConfigDefaults } from './config-defaults-schema.ts';
 import { isValidThemeFile } from './validators.ts';
 import { type SearchConfig, DEFAULT_SEARCH_CONFIG, normalizeSearchConfig } from './search.ts';
+import {
+  type BitlabMcpServer,
+  type BitlabMcpSettings,
+  DEFAULT_MCP_SETTINGS,
+  normalizeMcpServers,
+  normalizeMcpSettings,
+} from './mcp.ts';
 
 // Re-export CONFIG_DIR for convenience (centralized in paths.ts)
 export { CONFIG_DIR, getConfigDir } from './paths.ts';
@@ -81,6 +88,9 @@ export interface StoredConfig {
   // Tools
   browserToolEnabled?: boolean;  // Enable built-in browser tool (default: true). Disable for Playwright/Puppeteer.
   searchConfig?: SearchConfig;  // web_search provider selection. Absent = DEFAULT_SEARCH_CONFIG ('auto').
+  // MCP servers (authoritative list; injected into agent subprocesses)
+  mcpServers?: BitlabMcpServer[];
+  mcpSettings?: BitlabMcpSettings;
   // Prompt caching & context
   extendedPromptCache?: boolean;  // Use 1h prompt cache TTL instead of 5m (default: false)
   enable1MContext?: boolean;  // Enable 1M context window for supported models (default: false — opt-in; requires Anthropic Tier 4+)
@@ -538,6 +548,41 @@ export function setSearchConfig(searchConfig: SearchConfig): void {
   const config = loadStoredConfig();
   if (!config) return;
   config.searchConfig = normalizeSearchConfig(searchConfig);
+  saveConfig(config);
+}
+
+/**
+ * Get persisted MCP servers (normalized; malformed entries dropped).
+ */
+export function getMcpServers(): BitlabMcpServer[] {
+  const config = loadStoredConfig();
+  return normalizeMcpServers(config?.mcpServers);
+}
+
+/**
+ * Persist the full MCP server list. Returns the normalized list actually stored.
+ */
+export function setMcpServers(servers: BitlabMcpServer[]): BitlabMcpServer[] {
+  const config = loadStoredConfig();
+  if (!config) return [];
+  const normalized = normalizeMcpServers(servers);
+  config.mcpServers = normalized;
+  saveConfig(config);
+  return normalized;
+}
+
+/** Get MCP global settings (approval gate, direct tools, lifecycle). */
+export function getMcpSettings(): BitlabMcpSettings {
+  const config = loadStoredConfig();
+  if (!config?.mcpSettings) return DEFAULT_MCP_SETTINGS;
+  return normalizeMcpSettings(config.mcpSettings);
+}
+
+/** Persist MCP global settings. */
+export function setMcpSettings(settings: BitlabMcpSettings): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+  config.mcpSettings = normalizeMcpSettings(settings);
   saveConfig(config);
 }
 

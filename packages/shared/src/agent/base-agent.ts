@@ -4,7 +4,7 @@ import type { AgentEvent } from '@bitlab/core/types';
 import type { FileAttachment } from '../utils/files.ts';
 import { getDefaultLlmConnection, getLlmConnections } from '../config/storage.ts';
 import type { Workspace } from '../config/storage.ts';
-import { parseMentions, resolveFileMentions, resolveSkillMentions } from '../mentions/index.ts';
+import { formatMcpDirective, parseMentions, resolveFileMentions, resolveMcpMentions, resolveSkillMentions } from '../mentions/index.ts';
 import { getSessionPath, getSessionPlansPath, getSessionDataPath } from '../sessions/storage.ts';
 import { loadAllSkills } from '../skills/storage.ts';
 import { buildRegenerateTitlePrompt, buildTitlePrompt, validateTitle } from '../utils/title-generator.ts';
@@ -80,6 +80,12 @@ export abstract class BaseAgent implements AgentBackend {
   onDebug: ((message: string) => void) | null = null;
   onBackendAuthRequired: ((reason: string) => void) | null = null;
   onSpawnSession: ((request: SpawnSessionRequest) => Promise<SpawnSessionResult>) | null = null;
+  /** MCP server status snapshots from the agent subprocess (pi backend only). */
+  onMcpStatus: ((snapshot: import('../config/mcp.ts').McpStatusSnapshotDto) => void) | null = null;
+  /** Interactive approval request for an MCP tool call (pi backend only). */
+  onMcpApprovalRequest: ((request: import('../config/mcp.ts').McpApprovalRequestDto) => void) | null = null;
+  /** Adapter ui.notify bridge — auth progress and connection notices (pi backend only). */
+  onMcpNotify: ((notice: { message: string; level: 'info' | 'warning' | 'error' }) => void) | null = null;
 
   constructor(config: BackendConfig, defaultModel: string) {
     this.config = config;
@@ -244,6 +250,7 @@ export abstract class BaseAgent implements AgentBackend {
     skillPaths: Map<string, string>;
     cleanMessage: string;
     missingSkills: string[];
+    mcpServers: string[];
   } {
     const skills = loadAllSkills(this.config.workspace.dataRoot, this.config.workspace.folderPath ?? undefined);
     const parsed = parseMentions(message, skills.map(skill => skill.slug));
@@ -255,13 +262,14 @@ export abstract class BaseAgent implements AgentBackend {
     }
     const names = new Map(skills.map(skill => [skill.slug, skill.metadata.name]));
     const resolved = resolveFileMentions(
-      resolveSkillMentions(message, names),
+      resolveMcpMentions(resolveSkillMentions(message, names)),
       this.config.session?.workingDirectory ?? this.workingDirectory
     ).trim();
     return {
       skillPaths,
       cleanMessage: resolved || (skillPaths.size ? 'Follow the mentioned Skill instructions.' : ''),
       missingSkills: parsed.invalidSkills,
+      mcpServers: parsed.mcpServers,
     };
   }
 
@@ -276,7 +284,7 @@ export abstract class BaseAgent implements AgentBackend {
     attachments?: FileAttachment[],
     options?: ChatOptions
   ): AsyncGenerator<AgentEvent> {
-    const { skillPaths, cleanMessage, missingSkills } = this.extractSkillPaths(message);
+    const { skillPaths, cleanMessage, missingSkills, mcpServers } = this.extractSkillPaths(message);
     if (missingSkills.length) {
       yield { type: 'error', message: `Skill(s) not found: ${missingSkills.join(', ')}` };
       yield { type: 'complete' };
@@ -284,7 +292,12 @@ export abstract class BaseAgent implements AgentBackend {
     }
     const branchContext = this.buildBranchSeedContext(this.config.getBranchSeedMessages?.());
     if (branchContext) this.config.markBranchSeedApplied?.();
-    const effectiveMessage = [branchContext, this.formatSkillDirective(skillPaths), cleanMessage]
+    const effectiveMessage = [
+      branchContext,
+      this.formatSkillDirective(skillPaths),
+      formatMcpDirective(mcpServers),
+      cleanMessage,
+    ]
       .filter(Boolean)
       .join('\n\n');
     this._currentTurnUserMessage = cleanMessage;

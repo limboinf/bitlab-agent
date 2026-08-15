@@ -184,6 +184,23 @@ export function resolveBackendHostTooling(args: {
 }
 
 /**
+ * Resolve the pi-agent-server bundle and the runtime that executes it.
+ *
+ * Exposed for hosts that need the subprocess for something other than a chat
+ * session — MCP OAuth credentials, for instance, live in the OS credential
+ * store behind pi-mcp-adapter, which only ever runs inside that bundle.
+ */
+export function resolvePiServerRuntime(args: {
+  hostRuntime: BackendHostRuntimeContext;
+}): { piServerPath?: string; runtimePath?: string } {
+  const paths = resolveBackendRuntimePaths(args.hostRuntime);
+  return {
+    ...(paths.piServerPath ? { piServerPath: paths.piServerPath } : {}),
+    ...(paths.nodeRuntimePath ? { runtimePath: paths.nodeRuntimePath } : {}),
+  };
+}
+
+/**
  * Get list of currently available providers.
  *
  * @returns Array of provider identifiers that have working implementations

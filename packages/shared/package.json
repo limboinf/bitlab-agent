@@ -21,6 +21,7 @@
     "./docs": "./src/docs/index.ts",
     "./docs/doc-links": "./src/docs/doc-links.ts",
     "./config/types": "./src/config/types.ts",
+    "./config/mcp": "./src/config/mcp.ts",
     "./credentials": "./src/credentials/index.ts",
     "./auth": "./src/auth/index.ts",
     "./prompts": "./src/prompts/index.ts",
