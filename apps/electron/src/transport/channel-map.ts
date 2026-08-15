@@ -57,6 +57,8 @@ export const CHANNEL_MAP = {
   openSkillInFinder: invoke(RPC_CHANNELS.skills.OPEN_FINDER),
   setSkillEnabled: invoke(RPC_CHANNELS.skills.SET_ENABLED),
   setSkillProjectTrust: invoke(RPC_CHANNELS.skills.SET_PROJECT_TRUST),
+  previewSkillInstall: invoke(RPC_CHANNELS.skills.PREVIEW),
+  importSkill: invoke(RPC_CHANNELS.skills.IMPORT),
   onSkillsChanged: listener(RPC_CHANNELS.skills.CHANGED),
   onDeepLinkNavigate: listener(RPC_CHANNELS.deeplink.NAVIGATE),
   onMenuNewChat: listener(RPC_CHANNELS.menu.NEW_CHAT),

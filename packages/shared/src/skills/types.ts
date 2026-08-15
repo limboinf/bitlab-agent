@@ -239,3 +239,67 @@ export type LoadedSkill = CatalogEntry;
  * `.agents`, so skills from either tier resolve to `.agents:skillSlug`.
  */
 export const AGENTS_PLUGIN_NAME = '.agents';
+
+// ── Installation ────────────────────────────────────────────────────────────
+
+/** Where a skill is being installed from. */
+export type InstallSourceKind = 'folder' | 'zip' | 'git';
+
+export interface InstallSource {
+  kind: InstallSourceKind;
+  /** Directory path, archive path, or clone URL. */
+  location: string;
+  /** Git ref to check out. Git sources only. */
+  ref?: string;
+}
+
+/** One file the install would write, relative to the skill directory. */
+export interface InstallFile {
+  path: string;
+  bytes: number;
+  /** Scripts are called out separately — they are the part that can execute. */
+  executable: boolean;
+}
+
+/**
+ * Why an install was refused. These are checked during `prepare`, before
+ * anything reaches its destination (§5.9).
+ */
+export type InstallRejection =
+  | 'missing-skill-md'
+  | 'invalid-frontmatter'
+  | 'path-traversal'
+  | 'escaping-symlink'
+  | 'too-many-files'
+  | 'too-large'
+  | 'too-deep'
+  | 'fetch-failed';
+
+/**
+ * A staged, validated install awaiting the user's decision. Nothing is written
+ * to a tier until `commit`, because a skill is executable instruction text and
+ * the user has to be able to read it first (§7.1).
+ */
+export interface InstallPlan {
+  /** The temp directory to delete on discard. */
+  stagingRoot: string;
+  /** The skill root inside staging — the directory that becomes the install. */
+  stagingDir: string;
+  source: InstallSource;
+  /** Directory name the skill would take in its tier. */
+  slug: string;
+  /** Parsed frontmatter, when the skill is valid. */
+  metadata?: SkillMetadata;
+  /** Full SKILL.md text — the security surface, rendered before install. */
+  skillMarkdown?: string;
+  /** Everything the install would write. */
+  files: InstallFile[];
+  totalBytes: number;
+  /** Spec validation problems. Warnings do not block; errors do. */
+  diagnostics: SkillDiagnostic[];
+  /** Set when the plan cannot be committed. */
+  rejection?: InstallRejection;
+  /** A skill with this slug already exists in the chosen tier. */
+  conflictsWith?: SkillId;
+  sha256?: string;
+}

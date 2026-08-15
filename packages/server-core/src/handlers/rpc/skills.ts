@@ -2,7 +2,13 @@ import { join } from 'path'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { RPC_CHANNELS, type SkillFile } from '@bitlab/shared/protocol'
 import { getWorkspaceByNameOrId } from '@bitlab/shared/config'
-import type { SkillCatalogContext, CatalogSnapshot } from '@bitlab/shared/skills'
+import type {
+  CatalogSnapshot,
+  InstallPlan,
+  InstallSource,
+  SkillCatalogContext,
+  SkillSource,
+} from '@bitlab/shared/skills'
 import type { RpcServer } from '@bitlab/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 
@@ -14,6 +20,8 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.skills.OPEN_FINDER,
   RPC_CHANNELS.skills.SET_ENABLED,
   RPC_CHANNELS.skills.SET_PROJECT_TRUST,
+  RPC_CHANNELS.skills.PREVIEW,
+  RPC_CHANNELS.skills.IMPORT,
 ] as const
 
 /** Empty snapshot for an unknown workspace, so callers always get a valid shape. */
@@ -153,6 +161,44 @@ export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): vo
       // Returned rather than left for the file watcher to notice: this is the
       // caller's own edit, and it should not have to wait for a filesystem
       // event to see it. The watcher still covers external edits.
+      return catalog.snapshot()
+    }
+  )
+
+  // Stage a source and describe what installing it would do. Nothing reaches a
+  // tier here: the user has to be able to read the instructions that would run
+  // on their behalf before they land on disk.
+  server.handle(
+    RPC_CHANNELS.skills.PREVIEW,
+    async (_ctx, workspaceId: string, source: InstallSource, target: SkillSource) => {
+      const ctx = contextFor(workspaceId)
+      if (!ctx) throw new Error('Workspace not found')
+
+      const { prepareInstall } = await import('@bitlab/shared/skills')
+      const plan = prepareInstall(source, ctx, target)
+      deps.platform.logger?.info(
+        `SKILLS_PREVIEW: ${source.kind}:${source.location} → ${plan.rejection ?? plan.slug}`
+      )
+      return plan
+    }
+  )
+
+  // Commit a previously previewed plan, or discard it.
+  server.handle(
+    RPC_CHANNELS.skills.IMPORT,
+    async (_ctx, workspaceId: string, plan: InstallPlan, target: SkillSource, confirmed: boolean) => {
+      const ctx = contextFor(workspaceId)
+      if (!ctx) throw new Error('Workspace not found')
+
+      const { commitInstall, discardPlan, getSkillCatalog } = await import('@bitlab/shared/skills')
+      if (!confirmed) {
+        discardPlan(plan)
+        return getSkillCatalog(ctx.workspaceRoot, ctx.projectRoot).snapshot()
+      }
+      const skillId = commitInstall(plan, target, ctx)
+      deps.platform.logger?.info(`SKILLS_IMPORT: installed ${skillId}`)
+      const catalog = getSkillCatalog(ctx.workspaceRoot, ctx.projectRoot)
+      catalog.invalidate()
       return catalog.snapshot()
     }
   )

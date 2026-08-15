@@ -13,12 +13,14 @@ export {
   SkillCatalog,
   isContainedIn,
   makeSkillId,
+  parseSkillFrontmatter,
   parseSkillId,
   resolveSkillId,
   tierRoot,
   winnersOf,
   type SkillCatalogContext,
 } from './catalog.ts';
+export { commitInstall, discardPlan, prepareInstall } from './installer.ts';
 export {
   TRUSTED_ROOTS_ENV,
   isProjectTrusted,

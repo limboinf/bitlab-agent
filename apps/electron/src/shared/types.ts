@@ -69,12 +69,23 @@ export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIss
 import type {
   CatalogEntry,
   CatalogSnapshot,
+  InstallPlan,
+  InstallSource,
   LoadedSkill,
   SkillId,
   SkillMetadata,
   SkillSource,
 } from '@bitlab/shared/skills/types';
-export type { CatalogEntry, CatalogSnapshot, LoadedSkill, SkillId, SkillMetadata, SkillSource };
+export type {
+  CatalogEntry,
+  CatalogSnapshot,
+  InstallPlan,
+  InstallSource,
+  LoadedSkill,
+  SkillId,
+  SkillMetadata,
+  SkillSource,
+};
 
 
 // LLM connection types
@@ -415,6 +426,15 @@ export interface ElectronAPI {
   /** Both return the resulting catalog, so the caller sees its own edit at once. */
   setSkillEnabled(workspaceId: string, skillId: string, enabled: boolean): Promise<CatalogSnapshot>
   setSkillProjectTrust(workspaceId: string, projectRoot: string, trusted: boolean): Promise<CatalogSnapshot>
+  /** Stage a source and describe the install. Writes nothing to a tier. */
+  previewSkillInstall(workspaceId: string, source: InstallSource, target: SkillSource): Promise<InstallPlan>
+  /** Commit a previewed plan, or discard it. Returns the resulting catalog. */
+  importSkill(
+    workspaceId: string,
+    plan: InstallPlan,
+    target: SkillSource,
+    confirmed: boolean,
+  ): Promise<CatalogSnapshot>
 
   // Skills change listener (live updates when skills are added/removed/modified)
   onSkillsChanged(callback: (workspaceId: string, snapshot: CatalogSnapshot) => void): () => void

@@ -80,7 +80,7 @@ function parseMetadataMap(value: unknown): Record<string, string> | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
-interface ParsedSkill {
+export interface ParsedSkill {
   metadata: SkillMetadata;
   body: string;
   diagnostics: SkillDiagnostic[];
@@ -89,8 +89,11 @@ interface ParsedSkill {
 /**
  * Parse SKILL.md. Returns null when the file cannot serve as a skill at all —
  * everything softer is a diagnostic, matching Pi's lenient posture.
+ *
+ * Exported so an install validates against exactly the same rules the catalog
+ * applies once the skill is on disk.
  */
-function parseSkillFile(content: string, filePath: string, slug: string): ParsedSkill | null {
+export function parseSkillFrontmatter(content: string, filePath: string, slug: string): ParsedSkill | null {
   let data: Record<string, unknown>;
   let body: string;
   try {
@@ -269,7 +272,7 @@ function discoverTier(skillsDir: string | undefined, source: SkillSource): RawSk
       continue;
     }
 
-    const parsed = parseSkillFile(content, canonicalFile, entry.name);
+    const parsed = parseSkillFrontmatter(content, canonicalFile, entry.name);
     if (!parsed) continue;
 
     found.push({
