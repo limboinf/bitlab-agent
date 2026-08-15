@@ -22,13 +22,11 @@ export { PermissionManager } from './permission-manager.ts';
 export { PromptBuilder } from './prompt-builder.ts';
 export { SessionLifecycleManager, createSessionLifecycleManager } from './session-lifecycle.ts';
 export { UsageTracker, createUsageTracker } from './usage-tracker.ts';
-export { AGENTS_PLUGIN_NAME } from '../../skills/types.ts';
 export {
   BUILT_IN_TOOLS,
   CONFIG_WRITE_TOOLS,
   FILE_PATH_TOOLS,
   expandToolPaths,
-  qualifySkillName,
   runPreToolUseChecks,
   shouldPromptInAskMode,
   stripToolMetadata,
@@ -43,7 +41,6 @@ export type {
   PreToolUseContext,
   PreToolUseInput,
   PrerequisiteManagerLike,
-  SkillQualificationResult,
 } from './pre-tool-use.ts';
 export { getRtkGain, getRtkPath, getRtkStatus, resetRtkPathCache } from './rtk-detector.ts';
 export type { RtkGainStats, RtkStatus } from './rtk-detector.ts';

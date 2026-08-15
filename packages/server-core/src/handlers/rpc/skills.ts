@@ -2,6 +2,7 @@ import { join } from 'path'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { RPC_CHANNELS, type SkillFile } from '@bitlab/shared/protocol'
 import { getWorkspaceByNameOrId } from '@bitlab/shared/config'
+import type { SkillCatalogContext, CatalogSnapshot } from '@bitlab/shared/skills'
 import type { RpcServer } from '@bitlab/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 
@@ -11,41 +12,63 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.skills.DELETE,
   RPC_CHANNELS.skills.OPEN_EDITOR,
   RPC_CHANNELS.skills.OPEN_FINDER,
+  RPC_CHANNELS.skills.SET_ENABLED,
+  RPC_CHANNELS.skills.SET_PROJECT_TRUST,
 ] as const
 
+/** Empty snapshot for an unknown workspace, so callers always get a valid shape. */
+const EMPTY_SNAPSHOT: CatalogSnapshot = {
+  revision: '',
+  entries: [],
+  tiers: [],
+  diagnostics: [],
+}
+
 export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): void {
-  // Get workspace skills plus project skills from the workspace's bound folder.
-  server.handle(RPC_CHANNELS.skills.GET, async (_ctx, workspaceId: string) => {
-    deps.platform.logger?.info(`SKILLS_GET: Loading skills for workspace: ${workspaceId}`)
+  /**
+   * Catalog context for a workspace. The project tier follows the folder bound
+   * to the workspace, and only when that folder actually exists — a stale
+   * binding must not make project skills resolve against a missing directory.
+   */
+  function contextFor(workspaceId: string): SkillCatalogContext | null {
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) {
-      deps.platform.logger?.error(`SKILLS_GET: Workspace not found: ${workspaceId}`)
-      return []
+      deps.platform.logger?.error(`SKILLS: Workspace not found: ${workspaceId}`)
+      return null
     }
-    const effectiveWorkingDir = workspace.folderPath && existsSync(workspace.folderPath)
+    const projectRoot = workspace.folderPath && existsSync(workspace.folderPath)
       ? workspace.folderPath
       : undefined
-    const { loadAllSkills } = await import('@bitlab/shared/skills')
-    const skills = loadAllSkills(workspace.dataRoot, effectiveWorkingDir)
-    deps.platform.logger?.info(`SKILLS_GET: Loaded ${skills.length} skills from ${workspace.dataRoot}`)
-    return skills
+    return { workspaceRoot: workspace.dataRoot, projectRoot }
+  }
+
+  // Full catalog state — winners, shadowed entries, tiers, trust, and revision.
+  // The UI and the runtime consume the same snapshot, or they drift.
+  server.handle(RPC_CHANNELS.skills.GET, async (_ctx, workspaceId: string) => {
+    const ctx = contextFor(workspaceId)
+    if (!ctx) return EMPTY_SNAPSHOT
+
+    const { getSkillsSnapshot } = await import('@bitlab/shared/skills')
+    const snapshot = getSkillsSnapshot(ctx.workspaceRoot, ctx.projectRoot)
+    deps.platform.logger?.info(
+      `SKILLS_GET: ${snapshot.entries.length} skill(s), revision ${snapshot.revision}`
+    )
+    return snapshot
   })
 
-  // Get files in a skill directory
-  server.handle(RPC_CHANNELS.skills.GET_FILES, async (_ctx, workspaceId: string, skillSlug: string) => {
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) {
-      deps.platform.logger?.error(`SKILLS_GET_FILES: Workspace not found: ${workspaceId}`)
-      return []
-    }
+  // Files bundled with a skill (scripts/, references/, assets/).
+  server.handle(RPC_CHANNELS.skills.GET_FILES, async (_ctx, workspaceId: string, skillId: string) => {
+    const ctx = contextFor(workspaceId)
+    if (!ctx) return []
 
-    const { loadAllSkills } = await import('@bitlab/shared/skills')
-    const skill = loadAllSkills(workspace.dataRoot, workspace.folderPath ?? undefined).find(candidate => candidate.slug === skillSlug)
-    if (!skill) {
-      deps.platform.logger?.warn(`SKILLS_GET_FILES: Skill not found: ${skillSlug}`)
+    const { resolveSkillId } = await import('@bitlab/shared/skills')
+    let skillDir: string
+    try {
+      skillDir = resolveSkillId(skillId, ctx).entryPath
+    } catch (err) {
+      deps.platform.logger?.warn(`SKILLS_GET_FILES: ${err instanceof Error ? err.message : String(err)}`)
       return []
     }
-    const skillDir = skill.path
 
     function scanDirectory(dirPath: string): SkillFile[] {
       try {
@@ -83,37 +106,69 @@ export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): vo
     return scanDirectory(skillDir)
   })
 
-  // Delete a skill from a workspace
-  server.handle(RPC_CHANNELS.skills.DELETE, async (_ctx, workspaceId: string, skillSlug: string) => {
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) throw new Error('Workspace not found')
+  // Every mutating and revealing operation takes a skillId, never a bare slug:
+  // the id carries its tier, and resolving it refuses any path that escapes
+  // that tier's root before a filesystem call happens.
+  server.handle(RPC_CHANNELS.skills.DELETE, async (_ctx, workspaceId: string, skillId: string) => {
+    const ctx = contextFor(workspaceId)
+    if (!ctx) throw new Error('Workspace not found')
 
-    const { deleteSkill } = await import('@bitlab/shared/skills')
-    deleteSkill(workspace.dataRoot, skillSlug)
-    deps.platform.logger?.info(`Deleted skill: ${skillSlug}`)
+    const { deleteSkillById } = await import('@bitlab/shared/skills')
+    deleteSkillById(skillId, ctx)
+    deps.platform.logger?.info(`Deleted skill: ${skillId}`)
   })
 
-  // Open skill SKILL.md in editor
-  server.handle(RPC_CHANNELS.skills.OPEN_EDITOR, async (_ctx, workspaceId: string, skillSlug: string) => {
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) throw new Error('Workspace not found')
+  server.handle(RPC_CHANNELS.skills.OPEN_EDITOR, async (_ctx, workspaceId: string, skillId: string) => {
+    const ctx = contextFor(workspaceId)
+    if (!ctx) throw new Error('Workspace not found')
 
-    const { getWorkspaceSkillsPath } = await import('@bitlab/shared/workspaces')
-
-    const skillsDir = getWorkspaceSkillsPath(workspace.dataRoot)
-    const skillFile = join(skillsDir, skillSlug, 'SKILL.md')
-    await deps.platform.openPath?.(skillFile)
+    const { resolveSkillId } = await import('@bitlab/shared/skills')
+    await deps.platform.openPath?.(resolveSkillId(skillId, ctx).filePath)
   })
 
-  // Open skill folder in Finder/Explorer
-  server.handle(RPC_CHANNELS.skills.OPEN_FINDER, async (_ctx, workspaceId: string, skillSlug: string) => {
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) throw new Error('Workspace not found')
+  server.handle(RPC_CHANNELS.skills.OPEN_FINDER, async (_ctx, workspaceId: string, skillId: string) => {
+    const ctx = contextFor(workspaceId)
+    if (!ctx) throw new Error('Workspace not found')
 
-    const { getWorkspaceSkillsPath } = await import('@bitlab/shared/workspaces')
-
-    const skillsDir = getWorkspaceSkillsPath(workspace.dataRoot)
-    const skillDir = join(skillsDir, skillSlug)
-    await deps.platform.showItemInFolder?.(skillDir)
+    const { resolveSkillId } = await import('@bitlab/shared/skills')
+    await deps.platform.showItemInFolder?.(resolveSkillId(skillId, ctx).entryPath)
   })
+
+  // A disabled skill leaves the runtime candidate set entirely — it cannot be
+  // selected by the model or invoked explicitly. Disabling the winner promotes
+  // the next tier down.
+  server.handle(
+    RPC_CHANNELS.skills.SET_ENABLED,
+    async (_ctx, workspaceId: string, skillId: string, enabled: boolean) => {
+      const ctx = contextFor(workspaceId)
+      if (!ctx) throw new Error('Workspace not found')
+
+      // The shared catalog, not a fresh one: mutating a throwaway instance
+      // would invalidate only its own cache, leaving every reader on the stale
+      // snapshot until the TTL expired.
+      const { getSkillCatalog } = await import('@bitlab/shared/skills')
+      const catalog = getSkillCatalog(ctx.workspaceRoot, ctx.projectRoot)
+      catalog.setEnabled(skillId, enabled)
+      deps.platform.logger?.info(`Skill ${enabled ? 'enabled' : 'disabled'}: ${skillId}`)
+      // Returned rather than left for the file watcher to notice: this is the
+      // caller's own edit, and it should not have to wait for a filesystem
+      // event to see it. The watcher still covers external edits.
+      return catalog.snapshot()
+    }
+  )
+
+  // Project-tier skills stay out of the runtime until their root is trusted.
+  server.handle(
+    RPC_CHANNELS.skills.SET_PROJECT_TRUST,
+    async (_ctx, workspaceId: string, projectRoot: string, trusted: boolean) => {
+      const ctx = contextFor(workspaceId)
+      if (!ctx) throw new Error('Workspace not found')
+
+      const { getSkillCatalog } = await import('@bitlab/shared/skills')
+      const catalog = getSkillCatalog(ctx.workspaceRoot, ctx.projectRoot)
+      catalog.setProjectTrust(projectRoot, trusted)
+      deps.platform.logger?.info(`Project trust ${trusted ? 'granted' : 'revoked'}: ${projectRoot}`)
+      return catalog.snapshot()
+    }
+  )
 }

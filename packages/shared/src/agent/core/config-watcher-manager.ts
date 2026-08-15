@@ -8,7 +8,7 @@ import { debug } from '../../utils/debug.ts';
 
 export interface ConfigWatcherManagerCallbacks {
   onSkillChange?: (slug: string, skill: LoadedSkill | null) => void;
-  onSkillsListChange?: (skills: LoadedSkill[]) => void;
+  onSkillsListChange?: () => void;
   onWorkspacePermissionsChange?: () => void;
   onDefaultPermissionsChange?: () => void;
   onValidationError?: (file: string, errors: string[]) => void;
@@ -18,6 +18,8 @@ export interface ConfigWatcherManagerConfig {
   workspaceDataRoot: string;
   isHeadless?: boolean;
   onDebug?: (message: string) => void;
+  /** Skill tiers outside the workspace (project, global) to watch as well. */
+  skillRoots?: string[];
 }
 
 export class ConfigWatcherManager {
@@ -26,12 +28,14 @@ export class ConfigWatcherManager {
   private readonly isHeadless: boolean;
   private callbacks: ConfigWatcherManagerCallbacks;
   private readonly onDebugCallback: ((message: string) => void) | null;
+  private readonly skillRoots: string[];
 
   constructor(config: ConfigWatcherManagerConfig, callbacks: ConfigWatcherManagerCallbacks = {}) {
     this.workspaceDataRoot = config.workspaceDataRoot;
     this.isHeadless = config.isHeadless ?? false;
     this.callbacks = callbacks;
     this.onDebugCallback = config.onDebug ?? null;
+    this.skillRoots = config.skillRoots ?? [];
   }
 
   start(): void {
@@ -46,9 +50,9 @@ export class ConfigWatcherManager {
         this.log(`Skill changed: ${slug} ${skill ? 'updated' : 'deleted'}`);
         this.callbacks.onSkillChange?.(slug, skill);
       },
-      onSkillsListChange: skills => {
-        this.log(`Skills list changed: ${skills.length} skills`);
-        this.callbacks.onSkillsListChange?.(skills);
+      onSkillsListChange: () => {
+        this.log('Skills list changed');
+        this.callbacks.onSkillsListChange?.();
       },
       onWorkspacePermissionsChange: () => {
         this.log('Workspace permissions changed');
@@ -67,7 +71,9 @@ export class ConfigWatcherManager {
       },
     };
 
-    const watcher = createConfigWatcher(this.workspaceDataRoot, watcherCallbacks);
+    const watcher = createConfigWatcher(this.workspaceDataRoot, watcherCallbacks, {
+      skillRoots: this.skillRoots,
+    });
     if (!watcher.isWatching()) {
       this.log('Config watcher already owned by another manager');
       return;

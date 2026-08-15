@@ -6,7 +6,7 @@ import { getDefaultLlmConnection, getLlmConnections } from '../config/storage.ts
 import type { Workspace } from '../config/storage.ts';
 import { formatMcpDirective, parseMentions, resolveFileMentions, resolveMcpMentions, resolveSkillMentions } from '../mentions/index.ts';
 import { getSessionPath, getSessionPlansPath, getSessionDataPath } from '../sessions/storage.ts';
-import { loadAllSkills } from '../skills/storage.ts';
+import { loadAllSkills, GLOBAL_AGENT_SKILLS_DIR, PROJECT_AGENT_SKILLS_DIR } from '../skills/storage.ts';
 import { buildRegenerateTitlePrompt, buildTitlePrompt, validateTitle } from '../utils/title-generator.ts';
 import type {
   AgentBackend,
@@ -112,13 +112,30 @@ export abstract class BaseAgent implements AgentBackend {
 
   protected startConfigWatcher(): void {
     if (this.configWatcherManager || this.config.skipConfigWatcher) return;
-    this.configWatcherManager = new ConfigWatcherManager({
-      workspaceDataRoot: this.config.workspace.dataRoot,
-      isHeadless: this.config.isHeadless,
-      onDebug: message => this.debug(message),
-    });
+    const projectRoot = this.config.workspace.folderPath;
+    this.configWatcherManager = new ConfigWatcherManager(
+      {
+        workspaceDataRoot: this.config.workspace.dataRoot,
+        isHeadless: this.config.isHeadless,
+        onDebug: message => this.debug(message),
+        // A skill can change in any tier, and all three feed the same catalog.
+        skillRoots: [
+          GLOBAL_AGENT_SKILLS_DIR,
+          ...(projectRoot ? [join(projectRoot, PROJECT_AGENT_SKILLS_DIR)] : []),
+        ],
+      },
+      {
+        onSkillsListChange: () => this.onSkillCatalogChanged(),
+      }
+    );
     this.configWatcherManager.start();
   }
+
+  /**
+   * The skill catalog changed on disk. Backends that run the agent in a
+   * separate process override this to carry the invalidation across.
+   */
+  protected onSkillCatalogChanged(): void {}
 
   protected stopConfigWatcher(): void {
     this.configWatcherManager?.stop();

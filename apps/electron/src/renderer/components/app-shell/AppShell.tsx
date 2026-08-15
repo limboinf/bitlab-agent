@@ -18,10 +18,10 @@ import { useAction, useActionLabel } from "@/actions"
 import { useFocusContext } from "@/context/FocusContext"
 import { getSessionTitle } from "@/utils/session"
 import { useSetAtom } from "jotai"
-import type { Session, FileAttachment, PermissionRequest, LoadedSkill, PermissionMode } from "../../../shared/types"
+import type { Session, FileAttachment, PermissionRequest, LoadedSkill, CatalogSnapshot, PermissionMode } from "../../../shared/types"
 import { DEFAULT_CYCLABLE_PERMISSION_MODES } from "@bitlab/shared/agent/modes"
 import { sessionMetaMapAtom, type SessionMeta } from "@/atoms/sessions"
-import { skillsAtom } from "@/atoms/skills"
+import { EMPTY_SNAPSHOT, skillsSnapshotAtom } from "@/atoms/skills"
 import { panelStackAtom, panelCountAtom, focusedPanelIdAtom, focusedSessionIdAtom, focusNextPanelAtom, focusPrevPanelAtom, parseSessionIdFromRoute } from "@/atoms/panel-stack"
 import { useContainerWidth } from "@/hooks/useContainerWidth"
 import * as storage from "@/lib/local-storage"
@@ -252,12 +252,14 @@ function AppShellContent({
   useAction('app.search', () => setSearchActive(true))
 
   // Skills state (workspace-scoped)
-  const [skills, setSkills] = React.useState<LoadedSkill[]>([])
-  // Sync skills to atom for NavigationContext auto-selection
-  const setSkillsAtom = useSetAtom(skillsAtom)
+  const [snapshot, setSnapshot] = React.useState<CatalogSnapshot>(EMPTY_SNAPSHOT)
+  // Only the winners are offered to the user — they are what the model sees too.
+  const skills = React.useMemo(() => snapshot.entries.filter(entry => entry.winner), [snapshot])
+  // Sync the catalog to the atom for NavigationContext auto-selection
+  const setSkillsSnapshot = useSetAtom(skillsSnapshotAtom)
   React.useEffect(() => {
-    setSkillsAtom(skills)
-  }, [skills, setSkillsAtom])
+    setSkillsSnapshot(snapshot)
+  }, [snapshot, setSkillsSnapshot])
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId)
 
   // Enabled permission modes for Shift+Tab cycling (min 2 modes)
@@ -299,9 +301,9 @@ function AppShellContent({
 
   // Subscribe to live skill updates (when skills are added/removed dynamically)
   React.useEffect(() => {
-    const cleanup = window.electronAPI.onSkillsChanged((workspaceId, updatedSkills) => {
+    const cleanup = window.electronAPI.onSkillsChanged((workspaceId, updatedSnapshot) => {
       if (workspaceId !== activeWorkspaceId) return
-      setSkills(updatedSkills || [])
+      setSnapshot(updatedSnapshot ?? EMPTY_SNAPSHOT)
     })
     return cleanup
   }, [activeWorkspaceId])
@@ -522,7 +524,7 @@ function AppShellContent({
   React.useEffect(() => {
     if (!activeWorkspaceId) return
     window.electronAPI.getSkills(activeWorkspaceId).then((loaded) => {
-      setSkills(loaded || [])
+      setSnapshot(loaded ?? EMPTY_SNAPSHOT)
     }).catch(err => {
       console.error('[Chat] Failed to load skills:', err)
     })
@@ -716,16 +718,46 @@ function AppShellContent({
   }, [])
 
   // Delete Skill
-  const handleDeleteSkill = useCallback(async (skillSlug: string) => {
+  const handleDeleteSkill = useCallback(async (skillId: string) => {
     if (!activeWorkspace) return
+    const slug = snapshot.entries.find(entry => entry.skillId === skillId)?.slug ?? skillId
     try {
-      await window.electronAPI.deleteSkill(activeWorkspace.id, skillSlug)
-      toast.success(t('toast.deletedSkill', { slug: skillSlug }))
+      await window.electronAPI.deleteSkill(activeWorkspace.id, skillId)
+      toast.success(t('toast.deletedSkill', { slug }))
     } catch (error) {
       console.error('[Chat] Failed to delete skill:', error)
       toast.error(t('toast.failedToDeleteSkill'))
     }
-  }, [activeWorkspace])
+  }, [activeWorkspace, snapshot])
+
+  // Enable / disable a Skill. A disabled skill leaves the runtime entirely; if
+  // it was the winner, the next tier down takes over.
+  const handleToggleSkill = useCallback(async (skillId: string, enabled: boolean) => {
+    if (!activeWorkspace) return
+    try {
+      setSnapshot(await window.electronAPI.setSkillEnabled(activeWorkspace.id, skillId, enabled))
+    } catch (error) {
+      console.error('[Chat] Failed to toggle skill:', error)
+      toast.error(t('toast.failedToToggleSkill'))
+    }
+  }, [activeWorkspace, t])
+
+  // Let the working directory's Skills reach the agent. Explicit, and revocable.
+  const handleTrustProject = useCallback(async (projectRoot: string) => {
+    if (!activeWorkspace) return
+    try {
+      setSnapshot(await window.electronAPI.setSkillProjectTrust(activeWorkspace.id, projectRoot, true))
+    } catch (error) {
+      console.error('[Chat] Failed to trust project:', error)
+      toast.error(t('toast.failedToTrustProject'))
+    }
+  }, [activeWorkspace, t])
+
+  // The route addresses a Skill by slug; the list is keyed on skillId.
+  const selectedSkillIdFor = useCallback((slug: string) => {
+    const entries = snapshot.entries.filter(entry => entry.slug === slug)
+    return (entries.find(entry => entry.winner) ?? entries[0])?.skillId ?? null
+  }, [snapshot])
 
   // Respond to menu bar "New Chat" trigger
   const menuTriggerRef = useRef(menuNewChatTrigger)
@@ -881,12 +913,18 @@ function AppShellContent({
     >
       {isSkillsNavigation(navState) && activeWorkspaceId && (
         <SkillsListPanel
-          skills={skills}
+          snapshot={snapshot}
           workspaceId={activeWorkspaceId}
           workspaceRootPath={activeWorkspace?.dataRoot}
           onSkillClick={handleSkillSelect}
           onDeleteSkill={handleDeleteSkill}
-          selectedSkillSlug={navState.details?.type === 'skill' ? navState.details.skillSlug : null}
+          onToggleSkill={handleToggleSkill}
+          onTrustProject={handleTrustProject}
+          selectedSkillSlug={
+            navState.details?.type === 'skill'
+              ? selectedSkillIdFor(navState.details.skillSlug)
+              : null
+          }
         />
       )}
       {isSettingsNavigation(navState) && navState.subpage === 'mcp' && (

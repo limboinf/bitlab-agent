@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useAction } from '@/actions'
-import { EntityList } from './entity-list'
+import { EntityList, type EntityListGroup } from './entity-list'
 import { EntityRow } from './entity-row'
 import { useEntityListInteractions } from '@/hooks/useEntityListInteractions'
 import type { createEntitySelection } from '@/hooks/useEntitySelection'
@@ -22,7 +22,13 @@ export interface EntityPanelItem {
 }
 
 export interface EntityPanelProps<T> {
+  /**
+   * Every item, in navigation order. Keyboard nav and range selection run over
+   * this list, so it stays flat even when `groups` renders it in sections.
+   */
   items: T[]
+  /** Optional section rendering. Must partition `items`, not replace them. */
+  groups?: EntityListGroup<T>[]
   getId: (item: T) => string
   mapItem: (item: T) => EntityPanelItem
   selection: ReturnType<typeof createEntitySelection>
@@ -37,6 +43,7 @@ export interface EntityPanelProps<T> {
 
 export function EntityPanel<T>({
   items,
+  groups,
   getId,
   mapItem,
   selection,
@@ -64,6 +71,14 @@ export function EntityPanel<T>({
     enabled: () => interactions.selection.isMultiSelectActive,
   }, [interactions.selection])
 
+  // Grouped rendering hands renderItem an index within its section, but row
+  // props are keyed on the position in the flat list.
+  const flatIndexById = React.useMemo(() => {
+    const map = new Map<string, number>()
+    items.forEach((item, index) => map.set(getId(item), index))
+    return map
+  }, [items, getId])
+
   const mergedContainerProps = containerProps
     ? { ...interactions.listProps.containerProps, ...containerProps }
     : interactions.listProps.containerProps
@@ -71,6 +86,7 @@ export function EntityPanel<T>({
   return (
     <EntityList
       items={items}
+      groups={groups}
       getKey={getId}
       containerRef={interactions.listProps.containerRef}
       containerProps={mergedContainerProps}
@@ -78,7 +94,7 @@ export function EntityPanel<T>({
       emptyState={emptyState}
       renderItem={(item, index, isFirst) => {
         const mapped = mapItem(item)
-        const rowProps = interactions.getRowProps(item, index)
+        const rowProps = interactions.getRowProps(item, flatIndexById.get(getId(item)) ?? index)
         return (
           <EntityRow
             icon={mapped.icon}

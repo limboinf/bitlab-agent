@@ -654,6 +654,16 @@ export class PiAgent extends BaseAgent {
   }
 
 
+  /**
+   * Tell the subprocess its skill catalog is stale. The catalog lives in the
+   * agent process, so a file change the host observed has to be carried across
+   * or the model keeps answering against the old set.
+   */
+  protected onSkillCatalogChanged(): void {
+    if (!this.subprocess) return;
+    this.send({ type: 'skills_changed' });
+  }
+
   /** Test-only seam: inject a prebuilt adapter config (see mcp e2e tests). */
   pushMcpConfigForTest(mcpConfig: AdapterMcpConfig): void {
     this.send({ type: 'update_mcp_config', mcpConfig });

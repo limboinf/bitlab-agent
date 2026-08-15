@@ -66,8 +66,15 @@ export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIss
 
 
 // Skill types
-import type { LoadedSkill, SkillMetadata } from '@bitlab/shared/skills/types';
-export type { LoadedSkill, SkillMetadata };
+import type {
+  CatalogEntry,
+  CatalogSnapshot,
+  LoadedSkill,
+  SkillId,
+  SkillMetadata,
+  SkillSource,
+} from '@bitlab/shared/skills/types';
+export type { CatalogEntry, CatalogSnapshot, LoadedSkill, SkillId, SkillMetadata, SkillSource };
 
 
 // LLM connection types
@@ -398,15 +405,19 @@ export interface ElectronAPI {
   // Default permissions change listener (live updates when default.json changes)
   onDefaultPermissionsChanged(callback: () => void): () => void
 
-  // Skills
-  getSkills(workspaceId: string): Promise<LoadedSkill[]>
-  getSkillFiles?(workspaceId: string, skillSlug: string): Promise<SkillFile[]>
-  deleteSkill(workspaceId: string, skillSlug: string): Promise<void>
-  openSkillInEditor(workspaceId: string, skillSlug: string): Promise<void>
-  openSkillInFinder(workspaceId: string, skillSlug: string): Promise<void>
+  // Skills. Mutating and revealing operations take a skillId (see SkillId) —
+  // a bare slug cannot say which tier it means, and cannot be containment-checked.
+  getSkills(workspaceId: string): Promise<CatalogSnapshot>
+  getSkillFiles?(workspaceId: string, skillId: string): Promise<SkillFile[]>
+  deleteSkill(workspaceId: string, skillId: string): Promise<void>
+  openSkillInEditor(workspaceId: string, skillId: string): Promise<void>
+  openSkillInFinder(workspaceId: string, skillId: string): Promise<void>
+  /** Both return the resulting catalog, so the caller sees its own edit at once. */
+  setSkillEnabled(workspaceId: string, skillId: string, enabled: boolean): Promise<CatalogSnapshot>
+  setSkillProjectTrust(workspaceId: string, projectRoot: string, trusted: boolean): Promise<CatalogSnapshot>
 
   // Skills change listener (live updates when skills are added/removed/modified)
-  onSkillsChanged(callback: (workspaceId: string, skills: LoadedSkill[]) => void): () => void
+  onSkillsChanged(callback: (workspaceId: string, snapshot: CatalogSnapshot) => void): () => void
 
   // LLM connections change listener
   onLlmConnectionsChanged(callback: () => void): () => void

@@ -16,7 +16,7 @@ Three tiers, merged by slug. Priority `global < workspace < project`:
 
 `projectRoot` is the session's working directory, not the repository root — project Skills follow the directory the session is working in. `~/.bitlab` honors `BITLAB_CONFIG_DIR`; `~/.agents` is always under the home directory and is shared with other Agent Skills tools.
 
-A Skill present in several tiers resolves to the highest-priority one. The others are shadowed, not deleted, and Bitlab does not currently warn about the shadowing.
+A Skill present in several tiers resolves to the highest-priority one. The others are shadowed, not deleted, and the catalog retains them so the shadowing can be surfaced.
 
 Results are cached per `(workspaceRoot, projectRoot)` pair with a 5-minute TTL ([`storage.ts:172`](../packages/shared/src/skills/storage.ts)). Editing a `SKILL.md` can take up to 5 minutes to show up unless something calls `invalidateSkillsCache()` — changing the working directory does.
 
@@ -38,26 +38,25 @@ Plan the deck structure, draft slide titles, then run `pptx-tool` to materialize
 | --- | --- | --- |
 | `name` | yes | Display name. Missing `name` or `description` makes the directory be skipped silently |
 | `description` | yes | Shown in the picker and the Skills list |
-| `icon` | no | Emoji or URL only. A URL is downloaded to `icon.<ext>` in the Skill directory. Inline SVG and relative paths are rejected |
-| `globs` | no | Parsed and stored, but **not consumed** by the Pi backend |
-| `alwaysAllow` | no | Parsed and stored, but **not consumed** — the permission engine is unaffected |
+| `license` | no | Recorded and displayed |
+| `compatibility` | no | Environment prerequisites. Recorded and displayed |
+| `metadata` | no | Free-form string map. Bitlab reads `bitlab.icon` (emoji or URL; a URL is downloaded to `icon.<ext>` in the Skill directory, inline SVG and relative paths are rejected) and `bitlab.requiresMcp` (comma-separated MCP server names, resolved against workspace config) |
+| `allowed-tools` | no | Parsed and displayed. Grants nothing — every tool call still goes through the normal permission prompt |
+| `disable-model-invocation` | no | Hides the Skill from the catalog the model sees; it remains explicitly invocable |
 
-The standard's `license`, `compatibility`, `metadata`, and `allowed-tools` fields are accepted by the YAML parser but currently ignored. Per spec, `name` should match the directory name; Bitlab does not enforce or warn on a mismatch.
+A top-level `icon` field is still read as a fallback, but `metadata.bitlab.icon` is the form to write. Per spec, `name` should match the directory name; a mismatch loads with a warning rather than failing.
 
 ## Invocation
 
-Skills are invoked explicitly. The model does not discover them on its own.
+A Skill can be selected by the model or named by the user.
 
-1. The user references a Skill with `[skill:slug]` in the prompt — the chat picker inserts this syntax.
-2. The system prompt tells the model to read that Skill's `SKILL.md` before anything else; tool calls are blocked until it has.
-3. The model follows the instructions in the file.
+**By the model.** Every eligible Skill's `name`, `description`, and location are listed in the system prompt under `<available_skills>`. The model reads a Skill's `SKILL.md` when its description matches the task — the body costs nothing until then, which is what keeps a large catalog affordable.
 
-A Skill the user does not name is invisible to the model. Two independent reasons, both in the Pi backend:
+**By the user.** Referencing `[skill:slug]` in the prompt — the chat picker inserts this syntax — makes the model read that `SKILL.md` before anything else; tool calls are blocked until it has.
 
-- [`system-prompt-override.ts`](../packages/pi-agent-server/src/system-prompt-override.ts) replaces the session's `_rebuildSystemPrompt` with a constant, discarding the Skill catalog Pi assembles there.
-- Pi 0.80.6 scans `<agentDir>/skills` and `<cwd>/.pi/skills` by default. Bitlab's tiers use `.agents/skills` and a workspace directory, so none of them are scanned — and `agentDir` points at a per-session temp directory.
+The catalog reaches Pi through its resource loader rather than a pre-assembled prompt string: `noSkills` turns off Pi's own scan (which would otherwise miss every Bitlab tier and pick up an unreviewed `<cwd>/.pi/skills`), `skillsOverride` supplies the resolved winners in Bitlab's precedence order, and `systemPromptOverride` feeds in Bitlab's base prompt so Pi keeps appending the catalog on every rebuild.
 
-Pi's native auto-discovery, progressive disclosure, and `/skill:name` commands are therefore all inactive. See [skills-design.md](./skills-design.md) for the plan to change this.
+One consequence worth knowing: Pi only appends `<available_skills>` when the `read` tool is active. Bitlab asserts this at wiring time rather than shipping a catalog the model cannot see.
 
 ## Operations
 
@@ -72,17 +71,20 @@ Pi's native auto-discovery, progressive disclosure, and `/skill:name` commands a
 
 Creating a Skill means creating the directory and `SKILL.md` yourself, or asking the agent to write them.
 
-`skills.DELETE`, `skills.OPEN_EDITOR`, and `skills.OPEN_FINDER` all resolve a bare slug against the workspace tier only, so acting on a global or project Skill from the UI targets the wrong path or does nothing.
+`skills.DELETE`, `skills.OPEN_EDITOR`, and `skills.OPEN_FINDER` still resolve a bare slug against the workspace tier only, so acting on a global or project Skill from the UI targets the wrong path or does nothing.
 
-`deleteSkill` joins the slug onto the skills directory and removes the result recursively, with no path containment check and no slug validation at the RPC layer.
+Paths derived from a slug or a Skill id are canonicalized and checked against their tier root before any filesystem operation, so neither a traversal nor an escaping symlink can reach a directory outside the tier.
+
+## Project trust
+
+Project-tier Skills execute instructions that arrive with a checkout, so they stay out of the runtime until the project root is trusted. Until then they are still listed, marked untrusted, and contribute nothing — the workspace or global copy of the same slug wins instead.
+
+Trust is per project root, persisted in the workspace's `skills.json`, and revocable. Where there is no UI to grant it through — the headless server and WebUI — the operator names roots explicitly in `BITLAB_TRUSTED_PROJECT_ROOTS` (platform-delimited path list). The default is untrusted in every case.
 
 ## Known limitations
 
-- No auto-discovery: the model cannot select a Skill unless the user names it.
-- No install, update, or enable/disable — the only lifecycle operation is delete.
+- No install or update — the only lifecycle operations are create-by-hand and delete.
 - Delete, open-in-editor, and reveal-in-file-manager are workspace-tier only.
-- Delete performs no path containment check on the slug it is given.
-- Project-tier Skills are not gated on any repository trust decision.
 - Edits are picked up on a 5-minute TTL rather than a file watcher.
-- `globs` and `alwaysAllow` are inert.
-- Shadowed Skills across tiers are not surfaced anywhere in the UI.
+- `allowed-tools` is displayed but grants nothing.
+- Shadowed Skills across tiers are recorded in the catalog but not yet surfaced in the UI.

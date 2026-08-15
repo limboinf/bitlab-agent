@@ -115,11 +115,19 @@ function merge(...results: ValidationResult[]): ValidationResult {
   return { valid: errors.length === 0, errors, warnings };
 }
 
+/**
+ * Frontmatter per the Agent Skills specification. `metadata` is the standard's
+ * escape hatch for client-specific data; Bitlab's keys live under `bitlab.*`.
+ */
 export const SkillMetadataSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
-  globs: z.array(z.string()).optional(),
-  alwaysAllow: z.array(z.string()).optional(),
+  license: z.string().optional(),
+  compatibility: z.string().optional(),
+  metadata: z.record(z.string(), z.string()).optional(),
+  'allowed-tools': z.union([z.string(), z.array(z.string())]).optional(),
+  'disallowed-tools': z.union([z.string(), z.array(z.string())]).optional(),
+  'disable-model-invocation': z.boolean().optional(),
   icon: z.string().optional(),
 }).passthrough();
 

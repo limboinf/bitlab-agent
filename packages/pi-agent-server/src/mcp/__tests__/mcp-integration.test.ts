@@ -1,7 +1,7 @@
 /**
  * Real-session MCP integration tests (no LLM involved).
  *
- * Drives the exact production path: BitlabMcpResourceLoader (adapter +
+ * Drives the exact production path: BitlabResourceLoader (adapter +
  * host extensions via DefaultResourceLoader.extensionFactories) →
  * createAgentSession → eager stdio server connection → tool registration →
  * mcp_status snapshots → hot config update via session.reload().
@@ -15,7 +15,7 @@ import {
   createAgentSession,
   SettingsManager as PiSettingsManager,
 } from '@earendil-works/pi-coding-agent';
-import { BitlabMcpResourceLoader } from '../resource-loader.ts';
+import { BitlabResourceLoader } from '../../resource-loader.ts';
 import {
   buildAdapterExtension,
   createMcpHostExtension,
@@ -71,7 +71,7 @@ describe('MCP subprocess integration', () => {
       const statuses: McpStatusSnapshot[] = [];
 
       setCurrentMcpConfig(adapterConfig('echo'));
-      const loader = new BitlabMcpResourceLoader({
+      const loader = new BitlabResourceLoader({
         cwd,
         agentDir,
         settingsManager: PiSettingsManager.create(cwd, agentDir),
@@ -125,7 +125,7 @@ describe('MCP subprocess integration', () => {
       const statuses: McpStatusSnapshot[] = [];
 
       setCurrentMcpConfig(adapterConfig('echo', 'echo', 'lazy'));
-      const loader = new BitlabMcpResourceLoader({
+      const loader = new BitlabResourceLoader({
         cwd,
         agentDir,
         settingsManager: PiSettingsManager.create(cwd, agentDir),
@@ -175,7 +175,7 @@ describe('MCP subprocess integration', () => {
       const agentDir = join(cwd, 'pi-agent');
 
       setCurrentMcpConfig(adapterConfig('echo'));
-      const loader = new BitlabMcpResourceLoader({
+      const loader = new BitlabResourceLoader({
         cwd,
         agentDir,
         settingsManager: PiSettingsManager.create(cwd, agentDir),

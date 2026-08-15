@@ -215,6 +215,11 @@ export const RPC_CHANNELS = {
     OPEN_EDITOR: 'skills:openEditor',
     OPEN_FINDER: 'skills:openFinder',
     CHANGED: 'skills:changed',
+    SET_ENABLED: 'skills:setEnabled',
+    SET_PROJECT_TRUST: 'skills:setProjectTrust',
+    CREATE: 'skills:create',
+    PREVIEW: 'skills:preview',
+    IMPORT: 'skills:import',
   },
   toolIcons: {
     GET_MAPPINGS: 'toolIcons:getMappings',

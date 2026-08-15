@@ -6,6 +6,10 @@
  * 2. Workspace skills: {workspaceRoot}/skills/ (medium priority)
  * 3. Project skills: {projectRoot}/.agents/skills/ (highest priority)
  *
+ * Project-tier skills only participate once the project root is trusted, so
+ * the precedence tests grant trust in setup; the trust gate itself is covered
+ * separately below.
+ *
  * Uses real temp directories to test actual filesystem operations.
  *
  * Note: The global skills directory (~/.agents/skills/) is a module-level constant
@@ -18,6 +22,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import {
+  invalidateSkillsCache,
+  loadAllSkillEntries,
   loadAllSkills,
   loadWorkspaceSkills,
   loadSkill,
@@ -25,6 +31,7 @@ import {
   listSkillSlugs,
   deleteSkill,
 } from '../storage.ts';
+import { setProjectTrust, setSkillEnabled } from '../config.ts';
 
 // ============================================================
 // Temp Directory Setup
@@ -45,7 +52,16 @@ const REAL_GLOBAL_SKILLS_DIR = join(homedir(), '.agents', 'skills');
 function createSkill(
   skillsDir: string,
   slug: string,
-  opts: { name?: string; description?: string; globs?: string[]; content?: string; icon?: string } = {}
+  opts: {
+    name?: string;
+    description?: string;
+    content?: string;
+    icon?: string;
+    license?: string;
+    compatibility?: string;
+    metadata?: Record<string, string>;
+    allowedTools?: string;
+  } = {}
 ): string {
   const skillDir = join(skillsDir, slug);
   mkdirSync(skillDir, { recursive: true });
@@ -53,11 +69,18 @@ function createSkill(
   const name = opts.name ?? slug.charAt(0).toUpperCase() + slug.slice(1);
   const description = opts.description ?? `A ${slug} skill`;
   const content = opts.content ?? `Instructions for ${slug}`;
-  const globs = opts.globs ? `\nglobs:\n${opts.globs.map(g => `  - "${g}"`).join('\n')}` : '';
   const icon = opts.icon ? `\nicon: "${opts.icon}"` : '';
+  const license = opts.license ? `\nlicense: "${opts.license}"` : '';
+  const compatibility = opts.compatibility ? `\ncompatibility: "${opts.compatibility}"` : '';
+  const allowedTools = opts.allowedTools ? `\nallowed-tools: ${opts.allowedTools}` : '';
+  const metadata = opts.metadata
+    ? `\nmetadata:\n${Object.entries(opts.metadata)
+        .map(([key, value]) => `  ${key}: "${value}"`)
+        .join('\n')}`
+    : '';
   const skillMd = `---
 name: "${name}"
-description: "${description}"${globs}${icon}
+description: "${description}"${license}${compatibility}${allowedTools}${icon}${metadata}
 ---
 
 ${content}
@@ -106,6 +129,10 @@ beforeEach(() => {
   // Create base directories
   mkdirSync(join(workspaceRoot, 'skills'), { recursive: true });
   mkdirSync(projectRoot, { recursive: true });
+
+  // Precedence, not the trust gate, is what these tests are about.
+  setProjectTrust(workspaceRoot, projectRoot, true);
+  invalidateSkillsCache();
 });
 
 afterEach(() => {
@@ -157,15 +184,47 @@ describe('loadSkill', () => {
     expect(skill).toBeNull();
   });
 
-  it('should load skill with optional globs', () => {
+  it('should load the optional specification fields', () => {
     createSkill(join(workspaceRoot, 'skills'), 'frontend', {
-      globs: ['*.tsx', '*.css'],
+      license: 'Apache-2.0',
+      compatibility: 'Requires git',
+      allowedTools: 'Read Bash(git:*)',
     });
 
     const skill = loadSkill(workspaceRoot, 'frontend');
 
     expect(skill).not.toBeNull();
-    expect(skill!.metadata.globs).toEqual(['*.tsx', '*.css']);
+    expect(skill!.metadata.license).toBe('Apache-2.0');
+    expect(skill!.metadata.compatibility).toBe('Requires git');
+    expect(skill!.metadata.allowedTools).toEqual(['Read', 'Bash(git:*)']);
+  });
+
+  it('should read the icon from the namespaced metadata key', () => {
+    createSkill(join(workspaceRoot, 'skills'), 'namespaced', {
+      metadata: { 'bitlab.icon': '📐' },
+    });
+
+    const skill = loadSkill(workspaceRoot, 'namespaced');
+
+    expect(skill!.metadata.icon).toBe('📐');
+  });
+
+  it('should still accept a legacy top-level icon', () => {
+    createSkill(join(workspaceRoot, 'skills'), 'legacy-icon', { icon: '🧪' });
+
+    const skill = loadSkill(workspaceRoot, 'legacy-icon');
+
+    expect(skill!.metadata.icon).toBe('🧪');
+  });
+
+  it('should warn when the name does not match the directory', () => {
+    createSkill(join(workspaceRoot, 'skills'), 'mismatched', { name: 'Something Else' });
+
+    const skill = loadSkill(workspaceRoot, 'mismatched');
+
+    // A warning, not a rejection — the skill still loads.
+    expect(skill).not.toBeNull();
+    expect(skill!.diagnostics.map((d) => d.code)).toContain('name-mismatch');
   });
 
   it('should set iconPath when icon file exists', () => {

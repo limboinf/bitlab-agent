@@ -1,15 +1,14 @@
 /**
  * SkillInfoPage
  *
- * Displays comprehensive skill details including metadata,
- * permission modes, and instructions.
+ * Displays comprehensive skill details including metadata and instructions.
  * Uses the Info_ component system for consistent styling with SourceInfoPage.
  */
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEffect, useState, useCallback } from 'react'
-import { Check, X, Minus } from 'lucide-react'
+
 import { EditPopover, EditButton, getEditConfig } from '@/components/ui/EditPopover'
 import { toast } from 'sonner'
 import { SkillMenu } from '@/components/app-shell/SkillMenu'
@@ -44,12 +43,13 @@ export default function SkillInfoPage({ skillSlug, workspaceId }: SkillInfoPageP
 
     const loadSkill = async () => {
       try {
-        const skills = await window.electronAPI.getSkills(workspaceId)
+        const snapshot = await window.electronAPI.getSkills(workspaceId)
 
         if (!isMounted) return
 
-        // Find the skill by slug
-        const found = skills.find((s) => s.slug === skillSlug)
+        // The route addresses a skill by slug; the winning entry is the one in effect.
+        const found = snapshot.entries.find((entry) => entry.slug === skillSlug && entry.winner)
+          ?? snapshot.entries.find((entry) => entry.slug === skillSlug)
         if (found) {
           setSkill(found)
         } else {
@@ -66,9 +66,10 @@ export default function SkillInfoPage({ skillSlug, workspaceId }: SkillInfoPageP
     loadSkill()
 
     // Subscribe to skill changes
-    const unsubscribe = window.electronAPI.onSkillsChanged?.((changedWorkspaceId, skills) => {
+    const unsubscribe = window.electronAPI.onSkillsChanged?.((changedWorkspaceId, snapshot) => {
       if (changedWorkspaceId !== workspaceId) return
-      const updated = skills.find((s) => s.slug === skillSlug)
+      const updated = snapshot.entries.find((entry) => entry.slug === skillSlug && entry.winner)
+        ?? snapshot.entries.find((entry) => entry.slug === skillSlug)
       if (updated) {
         setSkill(updated)
       }
@@ -99,7 +100,7 @@ export default function SkillInfoPage({ skillSlug, workspaceId }: SkillInfoPageP
 
     try {
       if (skill.source !== 'workspace') return
-      await window.electronAPI.deleteSkill(workspaceId, skillSlug)
+      await window.electronAPI.deleteSkill(workspaceId, skill.skillId)
       toast.success(t('skillInfo.deletedSkill', { name: skill.metadata.name }))
       navigate(routes.view.skills())
     } catch (err) {
@@ -222,44 +223,6 @@ export default function SkillInfoPage({ skillSlug, workspaceId }: SkillInfoPageP
               </Info_Table.Row>
             </Info_Table>
           </Info_Section>
-
-          {/* Permission Modes */}
-          {skill.metadata.alwaysAllow && skill.metadata.alwaysAllow.length > 0 && (
-            <Info_Section title={t('skillInfo.permissionModes')}>
-              <div className="space-y-2 px-4 py-3">
-                <p className="text-xs text-muted-foreground mb-3">
-                  {t('skillInfo.permissionModesDesc')}
-                </p>
-                <div className="rounded-[8px] border border-border/50 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <tbody>
-                      <tr className="border-b border-border/30">
-                        <td className="px-3 py-2 font-medium text-muted-foreground w-[140px]">{t('skillInfo.explore')}</td>
-                        <td className="px-3 py-2 flex items-center gap-2">
-                          <X className="h-3.5 w-3.5 text-destructive shrink-0" />
-                          <span className="text-foreground/80">{t('skillInfo.exploreDesc')}</span>
-                        </td>
-                      </tr>
-                      <tr className="border-b border-border/30">
-                        <td className="px-3 py-2 font-medium text-muted-foreground">{t('skillInfo.askToEdit')}</td>
-                        <td className="px-3 py-2 flex items-center gap-2">
-                          <Check className="h-3.5 w-3.5 text-success shrink-0" />
-                          <span className="text-foreground/80">{t('skillInfo.askToEditDesc')}</span>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 font-medium text-muted-foreground">{t('skillInfo.auto')}</td>
-                        <td className="px-3 py-2 flex items-center gap-2">
-                          <Minus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <span className="text-foreground/80">{t('skillInfo.autoDesc')}</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </Info_Section>
-          )}
 
           {/* Instructions */}
           <Info_Section
