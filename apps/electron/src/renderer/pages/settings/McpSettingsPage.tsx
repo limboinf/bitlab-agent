@@ -2,12 +2,11 @@
  * McpSettingsPage
  *
  * Settings page for MCP (Model Context Protocol) servers, laid out as a
- * connector console:
- * - Header area: description, server search, add button.
+ * connector library:
+ * - Header area: product framing, server search, add button.
  * - Overview tiles: installed / running / available tools, derived from the
  *   current list (see mcp-derive.ts — no extra backend calls).
- * - Tabs: Installed (two-column card grid, click a card to expand its detail
- *   across the full row — only one detail open at a time), Discovered
+ * - Tabs: Installed (compact card catalog; management opens in a dialog), Discovered
  *   (project `.mcp.json` approval + other apps' config import) and Global
  *   settings (approval gate, direct tools, default lifecycle).
  * - Add/edit via form or pasted `{ "mcpServers": { ... } }` JSON block.
@@ -20,13 +19,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AnimatePresence, motion } from 'motion/react'
+import { motion } from 'motion/react'
 import {
   AlertTriangle,
   Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   Globe,
   LogOut,
   Pencil,
@@ -207,6 +204,97 @@ function StatTile({ value, label }: { value: number; label: string }) {
   )
 }
 
+function McpCatalogCard({
+  server,
+  display,
+  onOpen,
+  onToggle,
+}: {
+  server: BitlabMcpServer
+  display: McpServerDisplay | undefined
+  onOpen: () => void
+  onToggle: (enabled: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const status: McpDisplayStatus = server.enabled ? (display?.status ?? 'unknown') : 'disabled'
+  const available = status === 'connected' || status === 'cached'
+
+  // An <article> rather than a <button>: the card carries its own switch, and a
+  // switch is a button — nesting the two is invalid content.
+  return (
+    <article
+      role="button"
+      tabIndex={0}
+      aria-label={t('settings.mcp.server.manage', { name: server.name })}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+      className="group flex min-h-32 w-full cursor-pointer gap-3.5 bg-background px-4 py-4 text-left outline-none transition-colors hover:bg-foreground/[0.025] focus-visible:z-10 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+    >
+      <div
+        className={cn(
+          'grid size-11 shrink-0 place-items-center rounded-xl',
+          available
+            ? 'bg-success/10 text-success'
+            : status === 'failed' || status === 'needs-auth'
+              ? 'bg-destructive/10 text-destructive'
+              : 'bg-foreground/[0.05] text-muted-foreground',
+        )}
+      >
+        <Plug className="size-5" />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-start gap-2">
+          <h3 className="min-w-0 flex-1 truncate text-sm font-semibold tracking-[-0.015em]">
+            {server.name}
+          </h3>
+          <span
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+              available
+                ? 'bg-success/10 text-success'
+                : status === 'failed' || status === 'needs-auth'
+                  ? 'bg-destructive/10 text-destructive'
+                  : 'bg-foreground/[0.055] text-muted-foreground',
+            )}
+          >
+            <span className="size-1 rounded-full bg-current" />
+            {t(statusLabelKey(status))}
+          </span>
+        </div>
+        <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
+          {transportSummary(server)}
+        </p>
+        <div className="mt-auto flex items-end justify-between gap-3 pt-3">
+          <span className="truncate text-[10px] text-muted-foreground/75">
+            {[
+              t(`settings.mcp.source.${server.source}`),
+              server.transport.type.toUpperCase(),
+              display?.toolCount !== undefined
+                ? t('settings.mcp.server.toolCount', { count: display.toolCount })
+                : null,
+            ].filter(Boolean).join(' · ')}
+          </span>
+          <div
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <Switch
+              checked={server.enabled}
+              onCheckedChange={onToggle}
+              aria-label={t('settings.mcp.server.enable')}
+            />
+          </div>
+        </div>
+      </div>
+    </article>
+  )
+}
+
 // ============================================
 // Server card
 // ============================================
@@ -234,8 +322,6 @@ interface McpServerCardProps {
   display: McpServerDisplay | undefined
   globalSettings: BitlabMcpSettings
   api: McpApi
-  expanded: boolean
-  onExpandedChange: (expanded: boolean) => void
   onMutate: (updater: (server: BitlabMcpServer) => BitlabMcpServer) => void
   onEdit: () => void
   onDelete: () => void
@@ -246,8 +332,6 @@ function McpServerCard({
   display,
   globalSettings,
   api,
-  expanded,
-  onExpandedChange,
   onMutate,
   onEdit,
   onDelete,
@@ -325,11 +409,11 @@ function McpServerCard({
     }
   }, [api, server.id, server.transport.type])
 
-  // Only when the detail is open: one subprocess round-trip per expanded card,
-  // not one per server on every list render.
+  // Only the selected server is rendered, so probing its stored credential
+  // does not create one subprocess round-trip per item in the navigator.
   useEffect(() => {
-    if (expanded) void refreshCredential()
-  }, [expanded, refreshCredential])
+    void refreshCredential()
+  }, [refreshCredential])
 
   const handleAuth = useCallback(async () => {
     setAuth({ state: 'signing' })
@@ -398,369 +482,351 @@ function McpServerCard({
   }, [api, describeOutcome, server.id, t])
 
   return (
-    <div className={cn('min-w-0', expanded && 'md:col-span-2')}>
+    <div className="min-w-0">
       <SettingsCard divided={false}>
-      <button
-        type="button"
-        onClick={() => onExpandedChange(!expanded)}
-        aria-expanded={expanded}
-        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-foreground/[0.02] transition-colors text-left"
-      >
-        <span
-          className={cn('h-2 w-2 rounded-full shrink-0', STATUS_DOT_CLASS[effectiveStatus])}
-          title={t(statusLabelKey(effectiveStatus))}
-          aria-label={t(statusLabelKey(effectiveStatus))}
-        />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className={cn('text-sm font-medium truncate', !server.enabled && 'text-muted-foreground')}>
-              {server.name}
-            </span>
-            <span className="inline-flex items-center h-5 px-2 text-[11px] font-medium rounded-[4px] bg-background shadow-minimal text-foreground/60 shrink-0">
-              {t(`settings.mcp.source.${server.source}`)}
-            </span>
-            <span
-              className="text-[11px] text-muted-foreground shrink-0"
-              {...(display?.cached && server.enabled
-                ? { title: t('settings.mcp.status.rememberedHint') }
-                : {})}
-            >
-              {t(statusLabelKey(effectiveStatus))}
-              {display?.cached && server.enabled ? ` · ${t('settings.mcp.status.remembered')}` : ''}
-            </span>
+        <div className="flex w-full items-center gap-3 px-4 py-3 text-left">
+          <span
+            className={cn('h-2 w-2 rounded-full shrink-0', STATUS_DOT_CLASS[effectiveStatus])}
+            title={t(statusLabelKey(effectiveStatus))}
+            aria-label={t(statusLabelKey(effectiveStatus))}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span
+                className={cn(
+                  'text-sm font-medium truncate',
+                  !server.enabled && 'text-muted-foreground',
+                )}
+              >
+                {server.name}
+              </span>
+              <span className="inline-flex items-center h-5 px-2 text-[11px] font-medium rounded-[4px] bg-background shadow-minimal text-foreground/60 shrink-0">
+                {t(`settings.mcp.source.${server.source}`)}
+              </span>
+              <span
+                className="text-[11px] text-muted-foreground shrink-0"
+                {...(display?.cached && server.enabled
+                  ? { title: t('settings.mcp.status.rememberedHint') }
+                  : {})}
+              >
+                {t(statusLabelKey(effectiveStatus))}
+                {display?.cached && server.enabled
+                  ? ` · ${t('settings.mcp.status.remembered')}`
+                  : ''}
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground truncate">
+              {transportSummary(server)}
+              {toolCount !== undefined && (
+                <>
+                  {' · '}
+                  {t('settings.mcp.server.toolCount', { count: toolCount })}
+                </>
+              )}
+            </div>
           </div>
-          <div className="text-xs text-muted-foreground truncate">
-            {transportSummary(server)}
-            {toolCount !== undefined && (
-              <>
-                {' · '}
-                {t('settings.mcp.server.toolCount', { count: toolCount })}
-              </>
+          <span className="flex shrink-0 items-center gap-2">
+            <Switch
+              checked={server.enabled}
+              onCheckedChange={(checked) => onMutate((s) => ({ ...s, enabled: checked }))}
+              aria-label={t('settings.mcp.server.enable')}
+            />
+          </span>
+        </div>
+
+        <div className="border-t border-border/50 divide-y divide-border/50">
+          <SettingsToggle
+            label={t('settings.mcp.server.trusted')}
+            description={t('settings.mcp.server.trustedDesc')}
+            checked={server.trusted}
+            onCheckedChange={(checked) => onMutate((s) => ({ ...s, trusted: checked }))}
+          />
+          <SettingsToggle
+            label={t('settings.mcp.server.directTools')}
+            description={t('settings.mcp.server.directToolsDesc')}
+            checked={server.directTools ?? globalSettings.directTools}
+            onCheckedChange={(checked) => onMutate((s) => ({ ...s, directTools: checked }))}
+          />
+          <SettingsMenuSelectRow
+            label={t('settings.mcp.server.lifecycle')}
+            description={t('settings.mcp.server.lifecycleDesc')}
+            value={server.lifecycle ?? 'default'}
+            onValueChange={(value) =>
+              onMutate((s) => ({
+                ...s,
+                ...(value === 'default'
+                  ? { lifecycle: undefined }
+                  : { lifecycle: value as McpLifecycle }),
+              }))
+            }
+            options={[
+              {
+                value: 'default',
+                label: t('settings.mcp.lifecycle.default'),
+                description: t('settings.mcp.server.lifecycleDefaultDesc'),
+              },
+              ...LIFECYCLES.map((lifecycle) => ({
+                value: lifecycle,
+                label: t(`settings.mcp.lifecycle.${lifecycle}`),
+                description: t(`settings.mcp.lifecycleDesc.${lifecycle}`),
+              })),
+            ]}
+          />
+          <div className="px-4 py-3.5 space-y-3">
+            <SettingsInput
+              label={t('settings.mcp.server.includeTools')}
+              description={t('settings.mcp.server.includeToolsDesc')}
+              value={includeText}
+              onChange={setIncludeText}
+              onBlur={() => onMutate((s) => ({ ...s, includeTools: textToGlobs(includeText) }))}
+              placeholder="github__*"
+            />
+            <SettingsInput
+              label={t('settings.mcp.server.excludeTools')}
+              description={t('settings.mcp.server.excludeToolsDesc')}
+              value={excludeText}
+              onChange={setExcludeText}
+              onBlur={() => onMutate((s) => ({ ...s, excludeTools: textToGlobs(excludeText) }))}
+              placeholder="internal_*"
+            />
+            {/* Only meaningful on a trusted server: it carves exceptions
+                out of "never ask". An untrusted server already asks. */}
+            {server.trusted && (
+              <SettingsInput
+                label={t('settings.mcp.server.approveTools')}
+                description={t('settings.mcp.server.approveToolsDesc')}
+                value={approveText}
+                onChange={setApproveText}
+                onBlur={() => onMutate((s) => ({ ...s, approveTools: textToGlobs(approveText) }))}
+                placeholder="*write*, *delete*"
+              />
+            )}
+            <SettingsInput
+              label={t('settings.mcp.server.requestTimeout')}
+              description={t('settings.mcp.server.requestTimeoutDesc', {
+                seconds: Math.round((globalSettings.requestTimeoutMs || 0) / 1000),
+              })}
+              value={timeoutText}
+              onChange={setTimeoutText}
+              onBlur={() => {
+                const requestTimeoutMs = secondsFieldToMs(timeoutText)
+                setTimeoutText(secondsFieldValue(requestTimeoutMs))
+                onMutate((s) => ({ ...s, requestTimeoutMs }))
+              }}
+              placeholder={t('settings.mcp.server.requestTimeoutPlaceholder')}
+            />
+            {server.originPath && (
+              <div className="text-xs text-muted-foreground truncate" title={server.originPath}>
+                <span className="text-foreground/60">{t('settings.mcp.server.origin')}:</span>{' '}
+                {server.originPath}
+              </div>
+            )}
+            {/* Inline test result */}
+            {test.state === 'ok' && (
+              <div className="rounded-md bg-emerald-500/5 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span className="flex-1">
+                    {t('settings.mcp.test.ok', { count: test.result.toolCount })}
+                  </span>
+                  {test.result.tools.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowTools(!showTools)}
+                      className="underline underline-offset-2 hover:text-foreground transition-colors"
+                    >
+                      {showTools
+                        ? t('settings.mcp.test.hideTools')
+                        : t('settings.mcp.test.showTools')}
+                    </button>
+                  )}
+                </div>
+                {showTools && (
+                  <ul className="mt-2 space-y-1 max-h-32 overflow-y-auto font-mono">
+                    {test.result.tools.map((tool) => (
+                      <li key={tool.name} className="truncate" title={tool.description ?? tool.name}>
+                        {tool.name}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {test.state === 'error' && test.needsAuth && (
+              <div className="rounded-md bg-amber-500/5 border border-amber-500/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{t('settings.mcp.test.needsAuth')}</span>
+              </div>
+            )}
+            {test.state === 'error' && !test.needsAuth && (
+              <div className="rounded-md bg-red-500/5 border border-red-500/20 px-3 py-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-1.5">
+                <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span className="break-all">
+                  {t('settings.mcp.test.failed')}: {test.message}
+                </span>
+              </div>
+            )}
+            {/* What the credential store actually holds — the honest
+                answer to "am I signed in", independent of any connection. */}
+            {canAuth && credential?.status === 'present' && auth.state !== 'signing' && (
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-500 shrink-0" />
+                <span>
+                  {t('settings.mcp.auth.credentialStored')}
+                  {credential.expiresAt
+                    ? ` · ${t('settings.mcp.auth.credentialExpires', {
+                        time: new Date(credential.expiresAt * 1000).toLocaleString(),
+                      })}`
+                    : ''}
+                </span>
+              </div>
+            )}
+            {canAuth && credential?.status === 'unavailable' && (
+              <div className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{t('settings.mcp.auth.credentialUnavailable')}</span>
+              </div>
+            )}
+            {/* OAuth sign-in feedback */}
+            {auth.state === 'signing' && (
+              <div className="rounded-md bg-blue-500/5 border border-blue-500/20 px-3 py-2 text-xs text-blue-700 dark:text-blue-400 flex items-start gap-1.5">
+                <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span className="flex-1">{t('settings.mcp.auth.browserHint')}</span>
+                {api.cancelAuth && (
+                  <button
+                    type="button"
+                    onClick={handleCancelAuth}
+                    className="underline underline-offset-2 hover:text-foreground transition-colors shrink-0"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                )}
+              </div>
+            )}
+            {action.state === 'running' && (
+              <div className="rounded-md bg-blue-500/5 border border-blue-500/20 px-3 py-2 text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
+                <RefreshCcw className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                <span>{action.label}</span>
+              </div>
+            )}
+            {action.state === 'done' && (
+              <div className={cn(
+                'rounded-md px-3 py-2 text-xs flex items-start gap-1.5 border',
+                action.ok
+                  ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                  : 'bg-red-500/5 border-red-500/20 text-red-600 dark:text-red-400',
+              )}>
+                {action.ok
+                  ? <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  : <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />}
+                <span className="break-all">{action.message}</span>
+              </div>
+            )}
+            {auth.state === 'ok' && (
+              <div className="rounded-md bg-emerald-500/5 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span>{t('settings.mcp.auth.success')}</span>
+              </div>
+            )}
+            {auth.state === 'error' && (
+              <div className="rounded-md bg-red-500/5 border border-red-500/20 px-3 py-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-1.5">
+                <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span className="break-all">
+                  {t('settings.mcp.auth.failed')}: {auth.message}
+                </span>
+              </div>
             )}
           </div>
-        </div>
-        <span
-          className="flex items-center gap-2 shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Switch
-            checked={server.enabled}
-            onCheckedChange={(checked) => onMutate((s) => ({ ...s, enabled: checked }))}
-            aria-label={t('settings.mcp.server.enable')}
-          />
-          {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          )}
-        </span>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-            className="overflow-hidden"
-          >
-            <div className="border-t border-border/50 divide-y divide-border/50">
-              <SettingsToggle
-                label={t('settings.mcp.server.trusted')}
-                description={t('settings.mcp.server.trustedDesc')}
-                checked={server.trusted}
-                onCheckedChange={(checked) => onMutate((s) => ({ ...s, trusted: checked }))}
-              />
-              <SettingsToggle
-                label={t('settings.mcp.server.directTools')}
-                description={t('settings.mcp.server.directToolsDesc')}
-                checked={server.directTools ?? globalSettings.directTools}
-                onCheckedChange={(checked) => onMutate((s) => ({ ...s, directTools: checked }))}
-              />
-              <SettingsMenuSelectRow
-                label={t('settings.mcp.server.lifecycle')}
-                description={t('settings.mcp.server.lifecycleDesc')}
-                value={server.lifecycle ?? 'default'}
-                onValueChange={(value) =>
-                  onMutate((s) => ({
-                    ...s,
-                    ...(value === 'default'
-                      ? { lifecycle: undefined }
-                      : { lifecycle: value as McpLifecycle }),
-                  }))
+          <div className="flex items-center gap-2 px-4 py-2.5 flex-wrap">
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 gap-1.5"
+              onClick={handleTest}
+              disabled={test.state === 'testing'}
+            >
+              {test.state === 'testing' ? (
+                t('settings.mcp.test.testing')
+              ) : (
+                <>
+                  <RefreshCcw className="h-3.5 w-3.5" />
+                  {t('settings.mcp.test.run')}
+                </>
+              )}
+            </Button>
+            {server.enabled && api.reconnect && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 border border-foreground/10 hover:bg-foreground/5 active:bg-foreground/10"
+                onClick={handleReconnect}
+                disabled={action.state === 'running'}
+              >
+                <Plug className="h-3.5 w-3.5" />
+                {t('settings.mcp.reconnect.run')}
+              </Button>
+            )}
+            {canAuth && (
+              <Button
+                size="sm"
+                variant={effectiveStatus === 'needs-auth' ? 'default' : 'ghost'}
+                className={
+                  effectiveStatus === 'needs-auth'
+                    ? 'h-7 gap-1.5'
+                    : 'h-7 gap-1.5 border border-foreground/10 hover:bg-foreground/5 active:bg-foreground/10'
                 }
-                options={[
-                  {
-                    value: 'default',
-                    label: t('settings.mcp.lifecycle.default'),
-                    description: t('settings.mcp.server.lifecycleDefaultDesc'),
-                  },
-                  ...LIFECYCLES.map((lifecycle) => ({
-                    value: lifecycle,
-                    label: t(`settings.mcp.lifecycle.${lifecycle}`),
-                    description: t(`settings.mcp.lifecycleDesc.${lifecycle}`),
-                  })),
-                ]}
-              />
-              <div className="px-4 py-3.5 space-y-3">
-                <SettingsInput
-                  label={t('settings.mcp.server.includeTools')}
-                  description={t('settings.mcp.server.includeToolsDesc')}
-                  value={includeText}
-                  onChange={setIncludeText}
-                  onBlur={() => onMutate((s) => ({ ...s, includeTools: textToGlobs(includeText) }))}
-                  placeholder="github__*"
-                />
-                <SettingsInput
-                  label={t('settings.mcp.server.excludeTools')}
-                  description={t('settings.mcp.server.excludeToolsDesc')}
-                  value={excludeText}
-                  onChange={setExcludeText}
-                  onBlur={() => onMutate((s) => ({ ...s, excludeTools: textToGlobs(excludeText) }))}
-                  placeholder="internal_*"
-                />
-                {/* Only meaningful on a trusted server: it carves exceptions
-                    out of "never ask". An untrusted server already asks. */}
-                {server.trusted && (
-                  <SettingsInput
-                    label={t('settings.mcp.server.approveTools')}
-                    description={t('settings.mcp.server.approveToolsDesc')}
-                    value={approveText}
-                    onChange={setApproveText}
-                    onBlur={() => onMutate((s) => ({ ...s, approveTools: textToGlobs(approveText) }))}
-                    placeholder="*write*, *delete*"
-                  />
+                onClick={handleAuth}
+                disabled={auth.state === 'signing'}
+              >
+                {auth.state === 'signing' ? (
+                  t('settings.mcp.auth.signing')
+                ) : (
+                  <>
+                    <Globe className="h-3.5 w-3.5" />
+                    {/* A signed-in server keeps the entry as a re-sign-in
+                        (token expiry, account switch) — labelled so it does
+                        not read as "you are not signed in". */}
+                    {effectiveStatus === 'needs-auth'
+                      ? t('settings.mcp.auth.signInNeeded')
+                      : signedIn
+                        ? t('settings.mcp.auth.signInAgain')
+                        : t('settings.mcp.auth.signIn')}
+                  </>
                 )}
-                <SettingsInput
-                  label={t('settings.mcp.server.requestTimeout')}
-                  description={t('settings.mcp.server.requestTimeoutDesc', {
-                    seconds: Math.round((globalSettings.requestTimeoutMs || 0) / 1000),
-                  })}
-                  value={timeoutText}
-                  onChange={setTimeoutText}
-                  onBlur={() => {
-                    const requestTimeoutMs = secondsFieldToMs(timeoutText)
-                    setTimeoutText(secondsFieldValue(requestTimeoutMs))
-                    onMutate((s) => ({ ...s, requestTimeoutMs }))
-                  }}
-                  placeholder={t('settings.mcp.server.requestTimeoutPlaceholder')}
-                />
-                {server.originPath && (
-                  <div className="text-xs text-muted-foreground truncate" title={server.originPath}>
-                    <span className="text-foreground/60">{t('settings.mcp.server.origin')}:</span>{' '}
-                    {server.originPath}
-                  </div>
-                )}
-                {/* Inline test result */}
-                {test.state === 'ok' && (
-                  <div className="rounded-md bg-emerald-500/5 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-                    <div className="flex items-center gap-1.5">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      <span className="flex-1">
-                        {t('settings.mcp.test.ok', { count: test.result.toolCount })}
-                      </span>
-                      {test.result.tools.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowTools(!showTools)}
-                          className="underline underline-offset-2 hover:text-foreground transition-colors"
-                        >
-                          {showTools
-                            ? t('settings.mcp.test.hideTools')
-                            : t('settings.mcp.test.showTools')}
-                        </button>
-                      )}
-                    </div>
-                    {showTools && (
-                      <ul className="mt-2 space-y-1 max-h-32 overflow-y-auto font-mono">
-                        {test.result.tools.map((tool) => (
-                          <li key={tool.name} className="truncate" title={tool.description ?? tool.name}>
-                            {tool.name}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-                {test.state === 'error' && test.needsAuth && (
-                  <div className="rounded-md bg-amber-500/5 border border-amber-500/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
-                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span>{t('settings.mcp.test.needsAuth')}</span>
-                  </div>
-                )}
-                {test.state === 'error' && !test.needsAuth && (
-                  <div className="rounded-md bg-red-500/5 border border-red-500/20 px-3 py-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-1.5">
-                    <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span className="break-all">
-                      {t('settings.mcp.test.failed')}: {test.message}
-                    </span>
-                  </div>
-                )}
-                {/* What the credential store actually holds — the honest
-                    answer to "am I signed in", independent of any connection. */}
-                {canAuth && credential?.status === 'present' && auth.state !== 'signing' && (
-                  <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-500 shrink-0" />
-                    <span>
-                      {t('settings.mcp.auth.credentialStored')}
-                      {credential.expiresAt
-                        ? ` · ${t('settings.mcp.auth.credentialExpires', {
-                            time: new Date(credential.expiresAt * 1000).toLocaleString(),
-                          })}`
-                        : ''}
-                    </span>
-                  </div>
-                )}
-                {canAuth && credential?.status === 'unavailable' && (
-                  <div className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
-                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span>{t('settings.mcp.auth.credentialUnavailable')}</span>
-                  </div>
-                )}
-                {/* OAuth sign-in feedback */}
-                {auth.state === 'signing' && (
-                  <div className="rounded-md bg-blue-500/5 border border-blue-500/20 px-3 py-2 text-xs text-blue-700 dark:text-blue-400 flex items-start gap-1.5">
-                    <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span className="flex-1">{t('settings.mcp.auth.browserHint')}</span>
-                    {api.cancelAuth && (
-                      <button
-                        type="button"
-                        onClick={handleCancelAuth}
-                        className="underline underline-offset-2 hover:text-foreground transition-colors shrink-0"
-                      >
-                        {t('common.cancel')}
-                      </button>
-                    )}
-                  </div>
-                )}
-                {action.state === 'running' && (
-                  <div className="rounded-md bg-blue-500/5 border border-blue-500/20 px-3 py-2 text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
-                    <RefreshCcw className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                    <span>{action.label}</span>
-                  </div>
-                )}
-                {action.state === 'done' && (
-                  <div className={cn(
-                    'rounded-md px-3 py-2 text-xs flex items-start gap-1.5 border',
-                    action.ok
-                      ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-700 dark:text-emerald-400'
-                      : 'bg-red-500/5 border-red-500/20 text-red-600 dark:text-red-400',
-                  )}>
-                    {action.ok
-                      ? <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      : <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />}
-                    <span className="break-all">{action.message}</span>
-                  </div>
-                )}
-                {auth.state === 'ok' && (
-                  <div className="rounded-md bg-emerald-500/5 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span>{t('settings.mcp.auth.success')}</span>
-                  </div>
-                )}
-                {auth.state === 'error' && (
-                  <div className="rounded-md bg-red-500/5 border border-red-500/20 px-3 py-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-1.5">
-                    <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span className="break-all">
-                      {t('settings.mcp.auth.failed')}: {auth.message}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2 px-4 py-2.5 flex-wrap">
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="h-7 gap-1.5"
-                  onClick={handleTest}
-                  disabled={test.state === 'testing'}
-                >
-                  {test.state === 'testing' ? (
-                    t('settings.mcp.test.testing')
-                  ) : (
-                    <>
-                      <RefreshCcw className="h-3.5 w-3.5" />
-                      {t('settings.mcp.test.run')}
-                    </>
-                  )}
-                </Button>
-                {server.enabled && api.reconnect && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 gap-1.5 border border-foreground/10 hover:bg-foreground/5 active:bg-foreground/10"
-                    onClick={handleReconnect}
-                    disabled={action.state === 'running'}
-                  >
-                    <Plug className="h-3.5 w-3.5" />
-                    {t('settings.mcp.reconnect.run')}
-                  </Button>
-                )}
-                {canAuth && (
-                  <Button
-                    size="sm"
-                    variant={effectiveStatus === 'needs-auth' ? 'default' : 'ghost'}
-                    className={
-                      effectiveStatus === 'needs-auth'
-                        ? 'h-7 gap-1.5'
-                        : 'h-7 gap-1.5 border border-foreground/10 hover:bg-foreground/5 active:bg-foreground/10'
-                    }
-                    onClick={handleAuth}
-                    disabled={auth.state === 'signing'}
-                  >
-                    {auth.state === 'signing' ? (
-                      t('settings.mcp.auth.signing')
-                    ) : (
-                      <>
-                        <Globe className="h-3.5 w-3.5" />
-                        {/* A signed-in server keeps the entry as a re-sign-in
-                            (token expiry, account switch) — labelled so it does
-                            not read as "you are not signed in". */}
-                        {effectiveStatus === 'needs-auth'
-                          ? t('settings.mcp.auth.signInNeeded')
-                          : signedIn
-                            ? t('settings.mcp.auth.signInAgain')
-                            : t('settings.mcp.auth.signIn')}
-                      </>
-                    )}
-                  </Button>
-                )}
-                {canAuth && signedIn && api.signOut && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 gap-1.5 border border-foreground/10 hover:bg-foreground/5 active:bg-foreground/10"
-                    onClick={handleSignOut}
-                    disabled={action.state === 'running'}
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                    {t('settings.mcp.auth.signOut')}
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 gap-1.5 border border-foreground/10 hover:bg-foreground/5 active:bg-foreground/10"
-                  onClick={onEdit}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  {t('common.edit')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 gap-1.5 text-destructive hover:text-destructive border border-dashed border-destructive/50 hover:bg-destructive/10 hover:border-destructive/70 active:bg-destructive/20"
-                  onClick={onDelete}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  {t('common.delete')}
-                </Button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </Button>
+            )}
+            {canAuth && signedIn && api.signOut && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 border border-foreground/10 hover:bg-foreground/5 active:bg-foreground/10"
+                onClick={handleSignOut}
+                disabled={action.state === 'running'}
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                {t('settings.mcp.auth.signOut')}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1.5 border border-foreground/10 hover:bg-foreground/5 active:bg-foreground/10"
+              onClick={onEdit}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {t('common.edit')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1.5 text-destructive hover:text-destructive border border-dashed border-destructive/50 hover:bg-destructive/10 hover:border-destructive/70 active:bg-destructive/20"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t('common.delete')}
+            </Button>
+          </div>
+        </div>
       </SettingsCard>
     </div>
   )
@@ -1264,7 +1330,7 @@ function DiscoveredSection({ api, servers, discovery, discovering, onRefresh, on
         setImporting(false)
       }
     },
-    [api, existingNames, importing, selection, onChanged, t],
+    [api, existingNames, selection, onChanged, t],
   )
 
   const hasDiscovered =
@@ -1438,7 +1504,7 @@ export default function McpSettingsPage() {
   const [globalTimeoutText, setGlobalTimeoutText] = useState('')
   const [view, setView] = useState<McpView>('installed')
   const [query, setQuery] = useState('')
-  const [expandedServerId, setExpandedServerId] = useState<string | null>(null)
+  const [managingServer, setManagingServer] = useState<BitlabMcpServer | null>(null)
 
   // Live snapshots keyed by the session that reported them, so a later report
   // from the same session replaces its predecessor instead of piling a stale
@@ -1537,7 +1603,6 @@ export default function McpSettingsPage() {
   )
 
   const existingNames = useMemo(() => new Set(servers.map((s) => s.name)), [servers])
-
   const filteredServers = useMemo(
     () => filterServers(servers, query, (source) => t(`settings.mcp.source.${source}`)),
     [query, servers, t],
@@ -1565,10 +1630,17 @@ export default function McpSettingsPage() {
   )
 
   useEffect(() => {
-    if (expandedServerId && !servers.some((server) => server.id === expandedServerId)) {
-      setExpandedServerId(null)
+    if (managingServer && !servers.some((server) => server.id === managingServer.id)) {
+      setManagingServer(null)
     }
-  }, [expandedServerId, servers])
+  }, [managingServer, servers])
+
+  // Re-resolved from the live list every render so mutations, edits, and
+  // deletes always act on the current record — never the snapshot captured
+  // when the dialog was opened, which would silently undo earlier edits.
+  const activeManagingServer = managingServer
+    ? servers.find((server) => server.id === managingServer.id) ?? managingServer
+    : null
 
   const handleMutateServer = useCallback(
     async (server: BitlabMcpServer, updater: (s: BitlabMcpServer) => BitlabMcpServer) => {
@@ -1627,6 +1699,7 @@ export default function McpSettingsPage() {
   }, [])
 
   const openEditDialog = useCallback((server: BitlabMcpServer) => {
+    setManagingServer(null)
     setEditingServer(server)
     setFormOpen(true)
   }, [])
@@ -1658,26 +1731,23 @@ export default function McpSettingsPage() {
         <ScrollArea className="h-full">
           <div className="px-5 py-7 max-w-5xl mx-auto">
             <div className="space-y-6">
-              {/* Header: description + search + add */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-muted-foreground">{t('settings.mcp.description')}</p>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1 sm:w-60">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      type="text"
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder={t('settings.mcp.search.placeholder')}
-                      aria-label={t('settings.mcp.search.placeholder')}
-                      className="h-8 w-full rounded-lg bg-background shadow-minimal pl-8 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30"
-                    />
+              {/* The catalog owns discovery and management; the left rail only navigates. */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div className="min-w-0">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    {t('settings.mcp.capabilityEyebrow')}
                   </div>
-                  <Button size="sm" className="gap-1.5 shrink-0" onClick={openAddDialog}>
-                    <Plus className="h-3.5 w-3.5" />
-                    {t('settings.mcp.servers.add')}
-                  </Button>
+                  <h2 className="text-2xl font-semibold tracking-[-0.035em] text-foreground">
+                    {t('settings.mcp.capabilityTitle')}
+                  </h2>
+                  <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">
+                    {t('settings.mcp.capabilityDescription')}
+                  </p>
                 </div>
+                <Button size="sm" className="gap-1.5 shrink-0" onClick={openAddDialog}>
+                  <Plus className="h-3.5 w-3.5" />
+                  {t('settings.mcp.servers.add')}
+                </Button>
               </div>
 
               {/* Overview stats (derived from the current list) */}
@@ -1708,13 +1778,22 @@ export default function McpSettingsPage() {
                   <TabsTrigger value="global">{t('settings.mcp.tabs.global')}</TabsTrigger>
                 </TabsList>
 
-                {/* Installed: two-column card grid, one expanded detail at a time */}
                 <TabsContent value="installed" className="mt-4">
                   <motion.div
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={TAB_FADE}
                   >
+                    <div className="mb-3 flex h-9 items-center gap-2 rounded-lg border border-border/60 bg-background px-3 focus-within:border-foreground/25">
+                      <Search className="size-3.5 shrink-0 text-muted-foreground" />
+                      <input
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder={t('settings.mcp.search.placeholder')}
+                        aria-label={t('settings.mcp.search.placeholder')}
+                        className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                      />
+                    </div>
                     {!listError && servers.length === 0 ? (
                       <SettingsCard divided={false}>
                         <div className="px-4 py-8 text-center">
@@ -1728,28 +1807,21 @@ export default function McpSettingsPage() {
                       </SettingsCard>
                     ) : servers.length > 0 && filteredServers.length === 0 ? (
                       <SettingsCard divided={false}>
-                        <div className="px-4 py-8 text-center">
-                          <p className="text-sm text-muted-foreground">
-                            {t('settings.mcp.servers.searchEmpty')}
-                          </p>
+                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                          {t('settings.mcp.servers.searchEmpty')}
                         </div>
                       </SettingsCard>
-                    ) : servers.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-start">
+                    ) : filteredServers.length > 0 ? (
+                      <div className="grid overflow-hidden rounded-xl border border-border/60 bg-border/60 md:grid-cols-2">
                         {filteredServers.map((server) => (
-                          <McpServerCard
+                          <McpCatalogCard
                             key={server.id}
                             server={server}
                             display={displayByName.get(server.name)}
-                            globalSettings={settings}
-                            api={api}
-                            expanded={expandedServerId === server.id}
-                            onExpandedChange={(expanded) =>
-                              setExpandedServerId(expanded ? server.id : null)
+                            onOpen={() => setManagingServer(server)}
+                            onToggle={(enabled) =>
+                              handleMutateServer(server, (current) => ({ ...current, enabled }))
                             }
-                            onMutate={(updater) => handleMutateServer(server, updater)}
-                            onEdit={() => openEditDialog(server)}
-                            onDelete={() => setDeletingServer(server)}
                           />
                         ))}
                       </div>
@@ -1855,6 +1927,35 @@ export default function McpSettingsPage() {
         onClose={() => setDeletingServer(null)}
         onConfirm={handleDeleteServer}
       />
+
+      <Dialog
+        open={Boolean(managingServer)}
+        onOpenChange={(open) => { if (!open) setManagingServer(null) }}
+      >
+        <DialogContent className="max-h-[86vh] max-w-2xl overflow-hidden p-0">
+          <DialogHeader className="border-b border-border/50 px-5 py-4">
+            <DialogTitle>{activeManagingServer?.name}</DialogTitle>
+            <DialogDescription>{t('settings.mcp.server.manageDescription')}</DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[calc(86vh-88px)] px-5 py-4">
+            {activeManagingServer && (
+              <McpServerCard
+                key={activeManagingServer.id}
+                server={activeManagingServer}
+                display={displayByName.get(activeManagingServer.name)}
+                globalSettings={settings}
+                api={api}
+                onMutate={(updater) => handleMutateServer(activeManagingServer, updater)}
+                onEdit={() => openEditDialog(activeManagingServer)}
+                onDelete={() => {
+                  setManagingServer(null)
+                  setDeletingServer(activeManagingServer)
+                }}
+              />
+            )}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -17,6 +17,7 @@ import type {
   PermissionRequest,
   PermissionMode,
   LoadedSkill,
+  CatalogSnapshot,
   NewChatActionParams,
   LlmConnectionWithStatus,
 } from '../../shared/types'
@@ -48,8 +49,12 @@ export interface AppShellContextType {
   hydrateDraftAttachments: (sessionId: string) => Promise<FileAttachment[]>
   /** All skills for this workspace - provided by AppShell component (for @mentions) */
   skills?: LoadedSkill[]
-  /** Effective working directory derived from the active workspace */
-  activeWorkspaceWorkingDirectory?: string
+  /** Full workspace skill catalog used by the capability library page. */
+  skillsSnapshot?: CatalogSnapshot
+  onSkillsSnapshotChange?: (snapshot: CatalogSnapshot) => void
+  onDeleteSkill?: (skillId: string) => void
+  onToggleSkill?: (skillId: string, enabled: boolean) => void
+  onTrustProjectSkills?: (projectRoot: string) => void
   /** Enabled permission modes for Shift+Tab cycling */
   enabledModes?: PermissionMode[]
 

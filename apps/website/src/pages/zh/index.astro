@@ -2,32 +2,35 @@
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import ProductWindow from "../../components/ProductWindow.astro";
 ---
-<BaseLayout lang="zh" title="Bitlab — 基于 Pi Agent 的简洁高效 AI 工作区" description="Bitlab 是一个基于 Pi Agent、简洁高效且响应快速的 AI 工作区，支持 Desktop、WebUI 和 CLI。">
+<BaseLayout lang="zh" title="Bitlab — 基于 Pi Agent 的简洁高效 AI 工作区" description="Bitlab 是一个基于 Pi Agent、本地优先、简洁高效的 AI 工作区，提供 Desktop 桌面端和 WebUI 网页端。">
   <section class="shell hero">
     <div class="hero-grid">
       <div>
         <div class="eyebrow">基于 Pi Agent</div>
         <h1>简洁、快速，直接开始工作。</h1>
-        <p class="lede">Bitlab 把轻量的 Pi Agent 放进一个专注的工作区，少一点等待，多一点真正有用的结果。</p>
+        <p class="lede">Bitlab 把轻量的 Pi Agent 放进一个本地优先的工作区，少一点等待，多一点真正有用的结果——会话、文件和凭据都留在你的电脑上。</p>
         <div class="actions">
           <a class="button button-primary" href="https://github.com/limboinf/bitlab-agent/releases/latest">下载 Bitlab</a>
           <a class="button button-quiet" href="https://github.com/limboinf/bitlab-agent">查看源码 ↗</a>
         </div>
-        <p class="hero-note">Desktop · WebUI · CLI &nbsp; / &nbsp; Apache-2.0 开源协议</p>
+        <p class="hero-note">Desktop 桌面端 · WebUI 网页端 &nbsp; / &nbsp; Apache-2.0 开源协议</p>
       </div>
       <ProductWindow />
     </div>
   </section>
   <section class="shell section" id="features">
-    <div class="section-heading"><h2>少一点复杂。<br />多做一点事情。</h2><p class="section-intro">Pi 负责 Agent 的核心循环，Bitlab 给它一个清晰的家：会话、文件、工具，以及值得保留的上下文。</p></div>
+    <div class="section-heading"><h2>少一点复杂。<br />多做一点事情。</h2><p class="section-intro">Pi 负责 Agent 的核心循环，Bitlab 给它一个清晰的家：本地优先的工作区、明确的权限、模型连接、MCP 服务器、Skills，以及你想保留的上下文。</p></div>
     <div class="feature-list">
-      <article class="feature"><span class="feature-index">01</span><h3>核心由 Pi 驱动</h3><p>Bitlab 构建在 Pi 之上。它足够轻量，也足够灵活，不会挡住你的工作。</p></article>
-      <article class="feature"><span class="feature-index">02</span><h3>专注于好用</h3><p>持久化工作区、清晰的权限和真正需要的工具，不堆满复杂的控制面板。</p></article>
-      <article class="feature"><span class="feature-index">03</span><h3>快速得到反馈</h3><p>从想法到行动的路径更短，让界面保持响应，让工作持续向前。</p></article>
+      <article class="feature"><span class="feature-index">01</span><h3>自带模型</h3><p>登录 ChatGPT Plus 或 Claude Pro/Max 订阅，使用服务商 API Key、OpenAI 或 Anthropic 兼容端点，或运行本地 Ollama 模型。一个选择器同时确定连接、模型和思考档位，并记住你的选择。</p></article>
+      <article class="feature"><span class="feature-index">02</span><h3>MCP 连接器</h3><p>按工作区接入 stdio、SSE 或流式 HTTP 的 MCP 服务器。远程服务器通过 OAuth 授权并自动刷新令牌，未经信任的服务器的工具在运行前会先征求你的同意。</p></article>
+      <article class="feature"><span class="feature-index">03</span><h3>Skills 技能</h3><p>把说明、脚本和参考资料打包成 Skill，采用开放的 Agent Skills 格式，同一个 Skill 也能在 Codex 和 Claude Code 中使用。在对话里直接选用，或在任务匹配时让模型自己找到它。</p></article>
+      <article class="feature"><span class="feature-index">04</span><h3>看得见的思考</h3><p>推理过程在模型思考时就展开，回答一边流式输出一边就地排版，不再被困在折叠的工具步骤里。</p></article>
+      <article class="feature"><span class="feature-index">05</span><h3>读得懂的上下文</h3><p>发送按钮旁的圆环显示上下文窗口的占用情况，并细分为系统提示词、工具定义和对话三部分，占用过高时一键压缩。</p></article>
+      <article class="feature"><span class="feature-index">06</span><h3>内置工具</h3><p>对话旁的浏览器面板，支持 DeepSeek、Tavily、Exa、DuckDuckGo 的网页搜索，文件附件，以及 PDF、DOCX、XLSX、PPTX 文档工具。</p></article>
     </div>
   </section>
   <section class="shell section" id="principles">
-    <div class="split"><div class="manifesto"><p>好的 Agent 软件，应该快速进入状态，然后记住你上次停在哪里。</p></div><div class="principles"><div class="principle"><b>01</b><span>Pi 让 Agent 核心保持轻量、灵活。</span></div><div class="principle"><b>02</b><span>清晰的界面，让强大的工具更容易使用。</span></div><div class="principle"><b>03</b><span>持久化上下文，减少每次重新设置。</span></div></div></div>
+    <div class="split"><div class="manifesto"><p>好的 Agent 软件，应该快速进入状态，然后记住你上次停在哪里。</p></div><div class="principles"><div class="principle"><b>01</b><span>Pi 让 Agent 核心保持轻量、灵活。</span></div><div class="principle"><b>02</b><span>Explore、Ask、Execute，权限始终明确，凭据保存在系统钥匙串中。</span></div><div class="principle"><b>03</b><span>本地优先的数据，减少每次重新设置。</span></div></div></div>
   </section>
   <section class="download"><div class="shell"><div class="eyebrow">准备好就开始</div><h2>用更快的方式，开始做有用的事。</h2><p>下载最新版本，或者查看 Bitlab 和 Pi 运行时背后的源码。</p><div class="actions"><a class="button button-primary" href="https://github.com/limboinf/bitlab-agent/releases/latest">获取最新版本</a><a class="button button-quiet" href="https://github.com/limboinf/bitlab-agent/blob/main/docs/zh/README.md">阅读文档 ↗</a></div></div></section>
 </BaseLayout>

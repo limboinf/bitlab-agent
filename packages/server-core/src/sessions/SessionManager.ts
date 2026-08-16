@@ -64,7 +64,8 @@ import {
   type StoredConfig,
 } from '@bitlab/shared/config'
 import { getCredentialManager } from '@bitlab/shared/credentials'
-import type { LoadedSkill } from '@bitlab/shared/skills'
+import { existsSync } from 'fs'
+import { GLOBAL_AGENT_SKILLS_DIR, PROJECT_AGENT_SKILLS_DIR } from '@bitlab/shared/skills'
 import { loadWorkspaceConfig, setWorkspaceModelDefaults } from '@bitlab/shared/workspaces'
 import {
   clearPendingPlanExecution as clearStoredPendingPlanExecution,
@@ -351,6 +352,19 @@ export function resolveMidStreamDeliveryOutcome(
     shouldQueue: !redirected,
     wasInterrupted: behavior === 'steer' && !redirected,
   }
+}
+
+/**
+ * Skill tiers that live outside the workspace directory: the folder bound to
+ * the workspace (project tier) and the shared cross-tool directory (global
+ * tier). Watching them is what keeps an edit in either tier from leaving the
+ * UI and the running session on different revisions.
+ */
+function skillTierRoots(workspaceId: string): string[] {
+  const workspace = getWorkspaces().find(item => item.id === workspaceId || item.slug === workspaceId)
+  const roots = [GLOBAL_AGENT_SKILLS_DIR]
+  if (workspace?.folderPath) roots.push(join(workspace.folderPath, PROJECT_AGENT_SKILLS_DIR))
+  return roots
 }
 
 export class SessionManager implements ISessionManager {
@@ -2284,12 +2298,11 @@ export class SessionManager implements ISessionManager {
       onDefaultPermissionsChange: () => {
         this.eventSink(RPC_CHANNELS.permissions.DEFAULTS_CHANGED, { to: 'all' }, null)
       },
-      onSkillsListChange: skills => {
-        this.broadcastSkillsChanged(workspaceId, skills)
+      onSkillsListChange: () => {
+        void this.broadcastSkillsChanged(workspaceId, workspaceRootPath)
       },
-      onSkillChange: async () => {
-        const { loadAllSkills } = await import('@bitlab/shared/skills')
-        this.broadcastSkillsChanged(workspaceId, loadAllSkills(workspaceRootPath))
+      onSkillChange: () => {
+        void this.broadcastSkillsChanged(workspaceId, workspaceRootPath)
       },
       onSessionMetadataChange: (sessionId, header) => {
         const managed = this.sessions.get(sessionId)
@@ -2299,7 +2312,9 @@ export class SessionManager implements ISessionManager {
       },
     }
 
-    const watcher = new ConfigWatcher(workspaceRootPath, callbacks)
+    const watcher = new ConfigWatcher(workspaceRootPath, callbacks, {
+      skillRoots: skillTierRoots(workspaceId),
+    })
     watcher.start()
     this.configWatchers.set(workspaceRootPath, watcher)
   }
@@ -2308,8 +2323,19 @@ export class SessionManager implements ISessionManager {
     this.configWatchers.get(workspaceRootPath)?.notifyFileChange(relativePath)
   }
 
-  private broadcastSkillsChanged(workspaceId: string, skills: LoadedSkill[]): void {
-    this.eventSink(RPC_CHANNELS.skills.CHANGED, { to: 'workspace', workspaceId }, workspaceId, skills)
+  /**
+   * Push the whole catalog, not just the winners: the UI needs the shadowed
+   * entries and the revision, and the revision is what tells it whether it and
+   * the live session are looking at the same catalog.
+   */
+  private async broadcastSkillsChanged(workspaceId: string, workspaceRootPath: string): Promise<void> {
+    const { getSkillsSnapshot } = await import('@bitlab/shared/skills')
+    const workspace = getWorkspaces().find(item => item.id === workspaceId || item.slug === workspaceId)
+    const projectRoot = workspace?.folderPath && existsSync(workspace.folderPath)
+      ? workspace.folderPath
+      : undefined
+    const snapshot = getSkillsSnapshot(workspaceRootPath, projectRoot)
+    this.eventSink(RPC_CHANNELS.skills.CHANGED, { to: 'workspace', workspaceId }, workspaceId, snapshot)
   }
 
   private applyExternalSessionMetadata(managed: ManagedSession, header: SessionHeader): void {

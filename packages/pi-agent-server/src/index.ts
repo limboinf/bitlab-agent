@@ -80,7 +80,6 @@ import { resolveSearchProvider } from './tools/search/resolve-provider.ts';
 import { createSearchTool } from './tools/search/create-search-tool.ts';
 import type { KeyedSearchProviderId, SearchConfig } from './tools/search/types.ts';
 import { allowBitlabMetadataProperties, stripBitlabMetadata } from './bitlab-metadata-schema.ts';
-import { applySystemPromptOverride } from './system-prompt-override.ts';
 import { computeContextBreakdown } from './context-breakdown.ts';
 import type { ContextBreakdown, ToolWireShape } from './context-breakdown.ts';
 
@@ -102,7 +101,9 @@ import {
   createMcpUiBridge,
   type McpProxyToolResult,
 } from './mcp/mcp-extension.ts';
-import { BitlabMcpResourceLoader } from './mcp/resource-loader.ts';
+import { BitlabResourceLoader } from './resource-loader.ts';
+import { PiSkillBridge } from './skill-bridge.ts';
+import { SkillCatalog } from '@bitlab/shared/skills';
 
 // ============================================================
 // Types — JSONL Protocol
@@ -187,6 +188,7 @@ type InboundMessage =
   | { type: 'token_update'; piAuth: { provider: string; credential: PiCredential } }
   | { type: 'search_config_update'; searchConfig: SearchConfig; searchApiKeys: Partial<Record<KeyedSearchProviderId, string>> }
   | { type: 'update_mcp_config'; mcpConfig: AdapterMcpConfig }
+  | { type: 'skills_changed' }
   | { type: 'mcp_approval_response'; requestId: string; decision: McpApprovalDecision }
   | { type: 'mcp_auth'; id: string; serverName: string }
   | { type: 'mcp_logout'; id: string; serverName: string; url: string }
@@ -428,10 +430,21 @@ let lastContextUsageLine: string | null = null;
 let callbackServer: http.Server | null = null;
 let callbackPort = 0;
 
-// MCP loader attached to the ACTIVE session (null when the session was created
-// without MCP — a later update_mcp_config then recreates the session instead
-// of hot-reloading it, mirroring the register_tools precedent).
-let activeMcpLoader: BitlabMcpResourceLoader | null = null;
+// Resource loader attached to the ACTIVE session. Always present: it is the
+// only attachment point for the skill catalog's loader seams, and Pi consults
+// it on every system-prompt rebuild.
+let activeLoader: BitlabResourceLoader | null = null;
+
+// Whether the active session was created WITH MCP. A later update_mcp_config on
+// a session created without it recreates the session instead of hot-reloading,
+// mirroring the register_tools precedent.
+let activeSessionHasMcp = false;
+
+// Skill catalog and its bridge into Pi. The catalog is the single resolver for
+// discovery, precedence, trust, and enablement; the bridge maps its snapshot
+// onto the loader seams.
+let skillCatalog: SkillCatalog | null = null;
+let skillBridge: PiSkillBridge | null = null;
 
 /**
  * Rebuild the context-meter's tool composition inputs from the session's live
@@ -864,51 +877,71 @@ async function ensureSession(): Promise<AgentSession> {
 
   }
 
-  // MCP: run pi-mcp-adapter in-process as inline Pi extensions through a
-  // custom ResourceLoader. The adapter's factory snapshots `currentMcpConfig`
-  // at invocation time, so session.reload() (hot config update) rebuilds the
-  // MCP surface from the latest config.
-  if (mcpEnabled) {
-    // Isolate the adapter's own agent-dir-based state (metadata cache at
-    // <agentDir>/mcp-cache.json, legacy OAuth import dir) the same way the
-    // session isolates extensions. Without this the adapter writes to
-    // ~/.pi/agent. (The Pi SDK reads this env var too, but every path it
-    // guards is one we already pass explicitly.)
-    const mcpAgentDir = agentDir ?? join(mkdtempSync(join(tmpdir(), 'bitlab-pi-agent-')), 'pi-agent');
-    mkdirSync(mcpAgentDir, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = mcpAgentDir;
-    const mcpSettingsManager = settingsManager ?? PiSettingsManager.create(cwd, mcpAgentDir);
+  // The resource loader carries the skill catalog into Pi and, when MCP is on,
+  // hosts the adapter extensions as well. It is always constructed: without one
+  // the SDK builds its own internally, and there is then nowhere to attach the
+  // skill seams — the catalog would never reach the model.
+  //
+  // The adapter also needs an isolated agent dir for its own state (metadata
+  // cache at <agentDir>/mcp-cache.json, legacy OAuth import dir), the same way
+  // the session isolates extensions; without it the adapter writes to
+  // ~/.pi/agent. (The Pi SDK reads this env var too, but every path it guards
+  // is one we already pass explicitly.)
+  const loaderAgentDir = agentDir ?? join(mkdtempSync(join(tmpdir(), 'bitlab-pi-agent-')), 'pi-agent');
+  mkdirSync(loaderAgentDir, { recursive: true });
+  process.env.PI_CODING_AGENT_DIR = loaderAgentDir;
+  const loaderSettingsManager = settingsManager ?? PiSettingsManager.create(cwd, loaderAgentDir);
+  if (!settingsManager) {
     const shellPath = process.env.BITLAB_GIT_BASH_PATH?.trim();
-    if (shellPath && !settingsManager) mcpSettingsManager.applyOverrides({ shellPath });
+    if (shellPath) loaderSettingsManager.applyOverrides({ shellPath });
+  }
 
-    setCurrentMcpConfig(initConfig.mcpConfig ?? null);
-    const mcpLoader = new BitlabMcpResourceLoader({
-      cwd,
-      agentDir: mcpAgentDir,
-      settingsManager: mcpSettingsManager,
-      adapterExtension: buildAdapterExtension(undefined, debugLog),
-      hostExtension: createMcpHostExtension({
-        onStatusSnapshot: (snapshot) => {
-          send({ type: 'mcp_status', snapshot });
-          // The MCP tool surface changes as servers connect/disconnect — keep
-          // the context meter's composition inputs current.
-          refreshActiveToolWireShapesFromSession();
-        },
-        onApprovalRequest: (payload) => {
-          send({ type: 'mcp_approval_request', ...payload });
-        },
-        onDebug: debugLog,
-      }),
-    });
-    // SDK contract: when a resourceLoader is passed, createAgentSession does
-    // NOT reload it — the caller must do that first.
-    await mcpLoader.reload();
-    sessionOptions.resourceLoader = mcpLoader;
-    activeMcpLoader = mcpLoader;
+  skillCatalog = new SkillCatalog({
+    workspaceRoot: initConfig.workspaceRootPath,
+    projectRoot: initConfig.workingDirectory || cwd,
+  });
+  skillBridge = new PiSkillBridge({
+    getSnapshot: () => skillCatalog?.snapshot() ?? null,
+    getBasePrompt: () => activeSystemPrompt,
+    debugLog,
+  });
+
+  setCurrentMcpConfig(mcpEnabled ? initConfig.mcpConfig ?? null : null);
+
+  // The adapter's factory snapshots `currentMcpConfig` at invocation time, so
+  // session.reload() (hot config update) rebuilds the MCP surface from the
+  // latest config.
+  const loader = new BitlabResourceLoader({
+    cwd,
+    agentDir: loaderAgentDir,
+    settingsManager: loaderSettingsManager,
+    skillSeams: skillBridge.seams(),
+    ...(mcpEnabled
+      ? {
+          adapterExtension: buildAdapterExtension(undefined, debugLog),
+          hostExtension: createMcpHostExtension({
+            onStatusSnapshot: (snapshot) => {
+              send({ type: 'mcp_status', snapshot });
+              // The MCP tool surface changes as servers connect/disconnect — keep
+              // the context meter's composition inputs current.
+              refreshActiveToolWireShapesFromSession();
+            },
+            onApprovalRequest: (payload) => {
+              send({ type: 'mcp_approval_request', ...payload });
+            },
+            onDebug: debugLog,
+          }),
+        }
+      : {}),
+  });
+  // SDK contract: when a resourceLoader is passed, createAgentSession does
+  // NOT reload it — the caller must do that first.
+  await loader.reload();
+  sessionOptions.resourceLoader = loader;
+  activeLoader = loader;
+  activeSessionHasMcp = mcpEnabled;
+  if (mcpEnabled) {
     debugLog(`MCP enabled: ${Object.keys(initConfig.mcpConfig?.mcpServers ?? {}).length} server(s)`);
-  } else {
-    setCurrentMcpConfig(null);
-    activeMcpLoader = null;
   }
 
   // Set model if specified
@@ -1260,6 +1293,24 @@ async function queryLlm(request: LLMQueryRequest): Promise<LLMQueryResult> {
       model: piModel,
     };
 
+    // The prompt reaches the session through its resource loader, which Pi
+    // consults on every rebuild — so it survives `prompt()` resets without
+    // reaching into session internals. No skills here: this is a one-shot
+    // utility call, and with no tools active Pi would drop the catalog anyway.
+    const promptForSession =
+      request.systemPrompt ?? 'Reply with ONLY the requested text. No explanation.';
+    const ephemeralLoader = new BitlabResourceLoader({
+      cwd: resolvedCwd(),
+      agentDir: mkdtempSync(join(tmpdir(), 'bitlab-pi-ephemeral-')),
+      skillSeams: {
+        noSkills: true,
+        skillsOverride: () => ({ skills: [], diagnostics: [] }),
+        systemPromptOverride: () => promptForSession,
+      },
+    });
+    await ephemeralLoader.reload();
+    ephemeralOptions.resourceLoader = ephemeralLoader;
+
     const { session: ephemeralSession } = await createAgentSession(ephemeralOptions);
 
     // Pi SDK ignores options.model for ephemeral sessions (same issue as options.tools).
@@ -1271,12 +1322,6 @@ async function queryLlm(request: LLMQueryRequest): Promise<LLMQueryResult> {
     }
 
     debugLog(`[queryLlm] Created ephemeral session: ${ephemeralSession.sessionId}`);
-
-    // Force the system prompt — see system-prompt-override.ts for why direct
-    // assignment to `state.systemPrompt` doesn't survive `session.prompt()`.
-    const promptForSession =
-      request.systemPrompt ?? 'Reply with ONLY the requested text. No explanation.';
-    applySystemPromptOverride(ephemeralSession, promptForSession);
 
     // Collect response text and errors from events
     let result = '';
@@ -1634,13 +1679,15 @@ async function handlePrompt(msg: Extract<InboundMessage, { type: 'prompt' }>): P
 
     const session = await ensureSession();
 
-    // Force the Bitlab-built system prompt onto the Pi session. Direct assignment
-    // to `state.systemPrompt` is wiped on every `session.prompt()` call by the Pi
-    // SDK (see system-prompt-override.ts).
-    if (msg.systemPrompt) {
-      applySystemPromptOverride(session, msg.systemPrompt);
-      activeSystemPrompt = msg.systemPrompt;
-    }
+    // The prompt reaches Pi through the loader seam the bridge installed, so
+    // publishing it here is enough — `refresh` makes Pi reassemble the prompt
+    // around it, appending the current skill catalog in the process. The
+    // catalog is checked too: a skill edited mid-session changes the prompt
+    // even when the base prompt itself did not.
+    const promptChanged = Boolean(msg.systemPrompt) && msg.systemPrompt !== activeSystemPrompt;
+    const catalogChanged = skillCatalog?.snapshot().revision !== skillBridge?.revision;
+    if (promptChanged) activeSystemPrompt = msg.systemPrompt;
+    if (promptChanged || catalogChanged) skillBridge?.refresh(session);
 
     // Wire up event handler
     if (unsubscribeEvents) {
@@ -1968,6 +2015,20 @@ async function handleSetThinkingLevel(msg: Extract<InboundMessage, { type: 'set_
  * `toolsChanged` so the session is recreated on the next prompt (same
  * precedent as register_tools).
  */
+/**
+ * The catalog changed on disk. Drop the cached snapshot and rebuild the
+ * session's system prompt, so the model's view moves to the same revision the
+ * UI just moved to rather than lagging behind the cache TTL.
+ */
+function handleSkillsChanged(): void {
+  if (!skillCatalog) return;
+  skillCatalog.invalidate();
+  if (piSession && skillBridge) {
+    skillBridge.refresh(piSession);
+    debugLog(`[skills_changed] catalog revision now ${skillBridge.revision ?? '(none)'}`);
+  }
+}
+
 async function handleUpdateMcpConfig(msg: Extract<InboundMessage, { type: 'update_mcp_config' }>): Promise<void> {
   if (!initConfig) {
     debugLog('[update_mcp_config] received before init — ignored');
@@ -1983,7 +2044,7 @@ async function handleUpdateMcpConfig(msg: Extract<InboundMessage, { type: 'updat
     return;
   }
 
-  if (!activeMcpLoader) {
+  if (!activeSessionHasMcp) {
     toolsChanged = true;
     debugLog('[update_mcp_config] Session has no MCP loader — session will be recreated on next prompt');
     return;
@@ -2229,6 +2290,10 @@ async function processMessage(msg: InboundMessage): Promise<void> {
 
     case 'update_mcp_config':
       await handleUpdateMcpConfig(msg);
+      break;
+
+    case 'skills_changed':
+      handleSkillsChanged();
       break;
 
     case 'mcp_approval_response':

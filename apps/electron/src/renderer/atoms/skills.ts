@@ -1,16 +1,34 @@
 /**
- * Skills Atom
+ * Skills Atoms
  *
- * Simple atom for storing workspace skills.
- * Used by NavigationContext for auto-selection when navigating to skills view.
+ * The catalog snapshot is the source of truth; everything else derives from it.
+ * AppShell populates it, NavigationContext reads it for auto-selection, and the
+ * mention menu reads the winners.
  */
 
 import { atom } from 'jotai'
-import type { LoadedSkill } from '../../shared/types'
+import type { CatalogEntry, CatalogSnapshot } from '../../shared/types'
+
+const EMPTY_SNAPSHOT: CatalogSnapshot = {
+  revision: '',
+  entries: [],
+  tiers: [],
+  diagnostics: [],
+}
 
 /**
- * Atom to store the current workspace's skills.
- * AppShell populates this when skills are loaded.
- * NavigationContext reads from it for auto-selection.
+ * Full catalog for the active workspace — winners, shadowed entries, tier
+ * roots, trust state, and the revision.
  */
-export const skillsAtom = atom<LoadedSkill[]>([])
+export const skillsSnapshotAtom = atom<CatalogSnapshot>(EMPTY_SNAPSHOT)
+
+/**
+ * Skills the runtime will actually use: the highest eligible tier per slug,
+ * with disabled and untrusted entries already excluded. This is what the model
+ * sees, so it is also what the picker should offer.
+ */
+export const skillsAtom = atom<CatalogEntry[]>((get) =>
+  get(skillsSnapshotAtom).entries.filter((entry) => entry.winner)
+)
+
+export { EMPTY_SNAPSHOT }

@@ -12,6 +12,7 @@
  */
 
 import { homedir } from 'os';
+import { grantsToolCall, parseToolPatterns, type ToolPattern } from '../../skills/tool-grants.ts';
 import {
   getPermissionMode,
   setPermissionMode,
@@ -68,6 +69,13 @@ export class PermissionManager {
   private permissionsContext: PermissionsContext;
 
   // Session-scoped whitelists for "always allow" feature
+  /**
+   * Tools an activated skill declared. Cleared when the user speaks again, so
+   * a grant never outlives the turn that earned it (§5.10).
+   */
+  private turnToolGrants: ToolPattern[] = [];
+  /** Tools the same skill declared it has no business calling. */
+  private turnToolDenials: ToolPattern[] = [];
   private alwaysAllowedCommands: Set<string> = new Set();
   private alwaysAllowedDomains: Set<string> = new Set();
 
@@ -343,7 +351,41 @@ export class PermissionManager {
    * Clear all session-scoped whitelists.
    * Called on session clear or dispose.
    */
+  /** Apply an activated skill's `allowed-tools` for the current turn. */
+  grantToolsForTurn(declarations: readonly string[] | undefined): void {
+    this.turnToolGrants = parseToolPatterns(declarations);
+  }
+
+  /** Apply an activated skill's `disallowed-tools` for the current turn. */
+  denyToolsForTurn(declarations: readonly string[] | undefined): void {
+    this.turnToolDenials = parseToolPatterns(declarations);
+  }
+
+  /**
+   * Whether an activated skill declared this call off-limits. Checked before
+   * any allowance, so declaring both cannot talk its way past the refusal.
+   */
+  isDeniedForTurn(toolName: string, input: Record<string, unknown>): boolean {
+    return grantsToolCall(this.turnToolDenials, toolName, input);
+  }
+
+  /** Drop any per-turn grant. Called when the user sends the next message. */
+  clearTurnToolGrants(): void {
+    this.turnToolGrants = [];
+    this.turnToolDenials = [];
+  }
+
+  /**
+   * Whether an activated skill pre-approved this call. Consulted only where a
+   * prompt would otherwise be raised — it widens, and never overrides a block.
+   */
+  isGrantedForTurn(toolName: string, input: Record<string, unknown>): boolean {
+    return grantsToolCall(this.turnToolGrants, toolName, input);
+  }
+
   clearWhitelists(): void {
+    this.turnToolGrants = [];
+    this.turnToolDenials = [];
     this.alwaysAllowedCommands.clear();
     this.alwaysAllowedDomains.clear();
   }

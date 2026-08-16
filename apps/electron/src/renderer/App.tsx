@@ -52,7 +52,7 @@ import {
   type SessionMeta,
   type BackgroundTask,
 } from '@/atoms/sessions'
-import { skillsAtom } from '@/atoms/skills'
+import { EMPTY_SNAPSHOT, skillsAtom, skillsSnapshotAtom } from '@/atoms/skills'
 import {
   showBackgroundFinishedChipAtom,
   pushBackgroundFinishedAtom,
@@ -1743,7 +1743,7 @@ export default function App() {
       sessionDraftsRef.current.clear()
 
       // 7. Reset skills to prevent a stale flash during workspace switch.
-      store.set(skillsAtom, [])
+      store.set(skillsSnapshotAtom, EMPTY_SNAPSHOT)
 
       // 8. Clear session atoms BEFORE workspace switch
       // This prevents stale session data from the previous workspace being visible.

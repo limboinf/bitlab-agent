@@ -90,6 +90,8 @@ export interface StoredConfig {
   searchConfig?: SearchConfig;  // web_search provider selection. Absent = DEFAULT_SEARCH_CONFIG ('auto').
   // MCP servers (authoritative list; injected into agent subprocesses)
   mcpServers?: BitlabMcpServer[];
+  /** Whether skills may pre-approve tools for their turn. Absent means enabled. */
+  skillToolApproval?: boolean;
   mcpSettings?: BitlabMcpSettings;
   // Prompt caching & context
   extendedPromptCache?: boolean;  // Use 1h prompt cache TTL instead of 5m (default: false)
@@ -615,6 +617,27 @@ export function setEnable1MContext(enabled: boolean): void {
  * Defaults to false — opt-in. Requires the `rtk` binary on PATH or bundled with the app.
  * https://github.com/rtk-ai/rtk
  */
+/**
+ * Whether a skill's `allowed-tools` may pre-approve tool calls for the turn
+ * that invoked it.
+ *
+ * Global rather than per-workspace: it governs whether the mechanism exists at
+ * all, which is an operator decision about this installation, not about one
+ * workspace's contents. Defaults to on, matching Claude Code — turning it off
+ * makes every declaration inert without touching any skill.
+ */
+export function getSkillToolApprovalEnabled(): boolean {
+  return loadStoredConfig()?.skillToolApproval !== false;
+}
+
+/** Enable or disable skill-declared tool pre-approval for this installation. */
+export function setSkillToolApprovalEnabled(enabled: boolean): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+  config.skillToolApproval = enabled;
+  saveConfig(config);
+}
+
 export function getRtkEnabled(): boolean {
   const config = loadStoredConfig();
   return config?.rtkEnabled === true;

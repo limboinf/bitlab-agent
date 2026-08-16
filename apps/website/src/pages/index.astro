@@ -2,18 +2,18 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 import ProductWindow from "../components/ProductWindow.astro";
 ---
-<BaseLayout title="Bitlab — A simple, fast AI workspace powered by Pi" description="Bitlab is a simple, fast AI workspace powered by the Pi agent runtime for Desktop, WebUI, and CLI.">
+<BaseLayout title="Bitlab — A simple, fast AI workspace powered by Pi" description="Bitlab is a simple, fast, local-first AI workspace powered by the Pi agent runtime for Desktop and WebUI.">
   <section class="shell hero">
     <div class="hero-grid">
       <div>
         <div class="eyebrow">Powered by Pi agent</div>
         <h1>Simple. Fast. Ready to work.</h1>
-        <p class="lede">Bitlab puts the lightweight Pi agent runtime into a focused workspace that feels quick, clear, and easy to use.</p>
+        <p class="lede">Bitlab pairs the lightweight Pi agent runtime with a local-first workspace that feels quick, clear, and easy to use — sessions, files, and credentials stay on your machine.</p>
         <div class="actions">
           <a class="button button-primary" href="https://github.com/limboinf/bitlab-agent/releases/latest">Download Bitlab</a>
           <a class="button button-quiet" href="https://github.com/limboinf/bitlab-agent">View source ↗</a>
         </div>
-        <p class="hero-note">Desktop · WebUI · CLI &nbsp; / &nbsp; Open source under Apache-2.0</p>
+        <p class="hero-note">Desktop · WebUI &nbsp; / &nbsp; Open source under Apache-2.0</p>
       </div>
       <ProductWindow />
     </div>
@@ -22,12 +22,15 @@ import ProductWindow from "../components/ProductWindow.astro";
   <section class="shell section" id="features">
     <div class="section-heading">
       <h2>Less ceremony.<br />More useful work.</h2>
-      <p class="section-intro">Pi handles the agent loop. Bitlab gives it a calm home for sessions, files, tools, and the context you want to keep.</p>
+      <p class="section-intro">Pi handles the agent loop. Bitlab gives it a calm home: local-first workspaces, explicit permissions, model connections, MCP servers, Skills, and the context you want to keep.</p>
     </div>
     <div class="feature-list">
-      <article class="feature"><span class="feature-index">01</span><h3>Pi-powered at the core</h3><p>Bitlab is built on Pi, a minimal agent runtime designed to stay adaptable instead of getting in your way.</p></article>
-      <article class="feature"><span class="feature-index">02</span><h3>Focused by design</h3><p>Persistent workspaces, clear permissions, and the tools you need — without a crowded control panel.</p></article>
-      <article class="feature"><span class="feature-index">03</span><h3>Fast feedback</h3><p>Short paths from intent to action keep the interface responsive and the work moving.</p></article>
+      <article class="feature"><span class="feature-index">01</span><h3>Bring your own model</h3><p>Sign in with ChatGPT Plus or Claude Pro/Max, use provider API keys, OpenAI- or Anthropic-compatible endpoints, or local Ollama models. One picker sets connection, model, and thinking level together — and remembers the route.</p></article>
+      <article class="feature"><span class="feature-index">02</span><h3>MCP connectors</h3><p>Add Model Context Protocol servers per workspace over stdio, SSE, or streamable HTTP. Remote servers authorize over OAuth and refresh their own tokens; tools from an untrusted server ask before they run.</p></article>
+      <article class="feature"><span class="feature-index">03</span><h3>Skills for repeated work</h3><p>Package instructions, scripts, and references as Skills in the open Agent Skills format — the same Skill also loads in Codex and Claude Code. Pick one from the chat, or let the model find it when the task fits.</p></article>
+      <article class="feature"><span class="feature-index">04</span><h3>Watch it think</h3><p>Reasoning opens while the model is still thinking, and answers stream into the conversation formatted as they arrive — not trapped in collapsed tool steps.</p></article>
+      <article class="feature"><span class="feature-index">05</span><h3>Context you can read</h3><p>A ring beside the send button shows how full the context window is, with a breakdown of system prompt, tool schemas, and conversation — and one-click compaction when it runs high.</p></article>
+      <article class="feature"><span class="feature-index">06</span><h3>Tools built in</h3><p>A Browser pane beside the chat, web search through DeepSeek, Tavily, Exa, or DuckDuckGo, file attachments, and document tools for PDF, DOCX, XLSX, and PPTX.</p></article>
     </div>
   </section>
 
@@ -36,8 +39,8 @@ import ProductWindow from "../components/ProductWindow.astro";
       <div class="manifesto"><p>Good agent software should get out of the way quickly — then remember where you left off.</p></div>
       <div class="principles">
         <div class="principle"><b>01</b><span>Pi keeps the agent loop small and adaptable.</span></div>
-        <div class="principle"><b>02</b><span>Clear surfaces make powerful tools easier to use.</span></div>
-        <div class="principle"><b>03</b><span>Persistent context means less setup, every time.</span></div>
+        <div class="principle"><b>02</b><span>Explore, Ask, Execute — permission modes stay explicit, and credentials live in your OS keychain.</span></div>
+        <div class="principle"><b>03</b><span>Local-first data means less setup, every time.</span></div>
       </div>
     </div>
   </section>

@@ -1,8 +1,8 @@
 {
   "name": "bitlab-agent",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "license": "Apache-2.0",
-  "description": "Local-first, Pi-powered AI agent workspace for Desktop, WebUI, and CLI",
+  "description": "Local-first, Pi-powered AI agent workspace for Desktop and WebUI",
   "type": "module",
   "private": true,
   "trustedDependencies": [

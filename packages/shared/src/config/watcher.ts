@@ -7,7 +7,6 @@ import type { SessionHeader } from '../sessions/types.ts';
 import {
   downloadSkillIcon,
   invalidateSkillsCache,
-  loadAllSkills,
   loadSkill,
   skillNeedsIconDownload,
 } from '../skills/storage.ts';
@@ -44,7 +43,8 @@ export interface ConfigWatcherCallbacks {
   onPreferencesChange?: (preferences: UserPreferences) => void;
   onLlmConnectionsChange?: (connections: LlmConnection[]) => void;
   onSkillChange?: (slug: string, skill: LoadedSkill | null) => void;
-  onSkillsListChange?: (skills: LoadedSkill[]) => void;
+  /** Something in the skills tree changed. Consumers re-read the catalog. */
+  onSkillsListChange?: () => void;
   onDefaultPermissionsChange?: () => void;
   onWorkspacePermissionsChange?: () => void;
   onSessionMetadataChange?: (sessionId: string, header: SessionHeader) => void;
@@ -82,8 +82,20 @@ export class ConfigWatcher {
   private knownThemes = new Set<string>();
   private lastLlmConnectionsHash = '';
 
-  constructor(workspaceDataRoot: string, private callbacks: ConfigWatcherCallbacks) {
+  /**
+   * Skill directories outside the workspace — the project and global tiers.
+   * Without them a skill edited in either tier would leave the UI and the live
+   * session disagreeing until the cache TTL expired.
+   */
+  private readonly extraSkillRoots: string[];
+
+  constructor(
+    workspaceDataRoot: string,
+    private callbacks: ConfigWatcherCallbacks,
+    options?: { skillRoots?: string[] }
+  ) {
     this.workspaceDataRoot = expandPath(workspaceDataRoot);
+    this.extraSkillRoots = (options?.skillRoots ?? []).map(root => expandPath(root));
   }
 
   start(): void {
@@ -107,6 +119,9 @@ export class ConfigWatcher {
     this.watchPath(getAppPermissionsDir(), false, (_event, filename) => {
       if (filename === 'default.json') this.handleDefaultPermissionsChange();
     });
+    for (const root of this.extraSkillRoots) {
+      this.watchPath(root, true, () => this.handleSkillTierChange());
+    }
 
     this.scanPresetThemes();
     const config = loadStoredConfig();
@@ -213,11 +228,24 @@ export class ConfigWatcher {
     }
   }
 
+  /** A skill changed in a tier outside the workspace. */
+  private handleSkillTierChange(): void {
+    invalidateSkillsCache();
+    this.callbacks.onSkillsListChange?.();
+  }
+
   private handleWorkspaceChange(filename: string): void {
     const normalized = filename.replaceAll('\\', '/');
     if (normalized === 'permissions.json') {
       permissionsConfigCache.invalidateWorkspace(this.workspaceDataRoot);
       this.callbacks.onWorkspacePermissionsChange?.();
+      return;
+    }
+    // Enablement and trust live here rather than in the skill directories, so
+    // a change to this file is just as much a catalog change as an edited
+    // SKILL.md — and the UI has nothing else to learn about it from.
+    if (normalized === 'skills.json') {
+      this.handleSkillTierChange();
       return;
     }
     if (normalized.startsWith('skills/')) {
@@ -226,7 +254,7 @@ export class ConfigWatcher {
       invalidateSkillsCache();
       const skill = loadSkill(this.workspaceDataRoot, slug);
       this.callbacks.onSkillChange?.(slug, skill);
-      this.callbacks.onSkillsListChange?.(loadAllSkills(this.workspaceDataRoot));
+      this.callbacks.onSkillsListChange?.();
       if (skill && skillNeedsIconDownload(skill)) {
         void downloadSkillIcon(skill.path, skill.metadata.icon!)
           .then(iconPath => {
@@ -286,9 +314,10 @@ export class ConfigWatcher {
 
 export function createConfigWatcher(
   workspaceDataRoot: string,
-  callbacks: ConfigWatcherCallbacks
+  callbacks: ConfigWatcherCallbacks,
+  options?: { skillRoots?: string[] }
 ): ConfigWatcher {
-  const watcher = new ConfigWatcher(workspaceDataRoot, callbacks);
+  const watcher = new ConfigWatcher(workspaceDataRoot, callbacks, options);
   watcher.start();
   return watcher;
 }

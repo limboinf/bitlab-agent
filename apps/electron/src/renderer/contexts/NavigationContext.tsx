@@ -68,7 +68,6 @@ import {
   DEFAULT_NAVIGATION_STATE,
 } from '../../shared/types'
 import { sessionMetaMapAtom, type SessionMeta } from '@/atoms/sessions'
-import { skillsAtom } from '@/atoms/skills'
 import {
   panelStackAtom,
   pushPanelAtom,
@@ -162,9 +161,6 @@ export function NavigationProvider({
 
   // Store reference for reading fresh atom values in callbacks (avoids stale closures)
   const store = useStore()
-
-  // Read skills from atom (populated by AppShell)
-  const skills = useAtomValue(skillsAtom)
 
   // =========================================================================
   // DERIVED NAVIGATION STATE (from focused panel + right sidebar)
@@ -563,13 +559,6 @@ export function NavigationProvider({
   )
 
 
-  const getFirstSkillSlug = useCallback(
-    (): string | null => {
-      return skills[0]?.slug ?? null
-    },
-    [skills]
-  )
-
   // =========================================================================
   // AUTO-SELECTION (pure computation, no side effects)
   // =========================================================================
@@ -609,18 +598,9 @@ export function NavigationProvider({
         return nextState
       }
 
-      // Skills: auto-select first skill
-      if (isSkillsNavigation(nextState) && !nextState.details && !options?.skipAutoSelect) {
-        const firstSkillSlug = getFirstSkillSlug()
-        if (firstSkillSlug) {
-          return { ...nextState, details: { type: 'skill', skillSlug: firstSkillSlug } }
-        }
-        return nextState
-      }
-
       return nextState
     },
-    [store, workspaceId, getLastSelectedSessionId, getFirstSessionId, getFirstSkillSlug]
+    [store, workspaceId, getLastSelectedSessionId, getFirstSessionId]
   )
 
   // Ref keeps resolveAutoSelection fresh for reconcileFromUrlParams (defined earlier in the file)

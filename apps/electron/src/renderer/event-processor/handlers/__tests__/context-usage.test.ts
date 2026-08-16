@@ -11,7 +11,7 @@ const reading = (tokens: number | null, percent: number | null) => ({
   tokens,
   contextWindow: 1_000_000,
   percent,
-  breakdown: { systemTokens: 772, toolsTokens: 1918, messageTokens: 7 },
+  breakdown: { systemTokens: 772, toolsTokens: 1918, messageTokens: 7, skillsTokens: 120 },
 })
 
 describe('context_usage', () => {

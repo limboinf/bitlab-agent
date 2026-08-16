@@ -29,8 +29,6 @@ import {
   type CliDomainNamespace,
 } from '../../config/cli-domains.ts';
 import { FEATURE_FLAGS } from '../../feature-flags.ts';
-import { AGENTS_PLUGIN_NAME } from '../../skills/types.ts';
-import { GLOBAL_AGENT_SKILLS_DIR, PROJECT_AGENT_SKILLS_DIR } from '../../skills/storage.ts';
 import {
   shouldAllowToolInMode,
   isReadOnlyBashCommandWithConfig,
@@ -59,13 +57,6 @@ export interface PathExpansionResult {
   /** Whether any paths were modified */
   modified: boolean;
   /** The updated input (or original if not modified) */
-  input: Record<string, unknown>;
-}
-
-export interface SkillQualificationResult {
-  /** Whether the skill name was qualified */
-  modified: boolean;
-  /** The updated input */
   input: Record<string, unknown>;
 }
 
@@ -176,99 +167,6 @@ export function expandToolPaths(
     modified: updatedInput !== null,
     input: updatedInput || input,
   };
-}
-
-// ============================================================
-// SKILL QUALIFICATION
-// ============================================================
-
-/**
- * Ensure skill names are fully-qualified with the correct plugin prefix.
- *
- * The SDK resolves skills as `pluginName:skillSlug` where the plugin name is
- * read from `.claude-plugin/plugin.json` `name` field. Skills can live in 3 tiers:
- *   1. Workspace: {workspaceRoot}/skills/{slug}/ → plugin name from plugin.json
- *   2. Project:   {workingDir}/.agents/skills/{slug}/ → plugin name = ".agents"
- *   3. Global:    ~/.agents/skills/{slug}/ → plugin name = ".agents"
- *
- * This function resolves the bare slug to the correct plugin prefix by checking
- * which directory actually contains the skill. It also handles re-qualifying
- * skills that were incorrectly qualified by the UI (which always uses the
- * workspace slug, even for global/project skills).
- *
- * @param input - The Skill tool input ({ skill: string, args?: string })
- * @param workspaceSlug - The workspace slug (from .claude-plugin/plugin.json name)
- * @param workspaceRootPath - Absolute path to the workspace root
- * @param workingDirectory - Absolute path to the current working directory (optional)
- * @param onDebug - Optional debug callback
- * @returns SkillQualificationResult with modified flag and updated input
- */
-export function qualifySkillName(
-  input: Record<string, unknown>,
-  workspaceSlug: string,
-  workspaceRootPath?: string,
-  workingDirectory?: string,
-  onDebug?: (message: string) => void
-): SkillQualificationResult {
-  const skill = input.skill as string | undefined;
-  if (!skill) return { modified: false, input };
-
-  // Extract the bare slug — strip any existing qualifier (e.g. "CraftAgentWS:commit" → "commit")
-  const bareSlug = skill.includes(':') ? skill.split(':').pop()! : skill;
-  if (!bareSlug) return { modified: false, input };
-
-  // If we don't have the workspace root path, fall back to simple workspace-only qualification
-  if (!workspaceRootPath) {
-    if (skill.includes(':')) return { modified: false, input };
-    const qualifiedSkill = `${workspaceSlug}:${skill}`;
-    onDebug?.(`Skill tool: qualified "${skill}" → "${qualifiedSkill}" (legacy fallback)`);
-    return { modified: true, input: { ...input, skill: qualifiedSkill } };
-  }
-
-  // Resolve which plugin tier contains this skill by checking SKILL.md existence
-  const resolvedSkill = resolveSkillPlugin(bareSlug, workspaceSlug, workspaceRootPath, workingDirectory);
-
-  if (resolvedSkill === skill) {
-    // Already correctly qualified
-    return { modified: false, input };
-  }
-
-  onDebug?.(`Skill tool: qualified "${skill}" → "${resolvedSkill}"`);
-  return {
-    modified: true,
-    input: { ...input, skill: resolvedSkill },
-  };
-}
-
-/**
- * Resolve a skill slug to its fully-qualified plugin:slug name by checking
- * which plugin directory actually contains the skill.
- */
-function resolveSkillPlugin(
-  bareSlug: string,
-  workspaceSlug: string,
-  workspaceRootPath: string,
-  workingDirectory?: string,
-): string {
-  // Priority order matches loadAllSkills: project (highest) > workspace > global (lowest)
-
-  // 1. Project: {workingDir}/.agents/skills/{slug}/SKILL.md
-  if (workingDirectory && existsSync(join(workingDirectory, PROJECT_AGENT_SKILLS_DIR, bareSlug, 'SKILL.md'))) {
-    return `${AGENTS_PLUGIN_NAME}:${bareSlug}`;
-  }
-
-  // 2. Workspace: {workspaceRoot}/skills/{slug}/SKILL.md
-  if (existsSync(join(workspaceRootPath, 'skills', bareSlug, 'SKILL.md'))) {
-    return `${workspaceSlug}:${bareSlug}`;
-  }
-
-  // 3. Global: ~/.agents/skills/{slug}/SKILL.md
-  if (existsSync(join(GLOBAL_AGENT_SKILLS_DIR, bareSlug, 'SKILL.md'))) {
-    return `${AGENTS_PLUGIN_NAME}:${bareSlug}`;
-  }
-
-  // Fallback: assume workspace plugin (original behavior)
-  return `${workspaceSlug}:${bareSlug}`;
 }
 
 // ============================================================
@@ -571,6 +469,10 @@ export interface PreToolUseInput {
  */
 export interface PermissionManagerLike {
   isCommandWhitelisted(command: string): boolean;
+  /** An activated skill's declared tools, in force for this turn only. */
+  isGrantedForTurn?(toolName: string, input: Record<string, unknown>): boolean;
+  /** Tools an activated skill declared off-limits for this turn. */
+  isDeniedForTurn?(toolName: string, input: Record<string, unknown>): boolean;
   isDangerousCommand(command: string): boolean;
   getBaseCommand(command: string): string;
   extractDomainFromNetworkCommand(command: string): string | null;
@@ -664,6 +566,20 @@ export function runPreToolUseChecks(ctx: PreToolUseInput): PreToolUseCheckResult
   }
 
   // ============================================================
+  // 2. SKILL-DECLARED REFUSALS
+  // ============================================================
+  // An activated skill can name tools it has no business calling. This runs
+  // above every allowance — including its own `allowed-tools` — so a skill
+  // cannot declare both and talk its way past the refusal.
+  if (permissionManager.isDeniedForTurn?.(toolName, input)) {
+    onDebug?.(`Blocking ${toolName} — the active skill declared it off-limits`);
+    return {
+      type: 'block',
+      reason: `The active Skill declares that it does not use ${toolName}.`,
+    };
+  }
+
+  // ============================================================
   // 4. CALL_LLM / SPAWN_SESSION INTERCEPTION
   // ============================================================
   if (toolName === 'mcp__session__call_llm') {
@@ -705,21 +621,6 @@ export function runPreToolUseChecks(ctx: PreToolUseInput): PreToolUseCheckResult
     const cliRedirect = getConfigCliRedirect(toolName, currentInput, workspaceRootPath, workingDirectory);
     if (cliRedirect) {
       return { type: 'block', reason: cliRedirect.message };
-    }
-  }
-
-  // 5e. Skill qualification
-  if (toolName === 'Skill') {
-    const skillResult = qualifySkillName(
-      currentInput,
-      workspaceId,
-      workspaceRootPath,
-      workingDirectory,
-      onDebug
-    );
-    if (skillResult.modified) {
-      currentInput = skillResult.input;
-      wasModified = true;
     }
   }
 
@@ -911,6 +812,10 @@ export function shouldPromptInAskMode(
       onDebug?.(`Auto-allowing "${toolName}" (previously approved)`);
       return null;
     }
+    if (permissionManager.isGrantedForTurn?.(toolName, input)) {
+      onDebug?.(`Auto-allowing "${toolName}" (declared by the active skill)`);
+      return null;
+    }
     const filePath = (input.file_path as string) || (input.notebook_path as string) || 'unknown';
     return {
       promptType: 'file_write',
@@ -941,6 +846,15 @@ export function shouldPromptInAskMode(
     if (permissionManager.isCommandWhitelisted(baseCommand) &&
         !permissionManager.isDangerousCommand(baseCommand)) {
       onDebug?.(`Auto-allowing "${baseCommand}" (previously approved)`);
+      return null;
+    }
+
+    // A skill's declaration is treated exactly like a prior approval, and is
+    // subject to the same exclusion: a dangerous command is prompted no matter
+    // who asked for it.
+    if (permissionManager.isGrantedForTurn?.(toolName, input) &&
+        !permissionManager.isDangerousCommand(baseCommand)) {
+      onDebug?.(`Auto-allowing "${baseCommand}" (declared by the active skill)`);
       return null;
     }
 

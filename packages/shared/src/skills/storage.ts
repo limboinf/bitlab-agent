@@ -1,345 +1,184 @@
 /**
  * Skills Storage
  *
- * CRUD operations for workspace skills.
- * Skills are stored in {workspace}/skills/{slug}/ directories.
+ * Filesystem operations and the slug-oriented helpers the rest of the app
+ * calls. Discovery, precedence, and validation all belong to `SkillCatalog` —
+ * this module is a thin layer over it, so there is never a second resolver
+ * disagreeing about which skill wins (docs/skills-design.md §3).
  */
 
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  statSync,
-} from 'fs';
-import { homedir } from 'os';
+import { existsSync, rmSync } from 'fs';
 import { join } from 'path';
-import matter from 'gray-matter';
-import type { LoadedSkill, SkillMetadata, SkillSource } from './types.ts';
-import { getWorkspaceSkillsPath } from '../workspaces/storage.ts';
 import {
-  validateIconValue,
-  findIconFile,
-  downloadIcon,
-  needsIconDownload,
-  isIconUrl,
-} from '../utils/icon.ts';
+  GLOBAL_AGENT_SKILLS_DIR,
+  PROJECT_AGENT_SKILLS_DIR,
+  SkillCatalog,
+  isContainedIn,
+  makeSkillId,
+  resolveSkillId,
+  tierRoot,
+  winnersOf,
+  type SkillCatalogContext,
+} from './catalog.ts';
+import type { CatalogEntry, CatalogSnapshot, SkillId } from './types.ts';
+import { getWorkspaceSkillsPath } from '../workspaces/storage.ts';
+import { downloadIcon, findIconFile, needsIconDownload } from '../utils/icon.ts';
 
-// ============================================================
-// Agent Skills Paths (Issue #171)
-// ============================================================
+export { GLOBAL_AGENT_SKILLS_DIR, PROJECT_AGENT_SKILLS_DIR };
 
-/** Global agent skills directory: ~/.agents/skills/ */
-export const GLOBAL_AGENT_SKILLS_DIR = join(homedir(), '.agents', 'skills');
+// ── Snapshot cache ──────────────────────────────────────────────────────────
+// Discovery reads up to four directories (~100ms) and the result rarely changes
+// during a session. Cached per (workspaceRoot, projectRoot); the watcher calls
+// invalidateSkillsCache() on skill file events, and the TTL is only a backstop
+// for platforms where filesystem watching is unavailable.
 
-/** Project-level agent skills relative directory name */
-export const PROJECT_AGENT_SKILLS_DIR = '.agents/skills';
+const catalogs = new Map<string, { catalog: SkillCatalog; ts: number }>();
+const SKILLS_CACHE_TTL = 5 * 60_000;
 
-// ============================================================
-// Parsing
-// ============================================================
-
-/**
- * Parse SKILL.md content and extract frontmatter + body
- */
-function parseSkillFile(content: string): { metadata: SkillMetadata; body: string } | null {
-  try {
-    const parsed = matter(content);
-
-    // Validate required fields
-    if (!parsed.data.name || !parsed.data.description) {
-      return null;
-    }
-
-    // Validate and extract optional icon field
-    // Only accepts emoji or URL - rejects inline SVG and relative paths
-    const icon = validateIconValue(parsed.data.icon, 'Skills');
-
-    return {
-      metadata: {
-        name: parsed.data.name as string,
-        description: parsed.data.description as string,
-        globs: parsed.data.globs as string[] | undefined,
-        alwaysAllow: parsed.data.alwaysAllow as string[] | undefined,
-        icon,
-      },
-      body: parsed.content,
-    };
-  } catch {
-    return null;
-  }
+function contextKey(ctx: SkillCatalogContext): string {
+  return `${ctx.workspaceRoot}::${ctx.projectRoot ?? ''}::${ctx.builtinRoot ?? ''}`;
 }
 
-// ============================================================
-// Load Operations
-// ============================================================
-
-/**
- * Load a single skill from a directory
- * @param skillsDir - Absolute path to skills directory
- * @param slug - Skill directory name
- * @param source - Where this skill is loaded from
- */
-function loadSkillFromDir(skillsDir: string, slug: string, source: SkillSource): LoadedSkill | null {
-  const skillDir = join(skillsDir, slug);
-  const skillFile = join(skillDir, 'SKILL.md');
-
-  // Check directory exists
-  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) {
-    return null;
-  }
-
-  // Check SKILL.md exists
-  if (!existsSync(skillFile)) {
-    return null;
-  }
-
-  // Read and parse SKILL.md
-  let content: string;
-  try {
-    content = readFileSync(skillFile, 'utf-8');
-  } catch {
-    return null;
-  }
-
-  const parsed = parseSkillFile(content);
-  if (!parsed) {
-    return null;
-  }
-
-  return {
-    slug,
-    metadata: parsed.metadata,
-    content: parsed.body,
-    iconPath: findIconFile(skillDir),
-    path: skillDir,
-    source,
-  };
-}
-
-/**
- * Load all skills from a directory
- * @param skillsDir - Absolute path to skills directory
- * @param source - Where these skills are loaded from
- */
-function loadSkillsFromDir(skillsDir: string, source: SkillSource): LoadedSkill[] {
-  if (!existsSync(skillsDir)) {
-    return [];
-  }
-
-  const skills: LoadedSkill[] = [];
-
-  try {
-    const entries = readdirSync(skillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-
-      const skill = loadSkillFromDir(skillsDir, entry.name, source);
-      if (skill) {
-        skills.push(skill);
-      }
-    }
-  } catch {
-    // Ignore errors reading skills directory
-  }
-
-  return skills;
-}
-
-/**
- * Load a single skill from a workspace
- * @param workspaceRoot - Absolute path to workspace root
- * @param slug - Skill directory name
- */
-export function loadSkill(workspaceRoot: string, slug: string): LoadedSkill | null {
-  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
-  return loadSkillFromDir(skillsDir, slug, 'workspace');
-}
-
-/**
- * Load all skills from a workspace
- * @param workspaceRoot - Absolute path to workspace root
- */
-export function loadWorkspaceSkills(workspaceRoot: string): LoadedSkill[] {
-  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
-  return loadSkillsFromDir(skillsDir, 'workspace');
-}
-
-// ── Skills cache ────────────────────────────────────────────────────────
-// loadAllSkills reads from up to 3 directories on every call (~100ms).
-// The result rarely changes during a session, so we cache it per
-// (workspaceRoot, projectRoot) pair with a 5-minute safety TTL.
-
-const skillsCache = new Map<string, { skills: LoadedSkill[]; ts: number }>();
-const SKILLS_CACHE_TTL = 5 * 60_000; // 5 minutes
-
-/** Invalidate the skills cache (call on working dir change or skill file events). */
-export function invalidateSkillsCache(): void {
-  skillsCache.clear();
-}
-
-/**
- * Load all skills from all sources (global, workspace, project)
- * Skills with the same slug are overridden by higher-priority sources.
- * Priority: global (lowest) < workspace < project (highest)
- *
- * Results are cached per (workspaceRoot, projectRoot) pair. Call
- * invalidateSkillsCache() on working directory changes or skill file events.
- *
- * @param workspaceRoot - Absolute path to workspace root
- * @param projectRoot - Optional project root (working directory) for project-level skills
- */
-export function loadAllSkills(workspaceRoot: string, projectRoot?: string): LoadedSkill[] {
-  const cacheKey = `${workspaceRoot}::${projectRoot ?? ''}`;
+/** Shared catalog for a context, so every caller observes the same revision. */
+export function getSkillCatalog(workspaceRoot: string, projectRoot?: string): SkillCatalog {
+  const ctx: SkillCatalogContext = { workspaceRoot, projectRoot };
+  const key = contextKey(ctx);
   const now = Date.now();
-  const cached = skillsCache.get(cacheKey);
-  if (cached && now - cached.ts < SKILLS_CACHE_TTL) {
-    return cached.skills;
-  }
+  const cached = catalogs.get(key);
+  if (cached && now - cached.ts < SKILLS_CACHE_TTL) return cached.catalog;
 
-  const skillsBySlug = new Map<string, LoadedSkill>();
-
-  // 1. Global skills (lowest priority): ~/.agents/skills/
-  for (const skill of loadSkillsFromDir(GLOBAL_AGENT_SKILLS_DIR, 'global')) {
-    skillsBySlug.set(skill.slug, skill);
-  }
-
-  // 2. Workspace skills (medium priority)
-  for (const skill of loadWorkspaceSkills(workspaceRoot)) {
-    skillsBySlug.set(skill.slug, skill);
-  }
-
-  // 3. Project skills (highest priority): {projectRoot}/.agents/skills/
-  if (projectRoot) {
-    const projectSkillsDir = join(projectRoot, PROJECT_AGENT_SKILLS_DIR);
-    for (const skill of loadSkillsFromDir(projectSkillsDir, 'project')) {
-      skillsBySlug.set(skill.slug, skill);
-    }
-  }
-
-  const result = Array.from(skillsBySlug.values());
-  skillsCache.set(cacheKey, { skills: result, ts: now });
-  return result;
+  const catalog = new SkillCatalog(ctx);
+  catalogs.set(key, { catalog, ts: now });
+  return catalog;
 }
 
+/** Invalidate every cached catalog. Call on working-dir change or skill file events. */
+export function invalidateSkillsCache(): void {
+  for (const { catalog } of catalogs.values()) catalog.invalidate();
+  catalogs.clear();
+}
+
+/** Full catalog state — winners, shadowed entries, tiers, trust, and revision. */
+export function getSkillsSnapshot(workspaceRoot: string, projectRoot?: string): CatalogSnapshot {
+  return getSkillCatalog(workspaceRoot, projectRoot).snapshot();
+}
+
+// ── Load operations ─────────────────────────────────────────────────────────
+
 /**
- * Load a single skill by slug from all sources (project > workspace > global).
- * Unlike loadAllSkills(), this only reads the specific slug directory — O(1) not O(N).
+ * Skills the runtime may actually use: highest eligible tier per name, with
+ * disabled and untrusted entries already filtered out.
+ */
+export function loadAllSkills(workspaceRoot: string, projectRoot?: string): CatalogEntry[] {
+  return winnersOf(getSkillsSnapshot(workspaceRoot, projectRoot));
+}
+
+/** Every discovered skill, shadowed copies included. Backs the per-tier listing. */
+export function loadAllSkillEntries(workspaceRoot: string, projectRoot?: string): CatalogEntry[] {
+  return getSkillsSnapshot(workspaceRoot, projectRoot).entries;
+}
+
+/** The winning skill for a slug, or null when no eligible copy exists. */
+export function loadSkillBySlug(
+  workspaceRoot: string,
+  slug: string,
+  projectRoot?: string
+): CatalogEntry | null {
+  return loadAllSkills(workspaceRoot, projectRoot).find((skill) => skill.slug === slug) ?? null;
+}
+
+/** Look up one entry by its stable id, shadowed entries included. */
+export function loadSkillById(
+  workspaceRoot: string,
+  skillId: SkillId,
+  projectRoot?: string
+): CatalogEntry | null {
+  return loadAllSkillEntries(workspaceRoot, projectRoot).find((skill) => skill.skillId === skillId) ?? null;
+}
+
+/** Workspace-tier skill by slug. */
+export function loadSkill(workspaceRoot: string, slug: string): CatalogEntry | null {
+  return (
+    loadAllSkillEntries(workspaceRoot).find(
+      (skill) => skill.slug === slug && skill.source === 'workspace'
+    ) ?? null
+  );
+}
+
+/** Every workspace-tier skill, shadowed or not. */
+export function loadWorkspaceSkills(workspaceRoot: string): CatalogEntry[] {
+  return loadAllSkillEntries(workspaceRoot).filter((skill) => skill.source === 'workspace');
+}
+
+// ── Mutations ───────────────────────────────────────────────────────────────
+
+/**
+ * Delete a skill by its stable id.
  *
- * @param workspaceRoot - Absolute path to workspace root
- * @param slug - Skill slug to load
- * @param projectRoot - Optional project root for project-level skills
+ * `resolveSkillId` is what makes this safe: it canonicalises the path and
+ * refuses anything outside the tier root, so a crafted id cannot reach a
+ * directory that is not a skill (§5.3).
  */
-export function loadSkillBySlug(workspaceRoot: string, slug: string, projectRoot?: string): LoadedSkill | null {
-  // Highest priority: project-level
-  if (projectRoot) {
-    const projectSkillsDir = join(projectRoot, PROJECT_AGENT_SKILLS_DIR);
-    const skill = loadSkillFromDir(projectSkillsDir, slug, 'project');
-    if (skill) return skill;
+export function deleteSkillById(
+  skillId: SkillId,
+  ctx: SkillCatalogContext
+): boolean {
+  const { entryPath, source } = resolveSkillId(skillId, ctx);
+  // Built-in skills are app resources, replaced wholesale on update. Deleting
+  // one would remove a file the installation owns, so it is refused here
+  // rather than only in the UI. Disable it instead.
+  if (source === 'builtin') {
+    throw new Error('Built-in skills cannot be deleted. Disable it instead.');
   }
-
-  // Medium priority: workspace
-  const workspaceSkill = loadSkillFromDir(getWorkspaceSkillsPath(workspaceRoot), slug, 'workspace');
-  if (workspaceSkill) return workspaceSkill;
-
-  // Lowest priority: global
-  return loadSkillFromDir(GLOBAL_AGENT_SKILLS_DIR, slug, 'global');
-}
-
-/**
- * Get icon path for a skill
- * @param workspaceRoot - Absolute path to workspace root
- * @param slug - Skill directory name
- */
-export function getSkillIconPath(workspaceRoot: string, slug: string): string | null {
-  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
-  const skillDir = join(skillsDir, slug);
-
-  if (!existsSync(skillDir)) {
-    return null;
-  }
-
-  return findIconFile(skillDir) || null;
-}
-
-// ============================================================
-// Delete Operations
-// ============================================================
-
-/**
- * Delete a skill from a workspace
- * @param workspaceRoot - Absolute path to workspace root
- * @param slug - Skill directory name
- */
-export function deleteSkill(workspaceRoot: string, slug: string): boolean {
-  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
-  const skillDir = join(skillsDir, slug);
-
-  if (!existsSync(skillDir)) {
-    return false;
-  }
-
+  if (!existsSync(entryPath)) return false;
   try {
-    rmSync(skillDir, { recursive: true });
+    rmSync(entryPath, { recursive: true });
+    invalidateSkillsCache();
     return true;
   } catch {
     return false;
   }
 }
 
-// ============================================================
-// Utility Functions
-// ============================================================
+/** Delete a workspace-tier skill by slug. */
+export function deleteSkill(workspaceRoot: string, slug: string): boolean {
+  const root = getWorkspaceSkillsPath(workspaceRoot);
+  const target = join(root, slug, 'SKILL.md');
+  // A slug is user input: refuse one that traverses out of the skills directory
+  // before it reaches a recursive delete.
+  if (!isContainedIn(target, root)) return false;
+  return deleteSkillById(makeSkillId('workspace', target), { workspaceRoot });
+}
 
-/**
- * Check if a skill exists in a workspace
- * @param workspaceRoot - Absolute path to workspace root
- * @param slug - Skill directory name
- */
+// ── Utilities ───────────────────────────────────────────────────────────────
+
+/** Icon path for a workspace-tier skill. */
+export function getSkillIconPath(workspaceRoot: string, slug: string): string | null {
+  const skillDir = join(getWorkspaceSkillsPath(workspaceRoot), slug);
+  if (!isContainedIn(skillDir, getWorkspaceSkillsPath(workspaceRoot)) || !existsSync(skillDir)) {
+    return null;
+  }
+  return findIconFile(skillDir) || null;
+}
+
 export function skillExists(workspaceRoot: string, slug: string): boolean {
-  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
-  const skillDir = join(skillsDir, slug);
-  const skillFile = join(skillDir, 'SKILL.md');
-
-  return existsSync(skillDir) && existsSync(skillFile);
+  return loadWorkspaceSkills(workspaceRoot).some((skill) => skill.slug === slug);
 }
 
-/**
- * List skill slugs in a workspace
- * @param workspaceRoot - Absolute path to workspace root
- */
 export function listSkillSlugs(workspaceRoot: string): string[] {
-  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
-
-  if (!existsSync(skillsDir)) {
-    return [];
-  }
-
-  try {
-    return readdirSync(skillsDir, { withFileTypes: true })
-      .filter((entry) => {
-        if (!entry.isDirectory()) return false;
-        const skillFile = join(skillsDir, entry.name, 'SKILL.md');
-        return existsSync(skillFile);
-      })
-      .map((entry) => entry.name);
-  } catch {
-    return [];
-  }
+  return loadWorkspaceSkills(workspaceRoot).map((skill) => skill.slug);
 }
 
-// ============================================================
-// Icon Download (uses shared utilities)
-// ============================================================
+/** Absolute skills directory for a tier in this context. */
+export { tierRoot };
+
+// ── Icons ───────────────────────────────────────────────────────────────────
 
 /**
  * Download an icon from a URL and save it to the skill directory.
  * Returns the path to the downloaded icon, or null on failure.
  */
-export async function downloadSkillIcon(
-  skillDir: string,
-  iconUrl: string
-): Promise<string | null> {
+export async function downloadSkillIcon(skillDir: string, iconUrl: string): Promise<string | null> {
   return downloadIcon(skillDir, iconUrl, 'Skills');
 }
 
@@ -347,9 +186,8 @@ export async function downloadSkillIcon(
  * Check if a skill needs its icon downloaded.
  * Returns true if metadata has a URL icon and no local icon file exists.
  */
-export function skillNeedsIconDownload(skill: LoadedSkill): boolean {
+export function skillNeedsIconDownload(skill: CatalogEntry): boolean {
   return needsIconDownload(skill.metadata.icon, skill.iconPath);
 }
 
-// Re-export icon utilities for convenience
 export { isIconUrl } from '../utils/icon.ts';

@@ -3,6 +3,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import {
   computeContextBreakdown,
   estimateMessageTokens,
+  estimateSkillCatalogTokens,
   estimateSystemTokens,
   estimateToolsTokens,
 } from './context-breakdown.ts';
@@ -67,5 +68,48 @@ describe('computeContextBreakdown', () => {
     expect(breakdown.systemTokens).toBe(100);
     expect(breakdown.messageTokens).toBe(200);
     expect(breakdown.toolsTokens).toBeGreaterThan(0);
+  });
+});
+
+describe('estimateSkillCatalogTokens', () => {
+  const CATALOG = [
+    '',
+    '',
+    'The following skills provide specialized instructions for specific tasks.',
+    'Use the read tool to load a skill\'s file when the task matches its description.',
+    '',
+    '<available_skills>',
+    '  <skill>',
+    '    <name>alpha</name>',
+    '    <description>does alpha things</description>',
+    '    <location>/skills/alpha/SKILL.md</location>',
+    '  </skill>',
+    '</available_skills>',
+  ].join('\n');
+
+  it('is zero when the prompt carries no catalog', () => {
+    expect(estimateSkillCatalogTokens('a prompt with no skills at all')).toBe(0);
+    expect(estimateSkillCatalogTokens(undefined)).toBe(0);
+  });
+
+  it('prices the block including its instruction lines', () => {
+    const prompt = `BASE PROMPT${CATALOG}\nCurrent date: 2026-01-01`;
+    const tokens = estimateSkillCatalogTokens(prompt);
+
+    // The whole block, and nothing outside it.
+    expect(tokens).toBe(Math.ceil(CATALOG.trimStart().length / 4));
+  });
+
+  it('stays a subset of the system prompt figure', () => {
+    const prompt = `BASE PROMPT${CATALOG}`;
+
+    expect(estimateSkillCatalogTokens(prompt)).toBeLessThan(estimateSystemTokens(prompt));
+  });
+
+  it('grows with the catalog', () => {
+    const one = `BASE${CATALOG}`;
+    const two = `BASE${CATALOG.replace('</available_skills>', '  <skill>\n    <name>beta</name>\n    <description>does beta things</description>\n  </skill>\n</available_skills>')}`;
+
+    expect(estimateSkillCatalogTokens(two)).toBeGreaterThan(estimateSkillCatalogTokens(one));
   });
 });

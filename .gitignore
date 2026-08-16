@@ -53,3 +53,6 @@ credentials.enc
 .bitlab-electron/
 .playwright-mcp/
 .zcode/
+
+# Throwaway UI concept mockups
+design-previews/

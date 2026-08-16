@@ -13,6 +13,64 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.3.0] - 2026-08-16
+
+### Added
+
+- **Skills, and the model can actually find them.** A skill packages
+  instructions, scripts, and references into a capability the agent reaches for
+  when the task fits — no longer only when you name it by hand. Skills resolve
+  across four tiers (built-in, global `~/.agents/skills/`, workspace, and the
+  working directory's `.agents/skills/`), with the highest tier winning and the
+  ones it shadows shown rather than hidden. Skills in a working directory stay
+  out of the agent's reach until you trust that directory; headless and WebUI
+  grant the same trust through `BITLAB_TRUSTED_PROJECT_ROOTS`. The format is the
+  open Agent Skills specification, so the same skill also loads in Codex and
+  Claude Code.
+- **A Skills library page.** Browse, search, and filter everything installed,
+  see which tier each skill comes from and when it was last edited, toggle one
+  on or off, and open a full detail view with its instructions, metadata, and
+  dependencies. Disabling a skill that was winning promotes the next tier down.
+- **Install a skill from a folder, a `.zip`, or a Git URL — after you have read
+  it.** Picking a source stages it and stops. A preview shows the full
+  `SKILL.md`, every file the install would write with scripts called out, the
+  target tier, and whether an existing skill would be replaced, before there is
+  an Install button. Nothing reaches disk until then. Sources that climb out of
+  their destination, point elsewhere through a symlink, or expand without bound
+  are refused while still in staging, and the reason is shown.
+- **`create-skill`, built in.** Ask the agent to write a skill and it proposes
+  the file for you to save. Built-in skills ship with the app, can be disabled
+  like any other, and are shadowed by a skill of the same name you install
+  yourself.
+- **A skill can pre-approve the tools it needs.** `allowed-tools` grants those
+  tools for the turn that invoked the skill and clears on your next message, so
+  a skill that runs ten git commands stops asking ten times. It only ever
+  widens: unlisted tools keep their normal prompts, safe mode still blocks
+  writes, and dangerous commands still ask. `disallowed-tools` is the narrowing
+  counterpart and outranks everything, including the skill's own grants. Set
+  `skillToolApproval: false` to make every such declaration inert.
+- **Skills can declare the MCP servers they need.** The detail view shows each
+  dependency's resolved state, and using a skill whose server is missing or off
+  tells the model so — it degrades honestly instead of inventing calls. An
+  unmet dependency never blocks the skill.
+- **The context meter attributes what the skill catalog costs.** The catalog is
+  broken out beneath the system-prompt figure, so it is visible that fifty
+  skills stand in every request.
+
+### Changed
+
+- **Skills and Connectors are now full pages, not list panels.** Both open as a
+  browsable catalog in the main content area with their own search, filters, and
+  card grid; the left navigation no longer carries a second list beside them.
+  Managing an MCP server opens in a dialog instead of expanding a row in place.
+
+### Removed
+
+- **`globs` and `alwaysAllow` are no longer read from `SKILL.md`.** Nothing
+  consumed `globs`, and `alwaysAllow` rendered a permission table for grants the
+  engine never applied — use `allowed-tools` instead. A top-level `icon` still
+  works for this release; move it to `metadata.bitlab.icon`.
+
 ## [0.2.2] - 2026-08-15
 
 ### Added
@@ -143,6 +201,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.3.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.3.0
 [0.2.2]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.2
 [0.2.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.1
 [0.2.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.0

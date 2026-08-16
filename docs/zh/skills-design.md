@@ -2,9 +2,16 @@
 
 Bitlab 的 Skills 功能早于 Pi 迁移。本文记录代码今天实际做了什么、生态已经收敛到什么标准，以及一份分期的 Skills Hub 方案——发现、安装、创作与生命周期管理。
 
-状态：方案，尚未实现。已上线行为见 [`skills.md`](./skills.md)。
+状态：**P0 至 P2 已实现。**已上线行为见 [`skills.md`](./skills.md)，那是"现在如何工作"的参考；本文作为设计记录保留——推理过程、权衡过的方案，以及有意推迟的部分。§1 描述的是促成这项工作的历史状态，是问题陈述的过去时，不是当前行为。
 
 修订说明：§1.2 与 §5.2 在一次审查指出原根因判断错误后重写。下文结论均有针对锁定版 SDK 的可复现探针支撑，见 [§1.6](#16-探针复现)。
+
+实现过程中发现的订正，记录在此是因为这些错误都是有承重作用的：
+
+- **§1.4 称 `globs` 与 `alwaysAllow` "在代码库中没有任何消费者"。实际有三处。** `SkillInfoPage.tsx` 用 `alwaysAllow` 作为开关渲染了一整块"权限模式"表格；`config/validators.ts` 的 schema 里带着这两个字段；`EditPopover.tsx` 在指导 agent 创作 Skill 时把它们当作可用字段告知。其中 UI 那处最要命：它告诉用户某个 Skill 预授权了哪些权限，而权限引擎从未读过该字段——那张表在描述一件不存在的事。
+- **§5.2 称 `applySystemPromptOverride` 只有一个调用点。实际有两个。** 第二个是用 `tools: []` 创建、且完全没有 resource loader 的 ephemeral session，直接删掉辅助函数会打断它；最终给它配了独立的极简 loader。
+- **§5.2 的 seam 清单方向正确，但漏了一点。** `DefaultResourceLoader` 会缓存已解析的 skills 直到下次 `reload()`，而 `reload()` 会重建扩展运行时——对"每次编辑 SKILL.md"来说太重。因此 `BitlabResourceLoader` 改为在每次调用时从 catalog 回答 `getSkills()` 与 `getSystemPrompt()`，不再委托。
+- **§1.1 提到 `~/.agents` 被钉死在 `homedir()`。** 这同时让 global 层无法测试，因此 catalog 接受一个可选的根目录；默认值未变。
 
 > ASCII 原型图中的界面文案保留英文：中文与 emoji 混排在不同等宽渲染器下必然错位，且按翻译约定代码块以英文为准。图下方的中文说明是权威解读。
 
@@ -645,13 +652,15 @@ headless 需要一条显式的非交互通道：`BITLAB_TRUSTED_PROJECT_ROOTS` �
 
 | 阶段 | 范围 | 依赖 |
 | --- | --- | --- |
-| **P0 — 正确性** | resource loader 无条件构造（§5.2 前置条件）；`SkillCatalog` 成为唯一解析器；`PiSkillBridge` 走公开接缝；删除 `applySystemPromptOverride`；项目信任门控含 headless 通道；`skillId` + 路径 containment；删除 `Skill` 限定死代码；清掉 `globs`/`alwaysAllow`；UI↔运行时一致性测试 | 无 |
-| **P1 — 管理** | 已安装 tab 按层分组含 shadow；启停与降级；按 `skillId` 精确删除/打开；完整 live reload（catalog revision → UI + 会话）；catalog 成本在 context meter 中归因；MCP 依赖解析与展示 | P0 |
-| **P2 — 创作与导入** | `create-skill` 与 Built-in tab；`skill_write` 会话工具；`SkillInstaller` 支持文件夹 / `.zip` / Git；预览抽屉含脚本与 `compatibility`；校验结果上 UI；`allowed-tools` / `disallowed-tools` 按 Claude Code 语义实现，外加 `skill_approval` 开关（§5.10） | P1 |
-| **P3 — 市场** | 静态注册中心、分类、安装/更新/卸载、来源展示、签名校验 | P2 |
+| **P0 — 正确性** ✅ | resource loader 无条件构造（§5.2 前置条件）；`SkillCatalog` 成为唯一解析器；`PiSkillBridge` 走公开接缝；删除 `applySystemPromptOverride`；项目信任门控含 headless 通道；`skillId` + 路径 containment；删除 `Skill` 限定死代码；清掉 `globs`/`alwaysAllow`；UI↔运行时一致性测试 | 无 |
+| **P1 — 管理** ✅ | 已安装 tab 按层分组含 shadow；启停与降级；按 `skillId` 精确删除/打开；完整 live reload（catalog revision → UI + 会话）；catalog 成本在 context meter 中归因；MCP 依赖解析与展示 | P0 |
+| **P2 — 创作与导入** ✅ | `create-skill` 与 Built-in tab；`skill_write` 会话工具；`SkillInstaller` 支持文件夹 / `.zip` / Git；预览抽屉含脚本与 `compatibility`；校验结果上 UI；`allowed-tools` / `disallowed-tools` 按 Claude Code 语义实现，外加 `skill_approval` 开关（§5.10） | P1 |
+| **P3 — 市场**（未开始） | 静态注册中心、分类、安装/更新/卸载、来源展示、签名校验 | P2 |
 | **P4 — 套件** | 对标专家套件：Skills + MCP servers + 权限预设作为一个单元安装 | P3、MCP 配置工作 |
 
 **P0 是一个正确性版本**：它修掉一个安全缺陷、删掉死代码，并让这个功能真正做到它自己文档里声称的事。无论市场做不做，它都值得发。
+
+**实现补充。** 优先级按目录 slug 而非 frontmatter `name` 解析——slug 才是用户在文件系统上操作的东西、也是 `[skill:slug]` 寻址的键，而规范本就要求二者一致；与 Pi 基于 name 的身份体系的对接放在 bridge 里，它同时会丢弃并报告"两个胜出者声明同一个 name"的情况。`skill_write` 没有实现：`create-skill` 提出文件、由既有的 write 工具保存，那条路径本就带权限确认，再造一个写文件的入口只会多一处需要维持诚实的地方。压缩包解压调用系统 `unzip`，覆盖 macOS 与 Linux；各来源的 fetcher 位于同一接口之后，补 Windows 后端不需要触碰校验管线。
 
 ### 验收清单
 

@@ -14,6 +14,7 @@
  *    the bar's overall length stays the provider-anchored percent.
  */
 
+import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ContextUsageReading } from '../../../../shared/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@bitlab/ui'
@@ -186,19 +187,33 @@ export function ContextMeter({
         ) : (
           <dl className="mt-3 space-y-1.5">
             {ROWS.map(row => (
-              <div key={row.key} className="flex items-center justify-between gap-2">
-                <dt className="flex items-center gap-2 text-[12px] text-foreground/70">
-                  <span
-                    aria-hidden
-                    className="h-2 w-2 rounded-[2px] shrink-0"
-                    style={{ backgroundColor: row.color }}
-                  />
-                  {t(row.label)}
-                </dt>
-                <dd className="text-[12px] text-foreground/50 tabular-nums">
-                  {`~${formatContextTokens(breakdown[row.key])}`}
-                </dd>
-              </div>
+              <React.Fragment key={row.key}>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="flex items-center gap-2 text-[12px] text-foreground/70">
+                    <span
+                      aria-hidden
+                      className="h-2 w-2 rounded-[2px] shrink-0"
+                      style={{ backgroundColor: row.color }}
+                    />
+                    {t(row.label)}
+                  </dt>
+                  <dd className="text-[12px] text-foreground/50 tabular-nums">
+                    {`~${formatContextTokens(breakdown[row.key])}`}
+                  </dd>
+                </div>
+                {/* Indented under the system prompt because it is part of it,
+                    not a fourth segment. Every enabled skill contributes its
+                    name and description to every request, so a large catalog
+                    is a standing cost worth being able to see. */}
+                {row.key === 'systemTokens' && breakdown.skillsTokens > 0 && (
+                  <div className="flex items-center justify-between gap-2 pl-4">
+                    <dt className="text-[11px] text-foreground/45">{t('chat.contextSkills')}</dt>
+                    <dd className="text-[11px] text-foreground/40 tabular-nums">
+                      {`~${formatContextTokens(breakdown.skillsTokens)}`}
+                    </dd>
+                  </div>
+                )}
+              </React.Fragment>
             ))}
           </dl>
         )}
