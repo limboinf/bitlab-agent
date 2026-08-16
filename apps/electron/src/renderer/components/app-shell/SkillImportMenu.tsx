@@ -31,9 +31,10 @@ export interface SkillImportMenuProps {
   /** Tiers the user may install into, in display order. */
   targets: readonly SkillSource[]
   onInstalled: (snapshot: CatalogSnapshot) => void
+  trigger?: React.ReactNode
 }
 
-export function SkillImportMenu({ workspaceId, targets, onInstalled }: SkillImportMenuProps) {
+export function SkillImportMenu({ workspaceId, targets, onInstalled, trigger }: SkillImportMenuProps) {
   const { t } = useTranslation()
   const [plan, setPlan] = React.useState<InstallPlan | null>(null)
   const [busy, setBusy] = React.useState(false)
@@ -106,7 +107,7 @@ export function SkillImportMenu({ workspaceId, targets, onInstalled }: SkillImpo
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <HeaderIconButton icon={<Download className="h-4 w-4" />} tooltip={t('skillInstall.title')} />
+          {trigger ?? <HeaderIconButton icon={<Download className="h-4 w-4" />} tooltip={t('skillInstall.title')} />}
         </DropdownMenuTrigger>
         <StyledDropdownMenuContent align="end" sideOffset={6}>
           <StyledDropdownMenuItem onSelect={() => void pickFolder()}>

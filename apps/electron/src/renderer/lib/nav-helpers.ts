@@ -18,7 +18,7 @@ import type { NavigationState } from '../../shared/types'
  * Per-navigator semantics:
  * - sessions: a session is selected
  * - settings: a subpage is selected (bare `settings` route → false)
- * - skills: a detail item is selected
+ * - skills: the catalog itself is the content page
  */
 export function isDetailNavState(navState: NavigationState | null): boolean {
   if (!navState) return false
@@ -28,6 +28,6 @@ export function isDetailNavState(navState: NavigationState | null): boolean {
     case 'settings':
       return navState.subpage !== null
     case 'skills':
-      return navState.details !== null
+      return true
   }
 }

@@ -27,7 +27,7 @@ import {
 } from '@/hooks/useSession'
 import { skillSelection } from '@/hooks/useEntitySelection'
 import { ChatPage } from '@/pages'
-import SkillInfoPage from '@/pages/SkillInfoPage'
+import SkillsCatalogPage from '@/pages/SkillsCatalogPage'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
 
 export interface MainContentPanelProps {
@@ -43,11 +43,7 @@ export function MainContentPanel({
   const { t } = useTranslation()
   const globalNavState = useNavigationState()
   const navState = navStateOverride ?? globalNavState
-  const {
-    activeWorkspaceId,
-    onArchiveSession,
-    activeWorkspaceWorkingDirectory,
-  } = useAppShellContext()
+  const { onArchiveSession } = useAppShellContext()
 
   const isMultiSelectActive = useIsMultiSelectActive()
   const selectedIds = useSelectedIds()
@@ -90,21 +86,9 @@ export function MainContentPanel({
         </Panel>,
       )
     }
-    if (navState.details?.type === 'skill') {
-      return wrapWithStoplight(
-        <Panel variant="grow" className={className}>
-          <SkillInfoPage
-            skillSlug={navState.details.skillSlug}
-            workspaceId={activeWorkspaceId || ''}
-          />
-        </Panel>,
-      )
-    }
     return wrapWithStoplight(
       <Panel variant="grow" className={className}>
-        <div className="flex items-center justify-center h-full text-muted-foreground">
-          <p className="text-sm">{t('skillsList.noSkillsConfigured')}</p>
-        </div>
+        <SkillsCatalogPage />
       </Panel>,
     )
   }

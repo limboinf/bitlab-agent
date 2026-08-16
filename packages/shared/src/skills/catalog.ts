@@ -237,6 +237,7 @@ export function resolveSkillId(
 
 interface RawSkill {
   slug: string;
+  modifiedAt?: number;
   metadata: SkillMetadata;
   content: string;
   path: string;
@@ -271,8 +272,10 @@ function discoverTier(skillsDir: string | undefined, source: SkillSource): RawSk
     if (!isContainedIn(canonicalFile, canonical(skillsDir))) continue;
 
     let content: string;
+    let modifiedAt: number | undefined;
     try {
       content = readFileSync(canonicalFile, 'utf-8');
+      modifiedAt = statSync(canonicalFile).mtimeMs;
     } catch {
       continue;
     }
@@ -289,6 +292,7 @@ function discoverTier(skillsDir: string | undefined, source: SkillSource): RawSk
       iconPath: findIconFile(skillDir),
       source,
       diagnostics: parsed.diagnostics,
+      modifiedAt,
     });
   }
 
@@ -409,6 +413,7 @@ export class SkillCatalog {
         diagnostics: skill.diagnostics,
         install: config.installed[skillId],
         mcpRequirements: resolveMcpRequirements(skill.metadata),
+        modifiedAt: skill.modifiedAt,
       };
     });
 

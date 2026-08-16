@@ -2,7 +2,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { useRef, useState, useEffect, useCallback, useMemo } from "react"
 import { useAtomValue, useStore } from "jotai"
-import { Search, Plus } from "lucide-react"
+import { Search } from "lucide-react"
 import { TopBar } from "./TopBar"
 import { HeaderIconButton } from "@/components/ui/HeaderIconButton"
 import { SessionList, type ChatGroupingMode } from "./SessionList"
@@ -18,7 +18,7 @@ import { useAction, useActionLabel } from "@/actions"
 import { useFocusContext } from "@/context/FocusContext"
 import { getSessionTitle } from "@/utils/session"
 import { useSetAtom } from "jotai"
-import type { Session, FileAttachment, PermissionRequest, LoadedSkill, CatalogSnapshot, PermissionMode } from "../../../shared/types"
+import type { Session, FileAttachment, PermissionRequest, CatalogSnapshot, PermissionMode } from "../../../shared/types"
 import { DEFAULT_CYCLABLE_PERMISSION_MODES } from "@bitlab/shared/agent/modes"
 import { sessionMetaMapAtom, type SessionMeta } from "@/atoms/sessions"
 import { EMPTY_SNAPSHOT, skillsSnapshotAtom } from "@/atoms/skills"
@@ -36,11 +36,7 @@ import {
 } from "@/contexts/NavigationContext"
 import { buildRouteFromNavigationState } from "../../../shared/route-parser"
 import type { SettingsSubpage } from "../../../shared/types"
-import { SkillsListPanel } from "./SkillsListPanel"
-import { SkillImportMenu } from "./SkillImportMenu"
-import { McpListPanel } from "./McpListPanel"
 import { FabNewChat } from "./FabNewChat"
-import { EditPopover, getEditConfig } from "@/components/ui/EditPopover"
 import SettingsNavigator from "@/pages/settings/SettingsNavigator"
 import {
   PANEL_GAP,
@@ -311,12 +307,6 @@ function AppShellContent({
 
   // Ensure session messages are loaded when selected
   const ensureMessagesLoaded = useSetAtom(ensureSessionMessagesLoadedAtom)
-
-  // Handle selecting a skill from the list
-  const handleSkillSelect = React.useCallback((skill: LoadedSkill) => {
-    if (!activeWorkspaceId) return
-    navigate(routes.view.skills(skill.slug))
-  }, [activeWorkspaceId, navigate])
 
   // Focus zone management
   const { focusZone, focusNextZone, focusPreviousZone } = useFocusContext()
@@ -617,13 +607,43 @@ function AppShellContent({
     return onDeleteSession(sessionId, skipConfirmation)
   }, [session.selected, setSession, onDeleteSession])
 
+  const handleDeleteSkill = useCallback(async (skillId: string) => {
+    if (!activeWorkspace) return
+    const slug = snapshot.entries.find(entry => entry.skillId === skillId)?.slug ?? skillId
+    try {
+      await window.electronAPI.deleteSkill(activeWorkspace.id, skillId)
+      toast.success(t('toast.deletedSkill', { slug }))
+    } catch (error) {
+      console.error('[Chat] Failed to delete skill:', error)
+      toast.error(t('toast.failedToDeleteSkill'))
+    }
+  }, [activeWorkspace, snapshot, t])
+
+  const handleToggleSkill = useCallback(async (skillId: string, enabled: boolean) => {
+    if (!activeWorkspace) return
+    try {
+      setSnapshot(await window.electronAPI.setSkillEnabled(activeWorkspace.id, skillId, enabled))
+    } catch (error) {
+      console.error('[Chat] Failed to toggle skill:', error)
+      toast.error(t('toast.failedToToggleSkill'))
+    }
+  }, [activeWorkspace, t])
+
+  const handleTrustProject = useCallback(async (projectRoot: string) => {
+    if (!activeWorkspace) return
+    try {
+      setSnapshot(await window.electronAPI.setSkillProjectTrust(activeWorkspace.id, projectRoot, true))
+    } catch (error) {
+      console.error('[Chat] Failed to trust project:', error)
+      toast.error(t('toast.failedToTrustProject'))
+    }
+  }, [activeWorkspace, t])
+
   // Extend the Craft context with retained Bitlab capabilities only.
-  const activeWorkspaceWorkingDirectory = activeWorkspace?.folderPath ?? activeWorkspace?.dataRoot
   const appShellContextValue = React.useMemo<AppShellContextType>(() => ({
     ...contextValue,
     onDeleteSession: handleDeleteSession,
     skills,
-    activeWorkspaceWorkingDirectory,
     enabledModes,
     rightSidebarButton: null,
     isCompactMode: isAutoCompact,
@@ -631,7 +651,12 @@ function AppShellContent({
     isSearchModeActive: searchActive,
     chatDisplayRef,
     onChatMatchInfoChange: handleChatMatchInfoChange,
-  }), [contextValue, handleDeleteSession, skills, activeWorkspaceWorkingDirectory, enabledModes, isAutoCompact, searchActive, searchQuery, handleChatMatchInfoChange])
+    skillsSnapshot: snapshot,
+    onSkillsSnapshotChange: setSnapshot,
+    onDeleteSkill: handleDeleteSkill,
+    onToggleSkill: handleToggleSkill,
+    onTrustProjectSkills: handleTrustProject,
+  }), [contextValue, handleDeleteSession, skills, enabledModes, isAutoCompact, searchActive, searchQuery, handleChatMatchInfoChange, snapshot, handleDeleteSkill, handleToggleSkill, handleTrustProject])
 
   // Persist navigation visibility to localStorage.
   React.useEffect(() => {
@@ -702,7 +727,7 @@ function AppShellContent({
 
     // Focus the chat input after navigation completes
     setTimeout(() => focusZone('chat', { intent: 'programmatic' }), 50)
-  }, [activeWorkspace, focusZone, navigate])
+  }, [activeWorkspace, focusZone])
 
   // Create a brand new dedicated browser window and focus it.
   // Intentionally unbound: this action should always create a NEW window.
@@ -716,49 +741,7 @@ function AppShellContent({
       console.error('[Chat] Failed to create browser window:', error)
       toast.error(t('toast.failedToCreateBrowser'))
     }
-  }, [])
-
-  // Delete Skill
-  const handleDeleteSkill = useCallback(async (skillId: string) => {
-    if (!activeWorkspace) return
-    const slug = snapshot.entries.find(entry => entry.skillId === skillId)?.slug ?? skillId
-    try {
-      await window.electronAPI.deleteSkill(activeWorkspace.id, skillId)
-      toast.success(t('toast.deletedSkill', { slug }))
-    } catch (error) {
-      console.error('[Chat] Failed to delete skill:', error)
-      toast.error(t('toast.failedToDeleteSkill'))
-    }
-  }, [activeWorkspace, snapshot])
-
-  // Enable / disable a Skill. A disabled skill leaves the runtime entirely; if
-  // it was the winner, the next tier down takes over.
-  const handleToggleSkill = useCallback(async (skillId: string, enabled: boolean) => {
-    if (!activeWorkspace) return
-    try {
-      setSnapshot(await window.electronAPI.setSkillEnabled(activeWorkspace.id, skillId, enabled))
-    } catch (error) {
-      console.error('[Chat] Failed to toggle skill:', error)
-      toast.error(t('toast.failedToToggleSkill'))
-    }
-  }, [activeWorkspace, t])
-
-  // Let the working directory's Skills reach the agent. Explicit, and revocable.
-  const handleTrustProject = useCallback(async (projectRoot: string) => {
-    if (!activeWorkspace) return
-    try {
-      setSnapshot(await window.electronAPI.setSkillProjectTrust(activeWorkspace.id, projectRoot, true))
-    } catch (error) {
-      console.error('[Chat] Failed to trust project:', error)
-      toast.error(t('toast.failedToTrustProject'))
-    }
-  }, [activeWorkspace, t])
-
-  // The route addresses a Skill by slug; the list is keyed on skillId.
-  const selectedSkillIdFor = useCallback((slug: string) => {
-    const entries = snapshot.entries.filter(entry => entry.slug === slug)
-    return (entries.find(entry => entry.winner) ?? entries[0])?.skillId ?? null
-  }, [snapshot])
+  }, [t])
 
   // Respond to menu bar "New Chat" trigger
   const menuTriggerRef = useRef(menuNewChatTrigger)
@@ -769,10 +752,9 @@ function AppShellContent({
     handleNewChat()
   }, [menuNewChatTrigger, handleNewChat])
 
-  // Get title based on the retained navigation states.
+  // Title for the navigation list. Skills and Connectors are excluded: they
+  // title themselves inside the content panel and show no list header.
   const listTitle = React.useMemo(() => {
-    if (isSkillsNavigation(navState)) return t('sidebar.allSkills')
-    if (isSettingsNavigation(navState) && navState.subpage === 'mcp') return t('sidebar.connectors')
     if (isSettingsNavigation(navState)) return t('sidebar.settings')
     if (sessionFilter?.kind === 'flagged') return t('sidebar.flagged')
     if (sessionFilter?.kind === 'archived') return t('sidebar.archived')
@@ -860,16 +842,6 @@ function AppShellContent({
     void window.electronAPI.markAllSessionsRead(activeWorkspaceId)
   }, [activeWorkspaceId, setSessionMetaMap])
 
-  // Tiers an install may target: the ones backed by a writable directory.
-  // Built-in ships with the app and is never a destination.
-  const installTargets = React.useMemo(
-    () =>
-      snapshot.tiers
-        .map(tier => tier.source)
-        .filter(source => source !== 'builtin'),
-    [snapshot],
-  )
-
   const navigationHeaderActions = (
     <>
       {isSessionsNavigation(navState) && (
@@ -878,19 +850,6 @@ function AppShellContent({
           tooltip={t('common.search')}
           onClick={() => setSearchActive(true)}
         />
-      )}
-      {isSkillsNavigation(navState) && activeWorkspace && (
-        <>
-          <SkillImportMenu
-            workspaceId={activeWorkspace.id}
-            targets={installTargets}
-            onInstalled={setSnapshot}
-          />
-          <EditPopover
-            trigger={<HeaderIconButton icon={<Plus className="h-4 w-4" />} tooltip={t('sidebarMenu.addSkill')} />}
-            {...getEditConfig('add-skill', activeWorkspace.dataRoot)}
-          />
-        </>
       )}
     </>
   )
@@ -909,16 +868,6 @@ function AppShellContent({
       activeSection={activeNavigationSection}
       activeSessionView={activeSessionView}
       title={listTitle}
-      titleBadge={
-        isSkillsNavigation(navState) && activeWorkspaceId ? (
-          <span
-            className="text-xs tabular-nums text-muted-foreground"
-            aria-label={t('skillsList.totalCount', { count: skills.length })}
-          >
-            {skills.length}
-          </span>
-        ) : undefined
-      }
       sessionCounts={{
         all: activeSessionMetas.length,
         flagged: flaggedCount,
@@ -929,25 +878,6 @@ function AppShellContent({
       onSelectSection={handleSelectNavigationSection}
       headerActions={navigationHeaderActions}
     >
-      {isSkillsNavigation(navState) && activeWorkspaceId && (
-        <SkillsListPanel
-          snapshot={snapshot}
-          workspaceId={activeWorkspaceId}
-          workspaceRootPath={activeWorkspace?.dataRoot}
-          onSkillClick={handleSkillSelect}
-          onDeleteSkill={handleDeleteSkill}
-          onToggleSkill={handleToggleSkill}
-          onTrustProject={handleTrustProject}
-          selectedSkillSlug={
-            navState.details?.type === 'skill'
-              ? selectedSkillIdFor(navState.details.skillSlug)
-              : null
-          }
-        />
-      )}
-      {isSettingsNavigation(navState) && navState.subpage === 'mcp' && (
-        <McpListPanel onSelectServer={handleConnectorsClick} onAddConnector={handleConnectorsClick} />
-      )}
       {isSettingsNavigation(navState) && navState.subpage !== 'mcp' && (
         <SettingsNavigator
           selectedSubpage={navState.subpage}

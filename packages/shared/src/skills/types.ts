@@ -164,6 +164,11 @@ export interface CatalogEntry {
   install?: InstallRecord;
   /** Declared MCP dependencies, resolved against workspace config. */
   mcpRequirements?: McpRequirement[];
+  /**
+   * SKILL.md's last modification time, epoch ms. Shown as "edited 4h ago" for
+   * hand-authored skills, which have no install record to date them by.
+   */
+  modifiedAt?: number;
 }
 
 /**

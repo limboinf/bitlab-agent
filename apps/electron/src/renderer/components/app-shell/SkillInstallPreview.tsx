@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { SKILL_SOURCE_LABEL_KEY } from '@/lib/skill-labels'
 import type { InstallPlan, SkillSource } from '../../../shared/types'
 
 export interface SkillInstallPreviewProps {
@@ -27,13 +28,6 @@ export interface SkillInstallPreviewProps {
   busy?: boolean
   onConfirm: (target: SkillSource) => void
   onCancel: () => void
-}
-
-const TIER_LABEL_KEY: Record<SkillSource, string> = {
-  project: 'skillsList.tierProject',
-  workspace: 'skillsList.tierWorkspace',
-  global: 'skillsList.tierGlobal',
-  builtin: 'skillsList.tierBuiltin',
 }
 
 function formatBytes(bytes: number): string {
@@ -167,7 +161,7 @@ export function SkillInstallPreview({
                         : 'border-border/60 text-muted-foreground hover:bg-foreground/[0.03]'
                     )}
                   >
-                    {t(TIER_LABEL_KEY[tier])}
+                    {t(SKILL_SOURCE_LABEL_KEY[tier])}
                   </button>
                 ))}
               </div>

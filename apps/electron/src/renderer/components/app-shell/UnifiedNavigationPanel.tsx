@@ -39,8 +39,6 @@ interface UnifiedNavigationPanelProps {
   activeSection: UnifiedNavigationSection
   activeSessionView: SessionNavigationView
   title: string
-  /** Optional badge rendered next to the title (e.g., total skill count) */
-  titleBadge?: React.ReactNode
   sessionCounts: {
     all: number
     flagged: number
@@ -66,7 +64,6 @@ export function UnifiedNavigationPanel({
   activeSection,
   activeSessionView,
   title,
-  titleBadge,
   sessionCounts,
   onSelectSessionView,
   onMarkAllSessionsRead,
@@ -77,6 +74,7 @@ export function UnifiedNavigationPanel({
   const { t } = useTranslation()
   const navigationRootRef = React.useRef<HTMLDivElement>(null)
   const isSessionsSection = activeSection === 'sessions'
+  const isCapabilitySection = activeSection === 'skills' || activeSection === 'mcp'
   const [extensionsOpen, setExtensionsOpen] = React.useState(() =>
     storage.get(storage.KEYS.sidebarExtensionsOpen, true),
   )
@@ -228,18 +226,32 @@ export function UnifiedNavigationPanel({
       </nav>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="mx-2 border-t border-border/30" aria-hidden="true" />
-        <PanelHeader
-          title={title}
-          badge={titleBadge}
-          titleMenu={sessionTitleMenu}
-          actions={headerActions}
-          className="h-8 pl-2.5 [&_h1]:text-xs [&_h1]:font-medium [&_h1]:text-muted-foreground"
-        />
-        {isSessionsSection ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+        {isCapabilitySection ? (
+          <div className="flex min-h-0 flex-1 items-end px-3 pb-3">
+            <div className="w-full rounded-xl bg-foreground/[0.035] px-3 py-3">
+              <p className="text-[11px] font-medium text-foreground/80">
+                {t('capabilityNav.tipTitle')}
+              </p>
+              <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                {t('capabilityNav.tipDescription')}
+              </p>
+            </div>
+          </div>
         ) : (
-          <NavigationBodyFocusZone>{children}</NavigationBodyFocusZone>
+          <>
+            <div className="mx-2 border-t border-border/30" aria-hidden="true" />
+            <PanelHeader
+              title={title}
+              titleMenu={sessionTitleMenu}
+              actions={headerActions}
+              className="h-8 pl-2.5 [&_h1]:text-xs [&_h1]:font-medium [&_h1]:text-muted-foreground"
+            />
+            {isSessionsSection ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+            ) : (
+              <NavigationBodyFocusZone>{children}</NavigationBodyFocusZone>
+            )}
+          </>
         )}
       </div>
 
