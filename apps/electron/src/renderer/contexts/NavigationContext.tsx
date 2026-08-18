@@ -52,6 +52,7 @@ import { parsePermissionMode } from '@bitlab/shared/agent/mode-types'
 import { NAVIGATE_EVENT, type NavigateOptions } from '../lib/navigate'
 import { normalizePanelRouteForReconcile } from './navigation-reconcile'
 import { buildSemanticHistoryKey, canRunInitialRestore } from './navigation-history'
+import { shouldAutoSelectSession } from './new-session-intent'
 import * as storage from '@/lib/local-storage'
 import type {
   DeepLinkNavigation,
@@ -204,7 +205,7 @@ export function NavigationProvider({
   const isPopstateSwitchRef = useRef(false)
 
   // Queue navigation if not ready yet
-  const pendingNavigationRef = useRef<ParsedRoute | null>(null)
+  const pendingNavigationRef = useRef<Route | null>(null)
 
   // Suppress auto-select for one cycle (used by skipAutoSelect to prevent the effect from re-selecting)
   const suppressAutoSelectRef = useRef(false)
@@ -431,13 +432,13 @@ export function NavigationProvider({
 
         focusedIndex = focusedIndexParam != null ? (parseInt(focusedIndexParam, 10) || 0) : 0
       } else if (initialRoute) {
-        // Single panel from ?route=
-        const navState = parseRouteToNavigationState(initialRoute)
-        if (navState) {
-          const finalRoute = ('details' in navState && navState.details)
-            ? (initialRoute as ViewRoute)
-            : (buildRouteFromNavigationState(resolveAutoSelectionRef.current(navState)) as ViewRoute)
-          entries = [{ route: finalRoute, proportion: 1 }]
+        // Single panel from ?route= — same normalization as the ?panels= entries
+        if (parseRouteToNavigationState(initialRoute)) {
+          const route = normalizePanelRouteForReconcile(
+            initialRoute as ViewRoute,
+            (state) => resolveAutoSelectionRef.current(state),
+          )
+          entries = [{ route, proportion: 1 }]
         }
       }
 
@@ -458,7 +459,8 @@ export function NavigationProvider({
 
   // Track which session IDs are visible across all panels. When a session ID
   // disappears (navigate away, close tab, Cmd+W), check if it was empty and
-  // auto-delete it. This is the single codepath for all navigate-away cleanup.
+  // auto-delete it. This is the single codepath for all navigate-away cleanup,
+  // and it is what keeps "New task" from leaving untouched sessions behind.
   const prevVisibleSessionIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
@@ -492,7 +494,12 @@ export function NavigationProvider({
 
   // Keep the global session selection in sync with the focused panel
   useEffect(() => {
-    if (isSessionsNavigation(navigationState) && navigationState.details) {
+    if (isSessionsNavigation(navigationState)) {
+      if (!navigationState.details) {
+        setSession({ selected: null })
+        return
+      }
+
       setSession({ selected: navigationState.details.sessionId })
       if (workspaceId) {
         // Only persist if the session belongs to this workspace (prevents cross-workspace
@@ -585,11 +592,7 @@ export function NavigationProvider({
       // Sessions: auto-select last/first session.
       // Board view has no per-session detail, so skip auto-selection — otherwise
       // navigating to the board would immediately resolve into a chat route.
-      if (
-        isSessionsNavigation(nextState) &&
-        !nextState.details &&
-        !options?.skipAutoSelect
-      ) {
+      if (shouldAutoSelectSession(nextState, options?.skipAutoSelect)) {
         const lastSelectedSessionId = getLastSelectedSessionId(nextState.filter)
         const fallbackSessionId = lastSelectedSessionId ?? getFirstSessionId(nextState.filter)
         if (fallbackSessionId) {
@@ -617,6 +620,21 @@ export function NavigationProvider({
 
       switch (parsed.name) {
         case 'new-session': {
+          // Park the panel on the draft route *before* awaiting creation. The
+          // draft route is the one sessions route auto-selection refuses to
+          // touch, so the in-flight frame can't be hijacked back to the last
+          // session. It is replaced by the real session route below.
+          const draftRoute = routes.view.newSessionDraft()
+          if (options?.newPanel) {
+            pushPanel({
+              route: draftRoute,
+              targetLaneId: options.targetLaneId,
+              intent: 'explicit',
+            })
+          } else {
+            store.set(updateFocusedPanelRouteAtom, draftRoute)
+          }
+
           const createOptions: import('../../shared/types').CreateSessionOptions = {}
           if (parsed.params.mode) {
             const parsedMode = parsePermissionMode(parsed.params.mode)
@@ -638,24 +656,18 @@ export function NavigationProvider({
 
           const filter: import('../../shared/types').SessionFilter = { kind: 'allSessions' }
 
-          if (options?.newPanel) {
-            // Open the new session in a new panel using lane-aware routing (pushPanel auto-focuses it)
-            pushPanel({
-              route: routes.view.allSessions(session.id) as ViewRoute,
-              targetLaneId: options.targetLaneId,
-              intent: 'explicit',
-            })
-          } else {
-            // Navigate the focused panel to the new session
-            const newState: NavigationState = {
-              navigator: 'sessions',
-              filter,
-              details: { type: 'session', sessionId: session.id },
-            }
-            const route = buildRouteFromNavigationState(newState) as ViewRoute
-            store.set(updateFocusedPanelRouteAtom, route)
-            // Session selection sync handled by effect
+          // The draft panel above is already the focused one in both cases, so
+          // swapping its route in place keeps a single panel per "New task".
+          const newState: NavigationState = {
+            navigator: 'sessions',
+            filter,
+            details: { type: 'session', sessionId: session.id },
           }
+          store.set(
+            updateFocusedPanelRouteAtom,
+            buildRouteFromNavigationState(newState) as ViewRoute,
+          )
+          // Session selection sync handled by effect
 
           // Parse badges from params
           let badges: ContentBadge[] | undefined
@@ -769,7 +781,7 @@ export function NavigationProvider({
       }
 
       if (!isReady) {
-        pendingNavigationRef.current = parsed
+        pendingNavigationRef.current = route
         return
       }
 
@@ -988,13 +1000,15 @@ export function NavigationProvider({
       const pending = pendingNavigationRef.current
       pendingNavigationRef.current = null
 
-      if (pending.type === 'action') {
-        handleActionNavigation(pending)
+      const parsed = parseRoute(pending)
+      if (!parsed) return
+
+      if (parsed.type === 'action') {
+        handleActionNavigation(parsed)
         return
       }
 
-      const routeStr = `${pending.name}${pending.id ? `/${pending.id}` : ''}`
-      const navState = parseRouteToNavigationState(routeStr)
+      const navState = parseRouteToNavigationState(pending)
       if (navState) {
         const resolved = resolveAutoSelection(navState)
         const finalRoute = buildRouteFromNavigationState(resolved) as ViewRoute

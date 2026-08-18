@@ -11,6 +11,8 @@ import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Panel } from './Panel'
 import { MultiSelectPanel } from './MultiSelectPanel'
+import { WelcomePanel } from './WelcomePanel'
+import { NewSessionPlaceholder } from './NewSessionPlaceholder'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { StoplightProvider } from '@/context/StoplightContext'
 import {
@@ -112,11 +114,16 @@ export function MainContentPanel({
         </Panel>,
       )
     }
+    if (navState.isNewSessionDraft) {
+      return wrapWithStoplight(
+        <Panel variant="grow" className={className}>
+          <NewSessionPlaceholder />
+        </Panel>,
+      )
+    }
     return wrapWithStoplight(
       <Panel variant="grow" className={className}>
-        <div className="flex items-center justify-center h-full text-muted-foreground">
-          <p className="text-sm">{t('session.noSessionSelected')}</p>
-        </div>
+        <WelcomePanel />
       </Panel>,
     )
   }

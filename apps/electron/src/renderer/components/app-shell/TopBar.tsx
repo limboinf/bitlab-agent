@@ -36,6 +36,8 @@ interface TopBarProps {
   onToggleSidebar: () => void
   onAddSessionPanel: () => void
   onAddBrowserPanel: () => void
+  /** Whether to show the add-panel menu in the top-right corner. */
+  showAddPanelMenu?: boolean
   /** When true, hides controls that don't apply in compact/mobile layout */
   isCompact?: boolean
 }
@@ -49,6 +51,7 @@ export function TopBar({
   onToggleSidebar,
   onAddSessionPanel,
   onAddBrowserPanel,
+  showAddPanelMenu = true,
   isCompact,
 }: TopBarProps) {
   const { t } = useTranslation()
@@ -153,23 +156,25 @@ export function TopBar({
         <div className="min-w-0">
           <BrowserTabStrip activeSessionId={activeSessionId} maxVisibleBadges={maxVisibleBrowserBadges} />
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <TopBarButton aria-label={t("menu.addPanelMenu")} className="ml-1 h-[26px] w-[26px] rounded-lg">
-              <Icons.Plus className="h-4 w-4 text-foreground/50" strokeWidth={1.5} />
-            </TopBarButton>
-          </DropdownMenuTrigger>
-          <StyledDropdownMenuContent align="end" minWidth="min-w-56">
-            <StyledDropdownMenuItem onClick={onAddSessionPanel}>
-              <SquarePenRounded className="h-3.5 w-3.5" />
-              {t("session.newSessionInPanel")}
-            </StyledDropdownMenuItem>
-            <StyledDropdownMenuItem onClick={onAddBrowserPanel}>
-              <Icons.Globe className="h-3.5 w-3.5" />
-              {t("browser.newWindow")}
-            </StyledDropdownMenuItem>
-          </StyledDropdownMenuContent>
-        </DropdownMenu>
+        {showAddPanelMenu && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <TopBarButton aria-label={t("menu.addPanelMenu")} className="ml-1 h-[26px] w-[26px] rounded-lg">
+                <Icons.Plus className="h-4 w-4 text-foreground/50" strokeWidth={1.5} />
+              </TopBarButton>
+            </DropdownMenuTrigger>
+            <StyledDropdownMenuContent align="end" minWidth="min-w-56">
+              <StyledDropdownMenuItem onClick={onAddSessionPanel}>
+                <SquarePenRounded className="h-3.5 w-3.5" />
+                {t("session.newSessionInPanel")}
+              </StyledDropdownMenuItem>
+              <StyledDropdownMenuItem onClick={onAddBrowserPanel}>
+                <Icons.Globe className="h-3.5 w-3.5" />
+                {t("browser.newWindow")}
+              </StyledDropdownMenuItem>
+            </StyledDropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       )}
       </div>

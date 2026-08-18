@@ -13,6 +13,37 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.4.0] - 2026-08-18
+
+### Fixed
+
+- **"New task" opens a new task.** Starting one could snap the panel back to
+  the session you just left, because a sessions route without an explicit
+  session resolves to the last one you had open — and the new session was not
+  yet on that route while it was being created. New tasks now hold a route
+  auto-selection refuses to touch until the real session takes over, so the
+  chat you land in is the one you asked for, with the full composer.
+- **The session list stops reordering itself on restart.** Closing the app
+  flushed every session to disk and stamped each one as used right then, so an
+  old branch could sit above the chat you were in the day before. Ordering now
+  follows the last message in a session, and rewriting a session's file no
+  longer counts as activity. Sessions written by earlier versions are ordered
+  by when they were created rather than by that stale stamp.
+
+### Changed
+
+- **A quieter Skills page.** The Project filter is gone — the source of every
+  skill is already on its card and searchable — along with the page's overflow
+  menu and the panel-splitting control in the title bar, neither of which did
+  anything a skill catalog needs. The detail dialog is wider, and the
+  enable/disable toggle is the same switch used everywhere else in the app.
+- **Connectors is reached from Extensions, not Settings.** The MCP settings
+  page stays where deep links and existing shortcuts expect it, but no longer
+  appears twice in the settings navigator and the app menu.
+- **Less standing explanatory text.** The capability navigator's tip card and
+  the footnote under the context meter's breakdown are gone; both restated what
+  the surfaces above them already show.
+
 ## [0.3.0] - 2026-08-16
 
 ### Added
@@ -201,6 +232,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.4.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.4.0
 [0.3.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.3.0
 [0.2.2]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.2
 [0.2.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.1

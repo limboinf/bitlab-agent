@@ -632,6 +632,8 @@ export interface SessionsNavigationState {
   navigator: 'sessions'
   filter: SessionFilter
   details: { type: 'session'; sessionId: string } | null
+  /** True only for the explicit empty Chat surface opened by “New task”. */
+  isNewSessionDraft?: true
   rightSidebar?: RightSidebarPanel
 }
 
@@ -678,6 +680,7 @@ export const getNavigationStateKey = (state: NavigationState): string => {
     return state.subpage === null ? 'settings' : `settings:${state.subpage}`
   }
   const base = state.filter.kind
+  if (state.isNewSessionDraft) return `${base}/new`
   return state.details ? `${base}/session/${state.details.sessionId}` : base
 }
 
@@ -700,6 +703,14 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
         : filterKey === 'archived' ? { kind: 'archived' }
           : null
   if (!filter) return null
+  if (filterKey === 'allSessions' && detailType === 'new') {
+    return {
+      navigator: 'sessions',
+      filter,
+      details: null,
+      isNewSessionDraft: true,
+    }
+  }
   return {
     navigator: 'sessions',
     filter,

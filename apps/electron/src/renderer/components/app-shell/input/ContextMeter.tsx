@@ -218,10 +218,6 @@ export function ContextMeter({
           </dl>
         )}
 
-        <p className="mt-3 text-[11px] leading-snug text-foreground/40">
-          {t('chat.contextApprox')}
-        </p>
-
         {showCompact && (
           <button
             type="button"

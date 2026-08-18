@@ -15,6 +15,7 @@ import {
 import { toast } from 'sonner'
 import { SkillAvatar } from '@/components/ui/skill-avatar'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Dialog,
@@ -31,7 +32,6 @@ import {
   StyledDropdownMenuSeparator,
 } from '@/components/ui/styled-dropdown'
 import { EditPopover, getEditConfig } from '@/components/ui/EditPopover'
-import { HeaderMenu } from '@/components/ui/HeaderMenu'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { SkillImportMenu } from '@/components/app-shell/SkillImportMenu'
 import { Info_Markdown } from '@/components/info'
@@ -42,7 +42,7 @@ import { SKILL_SOURCE_LABEL_KEY } from '@/lib/skill-labels'
 import { cn } from '@/lib/utils'
 import type { CatalogEntry, SkillSource } from '../../shared/types'
 
-type SkillFilter = 'all' | 'enabled' | 'project'
+type SkillFilter = 'all' | 'enabled'
 
 function formatSkillPath(path: string) {
   const skillsIndex = path.indexOf('/skills/')
@@ -90,29 +90,13 @@ function SkillToggle({
   const { t } = useTranslation()
   const disabled = skill.trust === 'untrusted'
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={skill.enabled}
+    <Switch
+      checked={skill.enabled}
       aria-label={t('skillsList.toggleSkill', { name: skill.metadata.name })}
       disabled={disabled}
-      onClick={(event) => {
-        event.stopPropagation()
-        onChange(!skill.enabled)
-      }}
-      className={cn(
-        'relative h-5 w-8 shrink-0 rounded-full transition-colors',
-        skill.enabled ? 'bg-foreground/75' : 'bg-foreground/15',
-        disabled && 'cursor-not-allowed opacity-40',
-      )}
-    >
-      <span
-        className={cn(
-          'absolute top-0.5 size-4 rounded-full bg-background shadow-minimal transition-transform',
-          skill.enabled ? 'translate-x-3.5' : 'translate-x-0.5',
-        )}
-      />
-    </button>
+      onCheckedChange={onChange}
+      onClick={(event) => event.stopPropagation()}
+    />
   )
 }
 
@@ -300,7 +284,7 @@ function SkillDetailDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="h-[88vh] max-h-[900px] max-w-5xl grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0">
+      <DialogContent className="h-[88vh] max-h-[900px] sm:max-w-6xl grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border/50 px-6 py-5 pr-14">
           <div className="flex items-start gap-3.5">
             <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-foreground/[0.045]">
@@ -522,7 +506,6 @@ export default function SkillsCatalogPage() {
     return snapshot.entries
       .filter((entry) => {
         if (filter === 'enabled' && (!entry.enabled || entry.trust === 'untrusted')) return false
-        if (filter === 'project' && entry.source !== 'project') return false
         if (!needle) return true
         return [entry.metadata.name, entry.metadata.description, entry.slug, entry.source]
           .join(' ')
@@ -538,20 +521,21 @@ export default function SkillsCatalogPage() {
   const enabledCount = snapshot?.entries.filter(
     (entry) => entry.enabled && entry.trust !== 'untrusted',
   ).length ?? 0
-  const projectCount = snapshot?.entries.filter((entry) => entry.source === 'project').length ?? 0
   const installTargets = snapshot?.tiers
     .map((tier) => tier.source)
     .filter((source) => source !== 'builtin') ?? []
   const projectTier = snapshot?.tiers.find((tier) => tier.source === 'project')
   // The root to offer trust for — set only when there is something to trust.
   const untrustedProjectRoot =
-    projectTier?.trust === 'untrusted' && projectCount > 0 ? snapshot?.projectRoot : undefined
+    projectTier?.trust === 'untrusted' && snapshot?.entries.some((entry) => entry.source === 'project')
+      ? snapshot.projectRoot
+      : undefined
 
   if (!snapshot || !activeWorkspaceId) return null
 
   return (
     <div className="flex h-full flex-col">
-      <PanelHeader title={t('sidebar.allSkills')} actions={<HeaderMenu route={routes.view.skills()} />} />
+      <PanelHeader title={t('sidebar.allSkills')} />
       <div className="min-h-0 flex-1 mask-fade-y">
         <ScrollArea className="h-full">
           <div className="mx-auto max-w-5xl px-5 py-8 @md/panel:px-8 @lg/panel:py-10">
@@ -598,7 +582,6 @@ export default function SkillsCatalogPage() {
                 {([
                   ['all', t('skillsCatalog.filterAll', { count: snapshot.entries.length })],
                   ['enabled', t('skillsCatalog.filterEnabled', { count: enabledCount })],
-                  ['project', t('skillsCatalog.filterProject', { count: projectCount })],
                 ] as Array<[SkillFilter, string]>).map(([id, label]) => (
                   <button
                     key={id}

@@ -1,6 +1,6 @@
 {
   "name": "@bitlab/server",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Standalone headless Bitlab server (Bun runtime)",
   "type": "module",
   "main": "src/index.ts",

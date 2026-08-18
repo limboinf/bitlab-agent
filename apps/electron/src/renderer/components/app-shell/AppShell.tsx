@@ -918,7 +918,7 @@ function AppShellContent({
           }}
           groupingMode={chatGroupingMode}
           workspaceId={activeWorkspaceId ?? undefined}
-          focusedSessionId={panelCount === 0 ? null : panelCount > 1 ? focusedSessionId : undefined}
+          focusedSessionId={focusedSessionId}
           onNavigateToSession={panelCount > 1 ? navigateToSessionInPanel : undefined}
           hasPendingPrompt={hasPendingPrompt}
           activeChatMatchInfo={chatMatchInfo}
@@ -1018,6 +1018,7 @@ function AppShellContent({
         onToggleSidebar={handleToggleSidebar}
         onAddSessionPanel={() => handleNewChat(true)}
         onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
+        showAddPanelMenu={!isSkillsNavigation(navState)}
         isCompact={isAutoCompact}
       />
 

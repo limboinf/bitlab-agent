@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test'
+import { parseRouteToNavigationState } from '../../../shared/route-parser'
+import { routes } from '../../../shared/routes'
 import { normalizePanelRouteForReconcile } from '../navigation-reconcile'
+import { shouldAutoSelectSession } from '../new-session-intent'
 import type { NavigationState } from '../../../shared/types'
 
 describe('normalizePanelRouteForReconcile', () => {
@@ -103,5 +106,38 @@ describe('normalizePanelRouteForReconcile', () => {
     const normalized = routes.map((route) => normalizePanelRouteForReconcile(route, resolver))
 
     expect(normalized).toEqual(['allSessions/session/left', 'allSessions/session/right'])
+  })
+
+  // The draft route is a live handoff between "New task" and the session it
+  // creates. Auto-selection must not touch it while that handoff is in flight,
+  // but a URL still carrying it (reload, Back) is stale: nothing is coming to
+  // fill that panel in, so reconciliation drops back to the normal list.
+  it('parses the new-task draft route as a detail-less draft state', () => {
+    expect(parseRouteToNavigationState(routes.view.newSessionDraft())).toEqual({
+      navigator: 'sessions',
+      filter: { kind: 'allSessions' },
+      details: null,
+      isNewSessionDraft: true,
+    })
+  })
+
+  it('refuses to auto-select on a draft state', () => {
+    const draftState = parseRouteToNavigationState(routes.view.newSessionDraft())
+    expect(shouldAutoSelectSession(draftState as NavigationState)).toBe(false)
+  })
+
+  it('downgrades a stale draft route from the URL to the resolved list route', () => {
+    const resolver = (state: NavigationState): NavigationState =>
+      shouldAutoSelectSession(state)
+        ? { ...state, details: { type: 'session', sessionId: 'last-selected-session' } }
+        : state
+
+    expect(normalizePanelRouteForReconcile(routes.view.newSessionDraft(), resolver))
+      .toBe('allSessions/session/last-selected-session')
+  })
+
+  it('downgrades a stale draft route to the bare list when nothing can be selected', () => {
+    expect(normalizePanelRouteForReconcile(routes.view.newSessionDraft(), (state) => state))
+      .toBe('allSessions')
   })
 })

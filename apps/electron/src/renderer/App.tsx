@@ -1543,14 +1543,15 @@ export default function App() {
     schedulePersistDraft(sessionId)
   }, [schedulePersistDraft])
 
-  // Open new chat - creates session and selects it
-  // Used by components via AppShellContext and for programmatic navigation
+  // Open a new chat: always materialises a real session so the chat surface
+  // gets the full composer, then sends the first message when one was supplied.
   const openNewChat = useCallback(async (params: NewChatActionParams = {}) => {
     if (!windowWorkspaceId) {
       console.warn('[App] Cannot open new chat: no workspace ID')
       return
     }
 
+    const input = params.input?.trim()
     const session = await handleCreateSession(windowWorkspaceId)
 
     if (params.name) {
@@ -1560,11 +1561,8 @@ export default function App() {
     // Navigate to the chat view - this sets both selectedSession and activeView
     navigate(routes.view.allSessions(session.id))
 
-    // Pre-fill input if provided (after a small delay to ensure component is mounted)
-    if (params.input) {
-      setTimeout(() => handleInputChange(session.id, params.input!), 100)
-    }
-  }, [windowWorkspaceId, handleCreateSession, handleInputChange])
+    if (input) await handleSendMessage(session.id, input)
+  }, [windowWorkspaceId, handleCreateSession, handleSendMessage])
 
   const handleRespondToPermission = useCallback(async (
     sessionId: string,

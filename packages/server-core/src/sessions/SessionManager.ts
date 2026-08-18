@@ -509,7 +509,8 @@ export class SessionManager implements ISessionManager {
       workspaceName: managed.workspace.name,
       name: managed.name,
       preview: managed.preview,
-      lastMessageAt: managed.lastMessageAt ?? managed.lastUsedAt,
+      lastMessageAt: managed.lastMessageAt
+        ?? ((managed.messageCount ?? 0) > 0 ? managed.createdAt : managed.lastUsedAt),
       messages,
       isProcessing: managed.isProcessing,
       isFlagged: managed.isFlagged,

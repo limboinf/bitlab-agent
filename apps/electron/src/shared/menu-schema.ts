@@ -392,10 +392,12 @@ const SETTINGS_ICONS: Record<SettingsSubpage, string> = {
 }
 
 /**
- * All settings pages - derived from settings-registry (single source of truth)
- * Order is determined by SETTINGS_PAGES in settings-registry.ts
+ * Settings nav/menu items — derived from settings-registry.
+ * Pages marked `hideFromNav` stay routable but are omitted here.
  */
-export const SETTINGS_ITEMS: SettingsMenuItem[] = SETTINGS_PAGES.map(page => ({
+export const SETTINGS_ITEMS: SettingsMenuItem[] = SETTINGS_PAGES
+  .filter((page) => !page.hideFromNav)
+  .map((page) => ({
     id: page.id,
     labelKey: page.labelKey,
     icon: SETTINGS_ICONS[page.id],

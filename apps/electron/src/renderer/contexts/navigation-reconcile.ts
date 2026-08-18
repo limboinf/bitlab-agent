@@ -24,6 +24,18 @@ export function normalizePanelRouteForReconcile(
     return route
   }
 
+  // The new-task draft route is a live handoff, never a destination: the panel
+  // sits on it only while the session is being created. Reaching it from a URL
+  // (reload, Back) means that handoff is long gone, so drop back to the plain
+  // list rather than restoring a panel nothing will ever fill in.
+  if ('isNewSessionDraft' in navState && navState.isNewSessionDraft) {
+    const { isNewSessionDraft: _draft, ...listState } = navState
+    return normalizePanelRouteForReconcile(
+      buildRouteFromNavigationState(listState) as ViewRoute,
+      resolveAutoSelection,
+    )
+  }
+
   const resolved = resolveAutoSelection(navState)
   return buildRouteFromNavigationState(resolved) as ViewRoute
 }

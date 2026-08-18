@@ -368,8 +368,14 @@ export function listSessions(workspaceRootPath: string): SessionMetadata[] {
   span.mark('parsed');
   span.setMetadata('count', sessions.length);
 
-  // Sort by lastUsedAt descending (most recent first)
-  const sorted = sessions.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+  // Prefer the last message time. For legacy sessions without lastMessageAt,
+  // use creation time when messages exist so stale shutdown-written lastUsedAt
+  // values cannot keep an old branch at the top forever.
+  const sorted = sessions.sort((a, b) => {
+    const aActivityAt = a.lastMessageAt ?? (a.messageCount > 0 ? a.createdAt : a.lastUsedAt);
+    const bActivityAt = b.lastMessageAt ?? (b.messageCount > 0 ? b.createdAt : b.lastUsedAt);
+    return bActivityAt - aActivityAt;
+  });
   span.end();
   return sorted;
 }

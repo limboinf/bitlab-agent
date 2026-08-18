@@ -81,6 +81,9 @@ export const routes = {
     allSessions: (sessionId?: string) =>
       sessionId ? `allSessions/session/${sessionId}` as const : 'allSessions' as const,
 
+    /** Empty new-task Chat surface; deliberately bypasses session auto-selection. */
+    newSessionDraft: () => 'allSessions/new' as const,
+
     /** Flagged view (sessions navigator, flagged filter) */
     flagged: (sessionId?: string) =>
       sessionId ? `flagged/session/${sessionId}` as const : 'flagged' as const,

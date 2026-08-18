@@ -108,7 +108,7 @@ export interface AppShellContextType {
   // Attachment draft callback — persists attachment refs per session
   onAttachmentsChange: (sessionId: string, attachments: FileAttachment[]) => void
 
-  // Open a new chat with optional agent, name, and pre-filled input
+  // Start a new chat from an initial user message
   openNewChat?: (params?: NewChatActionParams) => Promise<void>
 
   // Right sidebar button (for page headers)

@@ -23,6 +23,7 @@ export interface ParsedCompoundRoute {
   navigator: NavigatorType
   sessionFilter?: SessionFilter
   details: { type: string; id: string } | null
+  isNewSessionDraft?: true
 }
 
 const COMPOUND_ROUTE_PREFIXES = ['allSessions', 'flagged', 'archived', 'skills', 'settings']
@@ -58,6 +59,14 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
         : first === 'archived' ? { kind: 'archived' }
           : null
   if (!filter) return null
+  if (first === 'allSessions' && segments.length === 2 && segments[1] === 'new') {
+    return {
+      navigator: 'sessions',
+      sessionFilter: filter,
+      details: null,
+      isNewSessionDraft: true,
+    }
+  }
   if (segments.length === 1) {
     return { navigator: 'sessions', sessionFilter: filter, details: null }
   }
@@ -79,6 +88,7 @@ export function buildCompoundRoute(parsed: ParsedCompoundRoute): string {
     return parsed.details ? `skills/skill/${parsed.details.id}` : 'skills'
   }
   const base = parsed.sessionFilter?.kind ?? 'allSessions'
+  if (parsed.isNewSessionDraft) return `${base}/new`
   return parsed.details ? `${base}/session/${parsed.details.id}` : base
 }
 
@@ -94,6 +104,9 @@ function compoundToParsedRoute(compound: ParsedCompoundRoute): ParsedRoute {
       : { type: 'view', name: 'skills', params: {} }
   }
   const filter = compound.sessionFilter ?? { kind: 'allSessions' as const }
+  if (compound.isNewSessionDraft) {
+    return { type: 'view', name: 'allSessions/new', params: {} }
+  }
   return compound.details
     ? { type: 'view', name: 'session', id: compound.details.id, params: { filter: filter.kind } }
     : { type: 'view', name: filter.kind, params: {} }
@@ -138,6 +151,7 @@ function compoundToNavigationState(compound: ParsedCompoundRoute): NavigationSta
     navigator: 'sessions',
     filter: compound.sessionFilter ?? { kind: 'allSessions' },
     details: compound.details ? { type: 'session', sessionId: compound.details.id } : null,
+    ...(compound.isNewSessionDraft ? { isNewSessionDraft: true as const } : {}),
   }
 }
 
@@ -158,6 +172,7 @@ export function buildRouteFromNavigationState(state: NavigationState): string {
     return state.details ? `skills/skill/${state.details.skillSlug}` : 'skills'
   }
   const base = state.filter.kind
+  if (state.isNewSessionDraft) return `${base}/new`
   return state.details ? `${base}/session/${state.details.sessionId}` : base
 }
 

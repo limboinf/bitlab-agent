@@ -171,8 +171,6 @@ export function createSessionHeader(session: StoredSession): SessionHeader {
     ...pickSessionFields(session),
     // Path conversion for portability
     workspaceRootPath: toPortablePath(session.workspaceRootPath),
-    // Override lastUsedAt with current timestamp (save time, not original)
-    lastUsedAt: Date.now(),
     // Pre-computed fields
     messageCount: session.messages.length,
     lastMessageRole: extractLastMessageRole(session.messages),
