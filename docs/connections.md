@@ -147,10 +147,6 @@ When you delete a connection, the credential reference is removed from the keych
 - Per-workspace connections are not implemented; the registry is global. A workspace can still pin a single `defaultConnectionId`.
 - Quota and rate-limit monitoring is delegated to the provider; Bitlab surfaces provider-reported errors verbatim.
 
-## What is intentionally absent
-
-The OAuth surface is restricted to ChatGPT Plus and Claude Pro/Max. GitHub Copilot, Craft gateway, Sources OAuth, generic OAuth providers, and the Claude Agent SDK remain physically absent. Desktop owns the ChatGPT localhost callback; WebUI can use an already stored ChatGPT subscription but cannot start a new ChatGPT login.
-
 ## Verifying a connection
 
 Connections are managed from Desktop or WebUI under Settings → Connections, where

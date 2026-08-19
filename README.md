@@ -30,12 +30,35 @@ model flexibility, browser tools, and document tools in one application.
 Application state stays under your local data directory, and credentials are stored through the
 operating system credential manager.
 
+## See Bitlab in action
+
+### Turn conversations into working artifacts
+
+Follow the agent's progress, inspect file operations, and preview finished results directly inside
+the session.
+
+<p align="center">
+  <img src="./apps/website/public/assets/screenshots/agent-artifact-preview.webp" alt="Bitlab generating and previewing an interactive artifact inside an agent session" width="100%" />
+</p>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./apps/website/public/assets/screenshots/mcp-connectors.webp" alt="Bitlab MCP connector manager" width="100%" />
+      <br /><strong>Connect external tools</strong><br />Manage MCP servers, available tools, and connection status from one workspace.
+    </td>
+    <td width="50%" valign="top">
+      <img src="./apps/website/public/assets/screenshots/skills-library.webp" alt="Bitlab Skills library" width="100%" />
+      <br /><strong>Reuse the way you work</strong><br />Browse and enable Skills that package instructions, scripts, and references.
+    </td>
+  </tr>
+</table>
 
 ## Features
 
 - **Local-first workspaces** — keep sessions, files, settings, and workspace history on your machine.
-- **Flexible model connections** — use ChatGPT Plus, Claude Pro/Max, provider API keys,
-  OpenAI-compatible or Anthropic-compatible endpoints, and local Ollama models.
+- **Flexible model connections** — sign in with ChatGPT Plus, use API keys for providers such as
+  OpenAI or Anthropic (Claude), connect compatible endpoints, or run local Ollama models.
 - **Desktop and WebUI** — work through the Electron app or a browser-based renderer backed by an RPC
   command-line client backed by the same runtime.
 - **Agent workflows** — create and branch sessions, build plans, use Skills, resume work, manage

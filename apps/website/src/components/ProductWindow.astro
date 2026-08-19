@@ -1,19 +1,171 @@
-<div class="hero-art" aria-label="Bitlab product preview">
-  <div class="window">
-    <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-    <div class="window-body">
-      <aside class="sidebar">
-        <div class="side-label">Tasks</div>
-        <div class="side-row active"></div><div class="side-row"></div><div class="side-row"></div>
-        <div class="side-label" style="margin-top:30px">Skills · Connectors</div>
-        <div class="side-row"></div><div class="side-row"></div>
+---
+interface Props {
+  lang?: "en" | "zh";
+}
+
+const { lang = "en" } = Astro.props;
+const zh = lang === "zh";
+
+const copy = zh
+  ? {
+      label: "Bitlab 工作区预览：一份刚完成的 Pi Agent 版本公报",
+      workspace: "默认工作区",
+      newTask: "新任务",
+      extensions: "扩展",
+      skills: "技能",
+      connectors: "连接器",
+      today: "今天",
+      settings: "设置",
+      sessions: [
+        { title: "Pi Agent 版本更新", time: "1 分钟前", active: true },
+        { title: "心累情绪管理", time: "8 小时前" },
+        { title: "MCP 连接器", time: "昨天" },
+        { title: "网页搜索", time: "3 天前" },
+      ],
+      sessionTitle: "Pi Agent 版本更新",
+      user: "写一份 Pi 0.84.2 的版本公报。短一点，好扫读，真正有用。",
+      tool: "pi-0842-release.html",
+      note: "文件已生成，预览如下：",
+      artifactKicker: "新版本公报",
+      artifactTitle: "PI · RELEASE DISPATCH",
+      artifactNo: "No. 0842",
+      artifactDate: "2026 / 08 / 14",
+      artifactVersion: "0.84.2",
+      artifactBody: "全屏转录搜索、可配置默认工具，以及更快的 Mistral 传输层。",
+      command: "$ pi update",
+      placeholder: "继续问一句…",
+      mode: "完全访问",
+      model: "deepseek-v4-flash",
+    }
+  : {
+      label: "Bitlab workspace preview: a finished Pi Agent release dispatch",
+      workspace: "Default workspace",
+      newTask: "New task",
+      extensions: "Extensions",
+      skills: "Skills",
+      connectors: "Connectors",
+      today: "Today",
+      settings: "Settings",
+      sessions: [
+        { title: "Pi Agent release", time: "1m", active: true },
+        { title: "Mood tracker", time: "8h" },
+        { title: "MCP connectors", time: "Yesterday" },
+        { title: "Web research", time: "3d" },
+      ],
+      sessionTitle: "Pi Agent release",
+      user: "Write a release dispatch for Pi 0.84.2. Keep it short, useful, and easy to scan.",
+      tool: "pi-0842-release.html",
+      note: "File is ready. Preview below:",
+      artifactKicker: "New release",
+      artifactTitle: "PI · RELEASE DISPATCH",
+      artifactNo: "No. 0842",
+      artifactDate: "2026 / 08 / 14",
+      artifactVersion: "0.84.2",
+      artifactBody: "Full-screen transcript search, configurable defaults, and a faster Mistral path.",
+      command: "$ pi update",
+      placeholder: "Ask a follow-up…",
+      mode: "Full access",
+      model: "deepseek-v4-flash",
+    };
+---
+
+<div class="hero-art" role="img" aria-label={copy.label}>
+  <div class="pw" aria-hidden="true">
+    <div class="pw-chrome">
+      <span class="pw-dots" aria-hidden="true">
+        <i></i><i></i><i></i>
+      </span>
+      <span class="pw-navbtns" aria-hidden="true">
+        <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M6 3v10" /></svg>
+        <svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5" /></svg>
+        <svg viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" /></svg>
+      </span>
+      <span class="pw-chrome-spacer"></span>
+      <span class="pw-plus" aria-hidden="true">
+        <svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" /></svg>
+      </span>
+    </div>
+
+    <div class="pw-body">
+      <aside class="pw-sidebar">
+        <div class="pw-workspace">
+          <img src="/assets/bitlab-mark.svg" alt="" width="16" height="16" />
+          <span>{copy.workspace}</span>
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 8l3-3.5" /></svg>
+        </div>
+
+        <div class="pw-newtask">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3.5h6.5L13 6v6.5H4z" /><path d="M10.5 3.5V6H13" /><path d="M6 9.5h4" /></svg>
+          {copy.newTask}
+        </div>
+
+        <div class="pw-ext">
+          <div class="pw-label">{copy.extensions}</div>
+          <div class="pw-ext-item">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2 4.5 8.5H8l-1 5.5 5.5-7H9z" /></svg>
+            {copy.skills}
+          </div>
+          <div class="pw-ext-item">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2v3.5M10 2v3.5M4.5 5.5h7v3.2a3.5 3.5 0 0 1-7 0V5.5zM8 12.2V14" /></svg>
+            {copy.connectors}
+          </div>
+        </div>
+
+        <div class="pw-sessions">
+          <div class="pw-label">{copy.today}</div>
+          {copy.sessions.map((session) => (
+            <div class:list={["pw-session", session.active && "is-active"]}>
+              <span class="pw-session-title">{session.title}</span>
+              <span class="pw-session-time">{session.time}</span>
+            </div>
+          ))}
+        </div>
+
+        <div class="pw-settings">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h12M2 11.5h12M6 2.5v4M10.5 9.5v4" /></svg>
+          {copy.settings}
+        </div>
       </aside>
-      <div class="chat">
-        <div class="chat-kicker">Pi agent / Product launch</div>
-        <div class="chat-title">Let’s make this useful.</div>
-        <div class="chat-line"></div><div class="chat-line short"></div>
-        <div class="chat-card"><strong>Plan ready</strong><span></span><span style="width:58%"></span></div>
-      </div>
+
+      <section class="pw-main">
+        <header class="pw-header">{copy.sessionTitle}</header>
+        <div class="pw-thread">
+          <div class="pw-user">{copy.user}</div>
+          <div class="pw-tools">
+            <span class="pw-chip">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3.5h6l2 2V12.5H4z" /><path d="M10 3.5V6h2" /></svg>
+              {copy.tool}
+            </span>
+          </div>
+          <p class="pw-note">{copy.note}</p>
+          <article class="pw-artifact">
+            <div class="pw-artifact-meta">
+              <span>{copy.artifactTitle}</span>
+              <span>{copy.artifactNo}</span>
+            </div>
+            <div class="pw-artifact-date">{copy.artifactDate}</div>
+            <div class="pw-artifact-kicker">— {copy.artifactKicker}</div>
+            <div class="pw-artifact-version">{copy.artifactVersion}<sup>®</sup></div>
+            <p class="pw-artifact-body">{copy.artifactBody}</p>
+            <code class="pw-artifact-cmd">{copy.command}</code>
+          </article>
+        </div>
+
+        <div class="pw-composer">
+          <div class="pw-field">
+            <span>{copy.placeholder}</span>
+            <i class="pw-caret"></i>
+          </div>
+          <div class="pw-toolbar">
+            <span class="pw-pill">{copy.mode}<svg viewBox="0 0 12 12"><path d="M3 4.5 6 8l3-3.5" /></svg></span>
+            <span class="pw-toolbar-spacer"></span>
+            <span class="pw-pill">{copy.model}<svg viewBox="0 0 12 12"><path d="M3 4.5 6 8l3-3.5" /></svg></span>
+            <span class="pw-send" aria-hidden="true">
+              <svg viewBox="0 0 16 16"><path d="M8 12.5V3.5M4.5 7 8 3.5 11.5 7" /></svg>
+            </span>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </div>

@@ -45,6 +45,3 @@ Both obey session permissions and reuse the same network proxy.
 
 WebUI delegates browser capabilities to a connected host. The connection reuses the same RPC channel as sessions; there is no extra surface to authenticate. This **does not** turn the WebUI into a remote-workspace product: WebUI still operates one local workspace.
 
-## What is intentionally absent
-
-The Craft "Browser remote control for shared sessions" flow (Viewer / public link / paired device) is intentionally not implemented.

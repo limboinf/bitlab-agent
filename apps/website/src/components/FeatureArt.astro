@@ -1,0 +1,18 @@
+---
+interface Props {
+  /** Where the orbits anchor: "tr" = top-right corner, "bl" = bottom-left corner */
+  pos?: "tr" | "bl";
+}
+const { pos = "tr" } = Astro.props;
+---
+<div class={`feature-art pos-${pos}`} aria-hidden="true">
+  <span class="art-glow"></span>
+  <span class="orbit orbit-outer">
+    <span class="orbit-spin slow"><i class="electron"></i><i class="electron flip"></i></span>
+  </span>
+  <span class="orbit orbit-inner orbit-dashed">
+    <span class="orbit-spin fast reverse"><i class="electron green"></i></span>
+  </span>
+  <span class="node node-a"></span>
+  <span class="node node-b"></span>
+</div>

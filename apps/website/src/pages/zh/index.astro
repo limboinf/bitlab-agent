@@ -1,6 +1,7 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import ProductWindow from "../../components/ProductWindow.astro";
+import FeatureArt from "../../components/FeatureArt.astro";
 ---
 <BaseLayout lang="zh" title="Bitlab — 基于 Pi Agent 的简洁高效 AI 工作区" description="Bitlab 是一个基于 Pi Agent、本地优先、简洁高效的 AI 工作区，提供 Desktop 桌面端和 WebUI 网页端。">
   <section class="shell hero">
@@ -15,18 +16,33 @@ import ProductWindow from "../../components/ProductWindow.astro";
         </div>
         <p class="hero-note">Desktop 桌面端 · WebUI 网页端 &nbsp; / &nbsp; Apache-2.0 开源协议</p>
       </div>
-      <ProductWindow />
+      <ProductWindow lang="zh" />
+    </div>
+  </section>
+  <section class="shell section product-showcase" id="product">
+    <div class="section-heading"><h2>真实工作区。<br />承接真实任务。</h2><p class="section-intro">从对话推进到完成的成果，接入你正在使用的工具，并把可复用的工作方式随时放在手边——全部在 Bitlab 中完成。</p></div>
+    <div class="screenshot-grid">
+      <article class="screenshot-card screenshot-card-primary">
+        <div class="screenshot-frame"><img src="/assets/screenshots/agent-artifact-preview.webp" alt="Bitlab 在 Agent 会话中生成并预览交互式版本公报" width="3152" height="2152" loading="lazy" /></div>
+        <h3>从一句需求到可用成果</h3><p>跟随 Agent 的执行进度，检查文件操作，并在不离开会话的情况下直接预览最终结果。</p>
+      </article>
+      <article class="screenshot-card">
+        <div class="screenshot-frame"><img src="/assets/screenshots/mcp-connectors.webp" alt="Bitlab MCP 连接器管理页展示已安装的外部工具服务器" width="3152" height="2152" loading="lazy" /></div>
+        <h3>连接外部工具</h3><p>在一个清晰的工作区中管理 MCP 服务器、可用工具和连接状态。</p>
+      </article>
+      <article class="screenshot-card">
+        <div class="screenshot-frame"><img src="/assets/screenshots/skills-library.webp" alt="Bitlab Skills 能力库展示可复用的 Agent 技能" width="3152" height="2152" loading="lazy" /></div>
+        <h3>复用你的工作方式</h3><p>浏览、导入和启用 Skills，把可靠的说明、脚本和参考资料封装成能力。</p>
+      </article>
     </div>
   </section>
   <section class="shell section" id="features">
-    <div class="section-heading"><h2>少一点复杂。<br />多做一点事情。</h2><p class="section-intro">Pi 负责 Agent 的核心循环，Bitlab 给它一个清晰的家：本地优先的工作区、明确的权限、模型连接、MCP 服务器、Skills，以及你想保留的上下文。</p></div>
+    <div class="section-heading"><h2>少一点复杂。<br />多做一点事情。</h2><p class="section-intro">Pi 负责 Agent 的核心循环，Bitlab 给它一个清晰的家：本地优先的工作区、明确的权限、模型连接、MCP 服务器、Skills，以及开箱即用的浏览器和办公工具。</p></div>
     <div class="feature-list">
-      <article class="feature"><span class="feature-index">01</span><h3>自带模型</h3><p>登录 ChatGPT Plus 或 Claude Pro/Max 订阅，使用服务商 API Key、OpenAI 或 Anthropic 兼容端点，或运行本地 Ollama 模型。一个选择器同时确定连接、模型和思考档位，并记住你的选择。</p></article>
-      <article class="feature"><span class="feature-index">02</span><h3>MCP 连接器</h3><p>按工作区接入 stdio、SSE 或流式 HTTP 的 MCP 服务器。远程服务器通过 OAuth 授权并自动刷新令牌，未经信任的服务器的工具在运行前会先征求你的同意。</p></article>
-      <article class="feature"><span class="feature-index">03</span><h3>Skills 技能</h3><p>把说明、脚本和参考资料打包成 Skill，采用开放的 Agent Skills 格式，同一个 Skill 也能在 Codex 和 Claude Code 中使用。在对话里直接选用，或在任务匹配时让模型自己找到它。</p></article>
-      <article class="feature"><span class="feature-index">04</span><h3>看得见的思考</h3><p>推理过程在模型思考时就展开，回答一边流式输出一边就地排版，不再被困在折叠的工具步骤里。</p></article>
-      <article class="feature"><span class="feature-index">05</span><h3>读得懂的上下文</h3><p>发送按钮旁的圆环显示上下文窗口的占用情况，并细分为系统提示词、工具定义和对话三部分，占用过高时一键压缩。</p></article>
-      <article class="feature"><span class="feature-index">06</span><h3>内置工具</h3><p>对话旁的浏览器面板，支持 DeepSeek、Tavily、Exa、DuckDuckGo 的网页搜索，文件附件，以及 PDF、DOCX、XLSX、PPTX 文档工具。</p></article>
+      <article class="feature"><FeatureArt pos="tr" /><span class="feature-index">01</span><h3>灵活连接模型</h3><p>登录 ChatGPT Plus，或通过 API Key 使用 OpenAI、Anthropic（Claude）等模型服务；也支持 OpenAI、Anthropic 兼容端点和本地 Ollama 模型。一个选择器同时确定连接、模型和思考档位，并记住你的选择。</p></article>
+      <article class="feature"><FeatureArt pos="bl" /><span class="feature-index">02</span><h3>MCP 连接器</h3><p>按工作区接入 stdio、SSE 或流式 HTTP 的 MCP 服务器。远程服务器通过 OAuth 授权并自动刷新令牌，未经信任的服务器的工具在运行前会先征求你的同意。</p></article>
+      <article class="feature"><FeatureArt pos="tr" /><span class="feature-index">03</span><h3>Skills 技能</h3><p>把说明、脚本和参考资料打包成 Skill，采用开放的 Agent Skills 格式，同一个 Skill 也能在 Codex 和 Claude Code 中使用。在对话里直接选用，或在任务匹配时让模型自己找到它。</p></article>
+      <article class="feature"><FeatureArt pos="bl" /><span class="feature-index">04</span><h3>内置浏览器与办公工具</h3><p>Agent 在对话旁的浏览器里查资料、填表单、提取数据，网页搜索开箱即用；再配合 PDF、Word、Excel、PPT 文档工具，查资料、写报告这些日常办公活，不用切换工具就能完成。</p></article>
     </div>
   </section>
   <section class="shell section" id="principles">

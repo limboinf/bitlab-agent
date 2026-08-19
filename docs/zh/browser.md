@@ -44,7 +44,3 @@ BrowserPaneManager
 ## WebUI 委托
 
 WebUI 把 Browser 能力委托给已连接的 host。连接复用与 sessions 一样的 RPC channel,无需额外的鉴权面。这**不**会把 WebUI 变成"远程 workspace 产品":WebUI 仍然只服务一个本地 workspace。
-
-## 刻意不存在的部分
-
-Craft 那套 "Browser remote control for shared sessions"(Viewer / 公开分享 / 配对设备)流程刻意没实现。

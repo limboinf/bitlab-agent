@@ -95,7 +95,3 @@ Abort, model switching, thinking-level change, permission responses, and session
 - Pi subprocess: `bun run server:build:subprocess` produces `packages/pi-agent-server/dist/index.js`.
 
 The main `limboinf/bitlab-agent` repository publishes DMG/ZIP/NSIS/AppImage assets, headless-server archives, manifests, blockmaps, checksums, and release notes in GitHub Releases. `electron-updater` reads the public manifests and never embeds a GitHub token in the client.
-
-## What is intentionally absent
-
-Craft Agents bundles broad OAuth and Sources integrations, a Slack/Teams/Lark messaging gateway, a WhatsApp worker backed by Baileys, a session MCP server, a bridge MCP server, and an `apps/viewer` Electron app for public sharing. Bitlab retains only the ChatGPT and Claude LLM OAuth flows from that surface; the other components remain absent. Although Craft's underlying `pi-ai` dependency contains an OpenRouter image-generation API, neither Craft nor Bitlab registers it as an agent tool. See [`comparison-with-craft.md`](./comparison-with-craft.md) for an evidence-backed side-by-side and the resulting installer-size delta.

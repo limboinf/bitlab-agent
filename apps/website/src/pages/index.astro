@@ -1,6 +1,7 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
 import ProductWindow from "../components/ProductWindow.astro";
+import FeatureArt from "../components/FeatureArt.astro";
 ---
 <BaseLayout title="Bitlab — A simple, fast AI workspace powered by Pi" description="Bitlab is a simple, fast, local-first AI workspace powered by the Pi agent runtime for Desktop and WebUI.">
   <section class="shell hero">
@@ -15,22 +16,50 @@ import ProductWindow from "../components/ProductWindow.astro";
         </div>
         <p class="hero-note">Desktop · WebUI &nbsp; / &nbsp; Open source under Apache-2.0</p>
       </div>
-      <ProductWindow />
+      <ProductWindow lang="en" />
+    </div>
+  </section>
+
+  <section class="shell section product-showcase" id="product">
+    <div class="section-heading">
+      <h2>The real workspace.<br />Ready for real work.</h2>
+      <p class="section-intro">Move from conversation to finished artifacts, connect the tools you already use, and keep reusable workflows close at hand — all inside Bitlab.</p>
+    </div>
+    <div class="screenshot-grid">
+      <article class="screenshot-card screenshot-card-primary">
+        <div class="screenshot-frame">
+          <img src="/assets/screenshots/agent-artifact-preview.webp" alt="Bitlab generating and previewing an interactive release artifact inside an agent session" width="3152" height="2152" loading="lazy" />
+        </div>
+        <h3>From a prompt to a working artifact</h3>
+        <p>Follow the agent’s progress, inspect its file operations, and preview the finished result without leaving the session.</p>
+      </article>
+      <article class="screenshot-card">
+        <div class="screenshot-frame">
+          <img src="/assets/screenshots/mcp-connectors.webp" alt="Bitlab MCP connector manager showing installed external tool servers" width="3152" height="2152" loading="lazy" />
+        </div>
+        <h3>Connect external tools</h3>
+        <p>Manage MCP servers, tool availability, and connection status from one clear workspace.</p>
+      </article>
+      <article class="screenshot-card">
+        <div class="screenshot-frame">
+          <img src="/assets/screenshots/skills-library.webp" alt="Bitlab Skills library showing reusable agent capabilities" width="3152" height="2152" loading="lazy" />
+        </div>
+        <h3>Reuse the way you work</h3>
+        <p>Browse, import, and enable Skills that package trusted instructions, scripts, and references.</p>
+      </article>
     </div>
   </section>
 
   <section class="shell section" id="features">
     <div class="section-heading">
       <h2>Less ceremony.<br />More useful work.</h2>
-      <p class="section-intro">Pi handles the agent loop. Bitlab gives it a calm home: local-first workspaces, explicit permissions, model connections, MCP servers, Skills, and the context you want to keep.</p>
+      <p class="section-intro">Pi handles the agent loop. Bitlab gives it a calm home: local-first workspaces, explicit permissions, model connections, MCP servers, Skills, plus a browser and office tools built in.</p>
     </div>
     <div class="feature-list">
-      <article class="feature"><span class="feature-index">01</span><h3>Bring your own model</h3><p>Sign in with ChatGPT Plus or Claude Pro/Max, use provider API keys, OpenAI- or Anthropic-compatible endpoints, or local Ollama models. One picker sets connection, model, and thinking level together — and remembers the route.</p></article>
-      <article class="feature"><span class="feature-index">02</span><h3>MCP connectors</h3><p>Add Model Context Protocol servers per workspace over stdio, SSE, or streamable HTTP. Remote servers authorize over OAuth and refresh their own tokens; tools from an untrusted server ask before they run.</p></article>
-      <article class="feature"><span class="feature-index">03</span><h3>Skills for repeated work</h3><p>Package instructions, scripts, and references as Skills in the open Agent Skills format — the same Skill also loads in Codex and Claude Code. Pick one from the chat, or let the model find it when the task fits.</p></article>
-      <article class="feature"><span class="feature-index">04</span><h3>Watch it think</h3><p>Reasoning opens while the model is still thinking, and answers stream into the conversation formatted as they arrive — not trapped in collapsed tool steps.</p></article>
-      <article class="feature"><span class="feature-index">05</span><h3>Context you can read</h3><p>A ring beside the send button shows how full the context window is, with a breakdown of system prompt, tool schemas, and conversation — and one-click compaction when it runs high.</p></article>
-      <article class="feature"><span class="feature-index">06</span><h3>Tools built in</h3><p>A Browser pane beside the chat, web search through DeepSeek, Tavily, Exa, or DuckDuckGo, file attachments, and document tools for PDF, DOCX, XLSX, and PPTX.</p></article>
+      <article class="feature"><FeatureArt pos="tr" /><span class="feature-index">01</span><h3>Connect models your way</h3><p>Sign in with ChatGPT Plus, use API keys for providers such as OpenAI or Anthropic (Claude), connect OpenAI- or Anthropic-compatible endpoints, or run local Ollama models. One picker sets the connection, model, and thinking level — and remembers your choice.</p></article>
+      <article class="feature"><FeatureArt pos="bl" /><span class="feature-index">02</span><h3>MCP connectors</h3><p>Add Model Context Protocol servers per workspace over stdio, SSE, or streamable HTTP. Remote servers authorize over OAuth and refresh their own tokens; tools from an untrusted server ask before they run.</p></article>
+      <article class="feature"><FeatureArt pos="tr" /><span class="feature-index">03</span><h3>Skills for repeated work</h3><p>Package instructions, scripts, and references as Skills in the open Agent Skills format — the same Skill also loads in Codex and Claude Code. Pick one from the chat, or let the model find it when the task fits.</p></article>
+      <article class="feature"><FeatureArt pos="bl" /><span class="feature-index">04</span><h3>Browser and office tools built in</h3><p>The agent researches, fills forms, and extracts data in a browser pane beside the chat, with web search ready out of the box. Document tools handle PDF, Word, Excel, and slides, so everyday office work gets done without switching apps.</p></article>
     </div>
   </section>
 
