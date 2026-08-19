@@ -1,9 +1,22 @@
 name: CI
 
 on:
+  # Docs, website, and design previews ship nowhere in the desktop app or server
+  # and are covered by no CI step (the website deploys separately), so changes
+  # confined to them skip the full quality + 3-platform packaging pipeline.
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "apps/website/**"
+      - "design-previews/**"
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "apps/website/**"
+      - "design-previews/**"
 
 permissions:
   contents: read
