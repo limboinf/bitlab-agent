@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { ArrowLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Input } from "../ui/input"
-import { AddWorkspaceContainer, AddWorkspaceStepHeader, AddWorkspaceSecondaryButton, AddWorkspacePrimaryButton } from "./primitives"
+import { AddWorkspaceContainer, AddWorkspaceStepHeader, AddWorkspacePrimaryButton } from "./primitives"
 import { useDirectoryPicker } from "@/hooks/useDirectoryPicker"
 import { ServerDirectoryBrowser } from "@/components/ServerDirectoryBrowser"
 
@@ -69,11 +69,17 @@ export function AddWorkspaceStep_OpenFolder({
       />
 
       <div className="mt-6 w-full space-y-6">
-        {/* Browse folder row */}
-        <div
+        {/* Browse folder row — whole row opens the picker */}
+        <button
+          type="button"
+          onClick={pickDirectory}
+          disabled={isCreating}
           className={cn(
-            "flex items-center justify-between gap-4 p-4 rounded-xl",
-            "border border-border/50 bg-background"
+            "flex w-full items-center justify-between gap-4 p-4 rounded-xl text-left",
+            "border border-border/50 bg-background cursor-pointer transition-colors",
+            "hover:border-border hover:bg-foreground/3",
+            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            "disabled:cursor-not-allowed disabled:opacity-50"
           )}
         >
           <div className="flex-1 min-w-0">
@@ -83,13 +89,16 @@ export function AddWorkspaceStep_OpenFolder({
               <p className="text-sm text-muted-foreground">{t("workspace.noFolderSelected")}</p>
             )}
           </div>
-          <AddWorkspaceSecondaryButton
-            onClick={pickDirectory}
-            disabled={isCreating}
+          <span
+            className={cn(
+              "inline-flex h-8 shrink-0 items-center justify-center rounded-md px-3",
+              "text-xs font-medium text-foreground bg-background shadow-minimal",
+              "pointer-events-none select-none"
+            )}
           >
             {t("common.browse")}
-          </AddWorkspaceSecondaryButton>
-        </div>
+          </span>
+        </button>
 
         {/* Workspace name input - shown after folder is selected */}
         {selectedPath && (
