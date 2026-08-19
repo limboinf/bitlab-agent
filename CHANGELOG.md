@@ -13,6 +13,26 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.4.1] - 2026-08-19
+
+### Fixed
+
+- **A workspace with nothing in it opens a chat.** A workspace you had never
+  written in — or one whose only empty chat was cleaned up when you navigated
+  away — showed a second, thinner composer that was not the one you get from
+  "New task", and coming back to it after switching workspaces could leave you
+  on a greeting with no composer at all, or on "this session no longer exists"
+  pointing at a chat that had already been tidied away. An empty task list now
+  puts you straight into a real chat with the full composer, the same surface
+  "New task" gives you, and a route left pointing at a chat that is gone falls
+  back to a live one instead of an error.
+
+### Changed
+
+- **The folder row in "Add workspace" is the button.** Clicking anywhere on the
+  row opens the folder picker, rather than only the small Browse control at its
+  right edge.
+
 ## [0.4.0] - 2026-08-18
 
 ### Fixed
@@ -232,6 +252,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.4.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.4.1
 [0.4.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.4.0
 [0.3.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.3.0
 [0.2.2]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.2.2
