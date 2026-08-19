@@ -47,6 +47,7 @@ import {
   PANEL_STACK_VERTICAL_OVERFLOW,
 } from "./panel-constants"
 import { hasOpenOverlay } from "@/lib/overlay-detection"
+import { resolveEmptySessionsAction } from "./empty-sessions-surface"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
 import {
   UnifiedNavigationPanel,
@@ -108,6 +109,7 @@ function AppShellContent({
   const {
     workspaces,
     activeWorkspaceId,
+    sessionsWorkspaceId,
     sessionOptions,
     onSelectWorkspace,
     onRefreshWorkspaces,
@@ -159,7 +161,7 @@ function AppShellContent({
   const navigationResizeHandleRef = React.useRef<HTMLDivElement>(null)
   const [session, setSession] = useSession()
   const { resolvedMode, setMode } = useTheme()
-  const { canGoBack, canGoForward, goBack, goForward, navigateToSession } = useNavigation()
+  const { canGoBack, canGoForward, goBack, goForward, navigateToSession, navigate: navigateDirect } = useNavigation()
 
   // Double-Esc interrupt feature: first Esc shows warning, second Esc interrupts
   const { handleEscapePress } = useEscapeInterrupt()
@@ -719,15 +721,65 @@ function AppShellContent({
     setSearchActive(false)
     setSearchQuery('')
 
-    // Delegate to NavigationContext which handles session creation
-    navigate(
+    // Delegate to NavigationContext which handles session creation.
+    // Called straight through the context rather than the `navigate()` window
+    // event: effects run child-before-parent, so a caller inside an effect can
+    // fire before NavigationContext has re-attached its event listener and the
+    // navigation would be dropped.
+    void navigateDirect(
       routes.action.newSession(),
       newPanel ? { newPanel: true, targetLaneId: 'main' } : undefined
     )
 
     // Focus the chat input after navigation completes
     setTimeout(() => focusZone('chat', { intent: 'programmatic' }), 50)
-  }, [activeWorkspace, focusZone])
+  }, [activeWorkspace, focusZone, navigateDirect])
+
+  // An empty sessions surface always becomes a real chat.
+  //
+  // A fresh workspace, or one whose only session was the empty "New task" that
+  // navigate-away cleanup pruned, used to land on either the thinner welcome
+  // composer or a "session no longer exists" error — two different empty states
+  // for what the user reads as "nothing here yet". Materialise a session
+  // instead, so the empty state is always the New task surface.
+  const autoNewChatRef = useRef(false)
+  useEffect(() => {
+    // `activeWorkspace` also gates handleNewChat, which would otherwise no-op.
+    if (!activeWorkspace) return
+
+    const openSessionId = isSessionsNavigation(navState) ? navState.details?.sessionId : undefined
+    const action = resolveEmptySessionsAction({
+      navState,
+      panelCount,
+      isSessionListLoaded: sessionsWorkspaceId === activeWorkspaceId,
+      hasLiveOpenSession: !!openSessionId
+        && sessionMetaMap.get(openSessionId)?.workspaceId === activeWorkspaceId,
+      visibleSessionCount: filteredSessionMetas.length,
+    })
+
+    if (action === 'none') {
+      autoNewChatRef.current = false
+      return
+    }
+    if (action === 'selectExisting') {
+      void navigateDirect(routes.view.allSessions())
+      return
+    }
+    // Creation is async: hold the guard until the new session is on the route.
+    if (autoNewChatRef.current) return
+    autoNewChatRef.current = true
+    handleNewChat()
+  }, [
+    activeWorkspace,
+    activeWorkspaceId,
+    sessionsWorkspaceId,
+    panelCount,
+    navState,
+    sessionMetaMap,
+    filteredSessionMetas,
+    handleNewChat,
+    navigateDirect,
+  ])
 
   // Create a brand new dedicated browser window and focus it.
   // Intentionally unbound: this action should always create a NEW window.

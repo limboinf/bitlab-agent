@@ -369,6 +369,10 @@ export default function App() {
 
   // Splash screen state - tracks when app is fully ready (all data loaded)
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
+  // Which workspace the loaded session metadata belongs to. During a workspace
+  // switch the metadata map is cleared before the new list arrives, so "no
+  // sessions" is ambiguous until this matches the active workspace.
+  const [sessionsWorkspaceId, setSessionsWorkspaceId] = useState<string | null>(null)
   const [sessionLoadError, setSessionLoadError] = useState<string | null>(null)
   const [splashExiting, setSplashExiting] = useState(false)
   const [splashHidden, setSplashHidden] = useState(false)
@@ -536,6 +540,7 @@ export default function App() {
       )
 
       setSessionsLoaded(true)
+      setSessionsWorkspaceId(windowWorkspaceId ?? null)
 
       if (initialSessionId && windowWorkspaceId) {
         const session = loadedSessions.find(s => s.id === initialSessionId)
@@ -1783,6 +1788,7 @@ export default function App() {
     workspaces,
     activeWorkspaceId: windowWorkspaceId,
     activeWorkspaceSlug: windowWorkspaceSlug,
+    sessionsWorkspaceId,
     llmConnections,
     workspaceDefaultLlmConnection,
     refreshLlmConnections,
@@ -1826,6 +1832,7 @@ export default function App() {
     workspaces,
     windowWorkspaceId,
     windowWorkspaceSlug,
+    sessionsWorkspaceId,
     llmConnections,
     workspaceDefaultLlmConnection,
     refreshLlmConnections,

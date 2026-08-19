@@ -34,6 +34,13 @@ export interface AppShellContextType {
   activeWorkspaceId: string | null
   /** Workspace slug for SDK skill qualification (derived from workspace path) */
   activeWorkspaceSlug: string | null
+  /**
+   * Workspace whose session metadata is currently loaded. Differs from
+   * `activeWorkspaceId` while a workspace switch is in flight, which is the
+   * only reliable way to tell "this workspace has no sessions" apart from
+   * "the session list hasn't arrived yet".
+   */
+  sessionsWorkspaceId: string | null
   /** All LLM connections with authentication status */
   llmConnections: LlmConnectionWithStatus[]
   /** Default LLM connection slug for the current workspace */

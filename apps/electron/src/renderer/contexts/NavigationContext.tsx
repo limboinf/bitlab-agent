@@ -1061,12 +1061,28 @@ export function NavigationProvider({
   // INTERNAL NAVIGATION EVENT LISTENER
   // =========================================================================
 
+  // Subscribed once for the provider's lifetime and dispatched through a ref.
+  //
+  // Re-subscribing on every `navigate` identity change (it changes on workspace
+  // switch, among others) opens a window where the listener is detached:
+  // effects run child-before-parent, so a child that calls `navigate()` from an
+  // effect can fire between this listener's removeEventListener and its
+  // addEventListener, and the navigation is silently dropped. A stable
+  // subscription closes that window.
+  //
+  // One ordering caveat remains, and no subscription can fix it: on first
+  // mount, child effects also run before this one. Navigation issued from an
+  // effect should use the `navigate` off this context directly rather than the
+  // `navigate()` window event.
+  const navigateRef = useRef(navigate)
+  useEffect(() => { navigateRef.current = navigate }, [navigate])
+
   useEffect(() => {
     const handleNavigateEvent = (event: Event) => {
       const customEvent = event as CustomEvent<{ route: Route; newPanel?: boolean; targetLaneId?: 'main' }>
       if (customEvent.detail?.route) {
         const { route: r, newPanel, targetLaneId } = customEvent.detail
-        navigate(r, newPanel ? { newPanel, targetLaneId } : undefined)
+        void navigateRef.current(r, newPanel ? { newPanel, targetLaneId } : undefined)
       }
     }
 
@@ -1074,7 +1090,7 @@ export function NavigationProvider({
     return () => {
       window.removeEventListener(NAVIGATE_EVENT, handleNavigateEvent)
     }
-  }, [navigate])
+  }, [])
 
   // =========================================================================
   // SIDEBAR HELPERS

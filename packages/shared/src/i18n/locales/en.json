@@ -154,7 +154,6 @@
   "chat.sessionFilesEmpty": "Files attached or created by this chat will appear here.",
   "chat.sessionFilesLoading": "Loading...",
   "chat.sessionInfo": "Session info",
-  "chat.sessionNoLongerExists": "This session no longer exists",
   "chat.showInFileManager": "Show in {{fileManager}}",
   "chat.showTechnicalDetails": "Show technical details",
   "chat.stopResponse": "Stop response",

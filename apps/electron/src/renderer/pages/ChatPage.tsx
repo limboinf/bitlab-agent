@@ -8,12 +8,13 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { AlertCircle, Info } from 'lucide-react'
+import { Info } from 'lucide-react'
 import { ChatDisplay, type ChatDisplayHandle } from '@/components/app-shell/ChatDisplay'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { SessionMenu } from '@/components/app-shell/SessionMenu'
 import { CompactSessionMenu } from '@/components/app-shell/CompactSessionMenu'
 import { SessionInfoPopover } from '@/components/app-shell/SessionInfoPopover'
+import { NewSessionPlaceholder } from '@/components/app-shell/NewSessionPlaceholder'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { toast } from 'sonner'
 import { PanelHeaderCenterButton } from '@/components/ui/PanelHeaderCenterButton'
@@ -578,14 +579,16 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
       )
     }
 
-    // Session truly doesn't exist
+    // Session truly doesn't exist — it was pruned (empty sessions are cleaned up
+    // on navigate-away) while this panel still pointed at it. The shell replaces
+    // the route with a fresh chat; show the same hero the New task surface shows
+    // so the composer grows in underneath instead of flashing an error.
     return (
       <div className="h-full flex flex-col">
-        <PanelHeader  title={t('chat.session')} leadingAction={leadingAction} rightSidebarButton={rightSidebarButton} />
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
-          <AlertCircle className="h-10 w-10" />
-          <p className="text-sm">{t('chat.sessionNoLongerExists')}</p>
-        </div>
+        {(isCompactMode || leadingAction || rightSidebarButton) && (
+          <PanelHeader title={t('chat.session')} leadingAction={leadingAction} rightSidebarButton={rightSidebarButton} />
+        )}
+        <NewSessionPlaceholder />
       </div>
     )
   }
