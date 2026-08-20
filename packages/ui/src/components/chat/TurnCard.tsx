@@ -43,6 +43,7 @@ import { TurnCardActionsMenu } from './TurnCardActionsMenu'
 import { computeLastChildSet, groupActivitiesByParent, isActivityGroup, formatDuration, formatTokens, deriveTurnPhase, shouldShowThinkingIndicator, type ActivityGroup, type AssistantTurn } from './turn-utils'
 import { getInlineToolDetail, INLINE_DETAIL_MAX_LINES, type InlineToolDetail } from './tool-detail'
 import { getMcpActivityPresentation } from './mcp-activity'
+import { extractPlanFilePath, usePlanFileContent } from './plan-file-preview'
 import { extractAnnotationSelectedText } from './follow-up-helpers'
 import {
   formatAnnotationFollowUpTooltipText,
@@ -1814,6 +1815,13 @@ export function ResponseCard({
 }: ResponseCardProps) {
   const { t } = useTranslation()
   const displayedText = useThrottledStreamText(text, isStreaming)
+  // A submitted plan carries only its file path — resolve it so the plan body
+  // renders inline instead of forcing the user to open the file.
+  const planFilePath = variant === 'plan' ? extractPlanFilePath(text) : null
+  const planFileContent = usePlanFileContent(planFilePath)
+  // Text shown / copied / popped out. Falls back to the raw message text when
+  // the plan file cannot be read.
+  const bodyText = planFileContent ?? text
   // Copy to clipboard state
   const [copied, setCopied] = useState(false)
   // Fullscreen state
@@ -1896,13 +1904,13 @@ export function ResponseCard({
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(text)
+      await navigator.clipboard.writeText(bodyText)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
       console.error('Failed to copy:', err)
     }
-  }, [text])
+  }, [bodyText])
 
   const renderedAnnotations = useMemo(() => {
     const persisted = annotations ?? []
@@ -2002,7 +2010,7 @@ export function ResponseCard({
       window.removeEventListener('scroll', scheduleCoordsRecompute, { capture: true } as EventListenerOptions)
       root.removeEventListener('scroll', scheduleCoordsRecompute, { capture: true } as EventListenerOptions)
     }
-  }, [annotations, renderedAnnotations, text, displayedText, isStreaming])
+  }, [annotations, renderedAnnotations, bodyText, displayedText, isStreaming])
 
   useEffect(() => {
     if (!canAnnotate) {
@@ -2128,7 +2136,7 @@ export function ResponseCard({
         messageId,
         annotationId: activeAnnotationDetail.annotationId,
         note: normalizedNote,
-        selectedText: extractAnnotationSelectedText(activeAnnotation, text),
+        selectedText: extractAnnotationSelectedText(activeAnnotation, bodyText),
       }
     }
 
@@ -2169,7 +2177,7 @@ export function ResponseCard({
     closeSelectionMenu,
     sessionId,
     markSubmitSuccess,
-    text,
+    bodyText,
   ])
 
   const handleSubmitFollowUp = useCallback((note: string) => {
@@ -2564,6 +2572,21 @@ export function ResponseCard({
             >
               <ListTodo className={cn(SIZE_CONFIG.iconSize, "text-success")} />
               <span className="font-medium text-success">{t('plan.title')}</span>
+              {planFilePath && planFileContent && (
+                <button
+                  type="button"
+                  onClick={() => onOpenFile?.(planFilePath)}
+                  disabled={!onOpenFile}
+                  title={planFilePath}
+                  className={cn(
+                    "truncate text-muted-foreground/70",
+                    onOpenFile && "hover:text-foreground transition-colors cursor-pointer",
+                    "focus:outline-none focus-visible:underline"
+                  )}
+                >
+                  {planFilePath.split(/[\\/]/).pop()}
+                </button>
+              )}
             </div>
           )}
 
@@ -2580,7 +2603,7 @@ export function ResponseCard({
                 onUrlClick={onOpenUrl}
                 onFileClick={onOpenFile}
               >
-                {text}
+                {bodyText}
               </Markdown>
               {annotationOverlayLayer}
             </div>
@@ -2616,7 +2639,7 @@ export function ResponseCard({
                 </button>
                 {onPopOut && (
                   <button
-                    onClick={onPopOut}
+                    onClick={planFilePath && onOpenFile ? () => onOpenFile(planFilePath) : onPopOut}
                     className={cn(
                       "turn-action-btn flex items-center gap-1.5 transition-colors select-none",
                       "text-muted-foreground hover:text-foreground",
@@ -2673,7 +2696,7 @@ export function ResponseCard({
 
         {/* Fullscreen overlay for reading/annotating response and plan content. */}
         <DocumentFormattedMarkdownOverlay
-          content={text}
+          content={bodyText}
           isOpen={isFullscreen}
           onClose={() => setIsFullscreen(false)}
           variant={isPlan ? 'plan' : undefined}
