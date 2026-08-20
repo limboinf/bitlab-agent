@@ -216,6 +216,11 @@ jobs:
         run: |
           args=(--config electron-builder.yml --${{ matrix.target }} --${{ matrix.arch }} --publish never)
           if [ "${{ matrix.target }}" = "mac" ]; then
+            # asar is disabled, so codesign walks ~25k individual files inside
+            # the bundle and opens many of them at once. The macOS runner's
+            # default soft limit of 256 descriptors is not enough for that, and
+            # overrunning it fails the build with EMFILE on an arbitrary file.
+            ulimit -n 65536 || echo "could not raise the file descriptor limit"
             if [ "$MAC_SIGNING" = "true" ]; then
               export CSC_LINK="$MAC_CSC_LINK"
               export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"

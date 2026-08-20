@@ -14,6 +14,12 @@ files:
   - "!**/*.map"
   - package.json
   - vendor/bun/**/*
+  # uisfx synthesizes every cue with Web Audio at runtime and its JS is already
+  # bundled into the renderer chunk, so the packaged .mp3/.ogg set is 1,872
+  # files (12 MB) nothing ever opens. asar is disabled here, so each of them
+  # would be walked and signed individually — enough to exhaust macOS
+  # codesign's file descriptors on an app that already ships ~24k files.
+  - "!node_modules/uisfx/sounds/**"
 
 extraMetadata:
   main: dist/main.cjs
