@@ -1,6 +1,6 @@
 {
   "name": "@bitlab/core",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "license": "Apache-2.0",
   "description": "Core types, storage, and agent logic for Bitlab",
   "type": "module",

@@ -13,6 +13,46 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.5.0] - 2026-08-20
+
+### Added
+
+- **Sound tells you when the agent finished or got stuck.** Bitlab now plays a
+  short cue for the things you would otherwise have to sit and watch for: a
+  reply finishing, an approval waiting on you, a message going out, a remote
+  connection dropping or coming back. Cues fire on what actually happened, not
+  on what you clicked, and hover, list selection, tabs, panels, and scrolling
+  stay silent. Settings → App → Sound has the switch, three volume levels, and
+  an off-by-default keystroke tick; the setting is per device, so a desktop
+  window and a phone browser can disagree. Nothing sounds until you have
+  clicked or typed once, and every cue still has its usual visual and
+  screen-reader equivalent when sound is off.
+- **The agent knows what you have open in the browser.** Asking "what does this
+  page say?" used to send the agent back to the last link in the chat, because
+  nothing told it the browser existed. A session now sees which pages are open
+  and which one is in front. `@browser` points at the current page explicitly,
+  "Send page to chat" hands it over when you want it, and picking an element
+  turns "I mean this one" into a click. Page contents are never pulled in
+  behind your back — reaching for them stays something you ask for.
+
+### Changed
+
+- **The browser is a column in your window, not a window of its own.** Browser
+  instances used to open as separate native windows, each with its own toolbar
+  and its own badge in the top bar. They are now tabs in a resizable dock on
+  the right, opened and closed with one control, and dialogs and previews no
+  longer end up underneath the page.
+- **A submitted plan is readable where it is written.** The chat showed a plan
+  as a bare file path, so reading it meant opening the file first. The plan now
+  renders inline, with its file name still there to open the real file when you
+  want it.
+
+### Fixed
+
+- **A rejected ChatGPT sign-in tells you why.** Signing in from a region OpenAI
+  does not serve failed with "Token exchange failed: 403 - [object Object]".
+  The real reason is now shown, for both sign-in and token refresh.
+
 ## [0.4.1] - 2026-08-19
 
 ### Fixed
@@ -252,6 +292,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.5.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.5.0
 [0.4.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.4.1
 [0.4.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.4.0
 [0.3.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.3.0
