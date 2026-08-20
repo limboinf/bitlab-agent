@@ -26,6 +26,7 @@ This directory is the English-language user documentation. A Chinese translation
 | Sessions | [sessions.md](./sessions.md) |
 | Skills | [skills.md](./skills.md) |
 | Skills design proposal (Hub, marketplace, authoring) | [skills-design.md](./skills-design.md) |
+| Interface sounds | [sound.md](./sound.md) |
 | Testing | [testing.md](./testing.md) |
 | Upstream synchronization | [upstream-sync.md](./upstream-sync.md) |
 

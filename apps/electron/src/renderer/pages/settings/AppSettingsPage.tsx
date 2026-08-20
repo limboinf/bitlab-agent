@@ -27,10 +27,13 @@ import {
   SettingsCard,
   SettingsCardFooter,
   SettingsRow,
+  SettingsSegmentedControl,
   SettingsToggle,
   SettingsInput,
 } from '@/components/settings'
 import { useUpdateChecker } from '@/hooks/useUpdateChecker'
+import { useSfx, useSfxPreferences } from '@/hooks/useSfx'
+import { SFX_VOLUME_LEVELS, volumeLevel, type SfxVolumeLevel } from '@/lib/sfx'
 
 // ============================================
 // Proxy form helpers
@@ -92,6 +95,10 @@ export default function AppSettingsPage() {
   // Notifications state
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
 
+  // Interface sounds (device-scoped preference, see lib/sfx/preferences)
+  const sfx = useSfx()
+  const [sound, setSound] = useSfxPreferences()
+
   // Power state
   const [keepAwakeEnabled, setKeepAwakeEnabled] = useState(false)
 
@@ -147,6 +154,23 @@ export default function AppSettingsPage() {
     setNotificationsEnabled(enabled)
     await window.electronAPI.setNotificationsEnabled(enabled)
   }, [])
+
+  const handleSoundEnabledChange = useCallback((enabled: boolean) => {
+    setSound({ enabled })
+    // Confirm the new state with the cue for that state — and never on mute,
+    // where the only correct feedback is silence.
+    if (enabled) sfx.playGesture('toggle-on')
+  }, [setSound, sfx])
+
+  const handleSoundVolumeChange = useCallback((level: SfxVolumeLevel) => {
+    setSound({ volume: SFX_VOLUME_LEVELS[level] })
+    sfx.playGesture('volume-change')
+  }, [setSound, sfx])
+
+  const handleSoundTypingChange = useCallback((typing: boolean) => {
+    setSound({ typing })
+    sfx.playGesture(typing ? 'toggle-on' : 'toggle-off')
+  }, [setSound, sfx])
 
   const handleKeepAwakeEnabledChange = useCallback(async (enabled: boolean) => {
     setKeepAwakeEnabled(enabled)
@@ -209,6 +233,40 @@ export default function AppSettingsPage() {
                     checked={notificationsEnabled}
                     onCheckedChange={handleNotificationsEnabledChange}
                   />
+                </SettingsCard>
+              </SettingsSection>
+
+              {/* Sound */}
+              <SettingsSection title={t("settings.sound.title")}>
+                <SettingsCard>
+                  <SettingsToggle
+                    label={t("settings.sound.interfaceSounds")}
+                    description={t("settings.sound.interfaceSoundsDesc")}
+                    checked={sound.enabled}
+                    onCheckedChange={handleSoundEnabledChange}
+                  />
+                  {sound.enabled && (
+                    <>
+                      <SettingsRow label={t("settings.sound.volume")}>
+                        <SettingsSegmentedControl<SfxVolumeLevel>
+                          value={volumeLevel(sound.volume)}
+                          onValueChange={handleSoundVolumeChange}
+                          options={[
+                            { value: 'soft', label: t("settings.sound.volumeSoft") },
+                            { value: 'medium', label: t("settings.sound.volumeMedium") },
+                            { value: 'loud', label: t("settings.sound.volumeLoud") },
+                          ]}
+                          size="sm"
+                        />
+                      </SettingsRow>
+                      <SettingsToggle
+                        label={t("settings.sound.keystrokes")}
+                        description={t("settings.sound.keystrokesDesc")}
+                        checked={sound.typing}
+                        onCheckedChange={handleSoundTypingChange}
+                      />
+                    </>
+                  )}
                 </SettingsCard>
               </SettingsSection>
 

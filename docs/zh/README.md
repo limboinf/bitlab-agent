@@ -23,6 +23,7 @@
 | 会话 | [sessions.md](./sessions.md) |
 | Skills | [skills.md](./skills.md) |
 | Skills 设计方案（技能中心、市场、创作） | [skills-design.md](./skills-design.md) |
+| 界面提示音 | [sound.md](./sound.md) |
 | 测试 | [testing.md](./testing.md) |
 | 上游同步 | [upstream-sync.md](./upstream-sync.md) |
 | Workspace | [workspaces.md](./workspaces.md) |

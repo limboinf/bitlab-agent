@@ -22,6 +22,14 @@ import { DismissibleLayerProvider } from '@/context/DismissibleLayerContext'
 import { useWindowCloseHandler } from '@/hooks/useWindowCloseHandler'
 import { useOnboarding } from '@/hooks/useOnboarding'
 import { useNotifications } from '@/hooks/useNotifications'
+import { useSfx, useSfxRuntime } from '@/hooks/useSfx'
+import {
+  PERMISSION_REQUEST_CUE,
+  SESSION_DELETED_CUE,
+  permissionResponseCue,
+  transportSfx,
+  turnOutcomeCue,
+} from '@/lib/sfx'
 import { useSession } from '@/hooks/useSession'
 import { useUpdateChecker } from '@/hooks/useUpdateChecker'
 import { NavigationProvider } from '@/contexts/NavigationContext'
@@ -751,6 +759,11 @@ export default function App() {
     navigate(routes.view.allSessions(sessionId))
   }, [])
 
+  // Interface sounds. The controller is a module singleton, so this only binds
+  // stored preferences to it and installs the keystroke listener.
+  const sfx = useSfx()
+  useSfxRuntime()
+
   const { isWindowFocused, showSessionNotification } = useNotifications({
     workspaceId: windowWorkspaceId,
     // NOTE: sessions removed - hook now uses sessionMetaMapAtom internally
@@ -859,6 +872,10 @@ export default function App() {
                 ? `Admin approval required: ${effect.request.appName || effect.request.toolName}`
                 : `Permission required: ${effect.request.toolName}`
               showSessionNotification(notifySession, promptBody)
+              // Unlike the OS notification, this plays with the window focused
+              // too — a blocked agent is exactly what you miss while reading
+              // another panel.
+              sfx.playAsync(PERMISSION_REQUEST_CUE)
             }
             break
           }
@@ -994,6 +1011,14 @@ export default function App() {
         // For handoff events, update metadata map for list display
         // NOTE: No sessionsAtom to sync - atom and metadata are the source of truth
         if (isHandoff) {
+          // Turn outcome cue — the async half of the conversation, played once
+          // the turn actually resolved rather than when it was requested.
+          // Hidden (mini-agent) sessions stay silent, like their notifications.
+          if (!updatedSession.hidden) {
+            const outcomeCue = turnOutcomeCue(event.type)
+            if (outcomeCue) sfx.playAsync(outcomeCue)
+          }
+
           // Update metadata map
           const metaMap = store.get(sessionMetaMapAtom)
           const newMetaMap = new Map(metaMap)
@@ -1066,6 +1091,7 @@ export default function App() {
     updateSessionDirect,
     replaceLoadedSession,
     showSessionNotification,
+    sfx,
     initializeSessions,
     addSession,
     removeSession,
@@ -1178,8 +1204,10 @@ export default function App() {
     await window.electronAPI.deleteSession(sessionId)
     // Remove from per-session atom and metadata map (no sessionsAtom)
     removeSession(sessionId)
+    // Only after the deletion is committed — never on the click that asked for it.
+    sfx.playAsync(SESSION_DELETED_CUE)
     return true
-  }, [store, removeSession])
+  }, [store, removeSession, sfx])
 
   // Auto-delete handler for empty sessions (fire-and-forget, no confirmation)
   const handleAutoDeleteEmptySession = useCallback((sessionId: string) => {
@@ -1579,6 +1607,8 @@ export default function App() {
     const success = await window.electronAPI.respondToPermission(sessionId, requestId, allowed, alwaysAllow, options)
 
     if (success) {
+      // The decision registered: access opened, or the pending call was dropped.
+      sfx.playAsync(permissionResponseCue(allowed))
       // Remove only the first permission from the queue (the one we just responded to)
       setPendingPermissions(prev => {
         const next = new Map(prev)
@@ -1607,7 +1637,7 @@ export default function App() {
         return next
       })
     }
-  }, [])
+  }, [sfx])
 
   // Centralized link interceptor: classifies file types and decides whether to
   // show an in-app preview overlay or open externally. Replaces the old
@@ -1659,6 +1689,24 @@ export default function App() {
 
   const connectionState = useTransportConnectionState()
   const showTransportConnectionBanner = shouldShowTransportConnectionBanner(connectionState)
+
+  // Connection state is the one process worth a loop: it is bounded, it is
+  // already visible in the banner, and its end has a real outcome to announce.
+  const previousTransportStatusRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!connectionState) return
+    const previous = previousTransportStatusRef.current
+    previousTransportStatusRef.current = connectionState.status
+
+    const { loop, cue } = transportSfx(previous, connectionState.status, connectionState.mode)
+    sfx.setLoop('transport', 'connecting', loop)
+    if (cue) sfx.playAsync(cue)
+    // Re-runs on workspace switch too: that transition calls stopAll(), and a
+    // connection still visibly reconnecting should get its loop back.
+  }, [connectionState, windowWorkspaceId, sfx])
+
+  // Whatever happens to this component, the loop does not outlive it.
+  useEffect(() => () => sfx.stopLoop('transport'), [sfx])
 
   const handleReconnectTransport = useCallback(() => {
     void window.electronAPI.reconnectTransport().catch((error) => {
@@ -1753,12 +1801,15 @@ export default function App() {
       store.set(sessionMetaMapAtom, new Map())
       store.set(sessionIdsAtom, [])
 
+      // 9. Silence anything still sounding for the workspace we just left.
+      sfx.stopAll()
+
       // Note: NavigationContext detects the workspaceId change and handles
       // panel restoration from the stored workspace URL (or defaults to allSessions).
       // Sessions and theme will reload automatically due to windowWorkspaceId dependency
       // in useEffect hooks.
     }
-  }, [windowWorkspaceId, setSession, store])
+  }, [windowWorkspaceId, setSession, store, sfx])
 
   // Handle workspace switch by slug (called by NavigationContext on popstate when ?ws= changes)
   const handleSwitchWorkspaceBySlug = useCallback((slug: string) => {

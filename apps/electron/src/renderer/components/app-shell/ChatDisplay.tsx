@@ -66,6 +66,8 @@ import {
 import { ChatInputZone, type StructuredInputState, type StructuredResponse, type PermissionResponse, type AdminApprovalResponse } from "./input"
 import type { RichTextInputHandle } from "@/components/ui/rich-text-input"
 import { useBackgroundTasks } from "@/hooks/useBackgroundTasks"
+import { useSfx } from "@/hooks/useSfx"
+import { submitCue } from "@/lib/sfx"
 import { useTurnCardExpansion } from "@/hooks/useTurnCardExpansion"
 import { useNavigation } from "@/contexts/NavigationContext"
 import { useAppShellContext, useActiveWorkspace } from "@/context/AppShellContext"
@@ -484,6 +486,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   const internalTextareaRef = React.useRef<RichTextInputHandle>(null)
   const textareaRef = externalTextareaRef || internalTextareaRef
   const [sendMessageKey, setSendMessageKey] = useState<'enter' | 'cmd-enter'>('enter')
+  const sfx = useSfx()
   const [openAnnotationRequest, setOpenAnnotationRequest] = React.useState<{
     messageId: string
     annotationId: string
@@ -1191,6 +1194,9 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
     // Force stick-to-bottom when user sends a message
     isStickToBottomRef.current = true
+    // Sent, or queued behind the turn already running — the cue says which.
+    // Played here, in the submit handler, so it rides the user's gesture.
+    sfx.playGesture(submitCue(session?.isProcessing === true))
     onSendMessage(normalizedMessage, attachments, skillSlugs)
 
     // Persist sent marker on follow-up annotations so TurnCard can distinguish

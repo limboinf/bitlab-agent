@@ -46,6 +46,11 @@ export const KEYS = {
   // Settings navigation
   lastSettingsSubpage: 'last-settings-subpage',
 
+  // Interface sounds
+  soundEnabled: 'sound-enabled',
+  soundVolume: 'sound-volume',
+  soundTyping: 'sound-typing',
+
   // Appearance
   showConnectionIcons: 'show-connection-icons',
   projectColorTreatment: 'project-color-treatment', // 'stripe' | 'stripe-tint'
