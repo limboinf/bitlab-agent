@@ -321,9 +321,16 @@ export const RPC_CHANNELS = {
     EVALUATE: 'browser-pane:evaluate',
     SCROLL: 'browser-pane:scroll',
     LAUNCH: 'browser-empty-state:launch',
+    /** Renderer → main: full dock geometry/visibility for the calling window. */
+    SET_DOCK_STATE: 'browser-pane:set-dock-state',
+    SET_ANNOTATION_MODE: 'browser-pane:set-annotation-mode',
     STATE_CHANGED: 'browser-pane:state-changed',
     REMOVED: 'browser-pane:removed',
     INTERACTED: 'browser-pane:interacted',
+    /** Main → renderer: open the dock on this instance. */
+    SHOW_REQUEST: 'browser-pane:show-request',
+    /** Main → renderer: the user picked an element in annotation mode. */
+    ANNOTATION_PICKED: 'browser-pane:annotation-picked',
   },
 } as const
 

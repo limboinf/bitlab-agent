@@ -74,6 +74,8 @@ function createMockDeps(): HandlerDeps {
       onStateChange: () => {},
       onRemoved: () => {},
       onInteracted: () => {},
+      onShowRequest: () => {},
+      onAnnotationPicked: () => {},
     } as unknown as NonNullable<HandlerDeps['browserPaneManager']>,
   }
 }

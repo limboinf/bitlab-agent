@@ -216,9 +216,13 @@ export const CHANNEL_MAP = {
   'browserPane.stop': invoke(RPC_CHANNELS.browserPane.STOP),
   'browserPane.focus': invoke(RPC_CHANNELS.browserPane.FOCUS),
   'browserPane.emptyStateLaunch': invoke(RPC_CHANNELS.browserPane.LAUNCH),
+  'browserPane.setDockState': invoke(RPC_CHANNELS.browserPane.SET_DOCK_STATE),
+  'browserPane.setAnnotationMode': invoke(RPC_CHANNELS.browserPane.SET_ANNOTATION_MODE),
   'browserPane.onStateChanged': listener(RPC_CHANNELS.browserPane.STATE_CHANGED),
   'browserPane.onRemoved': listener(RPC_CHANNELS.browserPane.REMOVED),
   'browserPane.onInteracted': listener(RPC_CHANNELS.browserPane.INTERACTED),
+  'browserPane.onShowRequest': listener(RPC_CHANNELS.browserPane.SHOW_REQUEST),
+  'browserPane.onAnnotationPicked': listener(RPC_CHANNELS.browserPane.ANNOTATION_PICKED),
 
   // Menu-driven main-process actions (renderer → main).
   menuCopy: invoke(RPC_CHANNELS.menu.COPY),

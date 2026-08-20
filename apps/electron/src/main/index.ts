@@ -39,6 +39,7 @@ import { handleDeepLink } from './deep-link'
 import { createApplicationMenu, rebuildMenu, setMenuEventSink } from './menu'
 import { registerThumbnailHandler, THUMBNAIL_PRIVILEGED_SCHEME } from './thumbnail-protocol'
 import { registerHtmlPreviewHandler, HTML_PREVIEW_PRIVILEGED_SCHEME } from './html-preview-protocol'
+import { applyConfiguredProxySettings } from './network-proxy'
 
 setupI18n()
 const persistedUiLanguage = getPersistedUiLanguage()
@@ -115,6 +116,9 @@ function ensureLocalWorkspace() {
 }
 
 async function start() {
+  // Before anything reaches the network: without this the proxy only ever took
+  // effect in the session where it was saved.
+  await applyConfiguredProxySettings()
   registerThumbnailHandler()
   registerHtmlPreviewHandler()
   configureBundledTools()
@@ -128,7 +132,6 @@ async function start() {
   createApplicationMenu(windowManager)
   browserPaneManager = new BrowserPaneManager()
   browserPaneManager.setWindowManager(windowManager)
-  browserPaneManager.registerToolbarIpc()
   browserPaneManager.registerCapabilityIpc()
 
   const platform = createElectronPlatform({
@@ -196,6 +199,7 @@ async function start() {
   setMenuEventSink(sink, id => clients.get(id))
   browserPaneManager.onStateChange(info => sink('browser-pane:state-changed', { to: 'all' }, info))
   browserPaneManager.onRemoved(id => sink('browser-pane:removed', { to: 'all' }, id))
+  browserPaneManager.onShowRequest(payload => sink('browser-pane:show-request', { to: 'all' }, payload))
   browserPaneManager.setSessionPathResolver(id => instance.sessionManager.getSessionPath(id))
   setAutoUpdateEventSink(sink)
 

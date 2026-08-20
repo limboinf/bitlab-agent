@@ -22,10 +22,7 @@ import {
 } from "@/components/ui/styled-dropdown"
 import { SquarePenRounded } from "../icons/SquarePenRounded"
 import { useEffect, useRef, useState } from "react"
-import { BrowserTabStrip } from "../browser/BrowserTabStrip"
-
-const RIGHT_SLOT_FULL_BADGES_THRESHOLD = 420
-const RIGHT_SLOT_TWO_BADGES_THRESHOLD = 300
+import { BrowserDockToggle } from "../browser/BrowserDockToggle"
 
 interface TopBarProps {
   activeSessionId?: string | null
@@ -36,6 +33,8 @@ interface TopBarProps {
   onToggleSidebar: () => void
   onAddSessionPanel: () => void
   onAddBrowserPanel: () => void
+  /** Right-edge inset in px, so the bar stops at the browser dock's left edge. */
+  rightInset?: number
   /** Whether to show the add-panel menu in the top-right corner. */
   showAddPanelMenu?: boolean
   /** When true, hides controls that don't apply in compact/mobile layout */
@@ -51,47 +50,14 @@ export function TopBar({
   onToggleSidebar,
   onAddSessionPanel,
   onAddBrowserPanel,
+  rightInset = 0,
   showAddPanelMenu = true,
   isCompact,
 }: TopBarProps) {
   const { t } = useTranslation()
-  const [maxVisibleBrowserBadges, setMaxVisibleBrowserBadges] = useState(3)
-  const rightSlotRef = useRef<HTMLDivElement | null>(null)
 
   const goBackHotkey = useActionLabel('nav.goBackAlt').hotkey
   const goForwardHotkey = useActionLabel('nav.goForwardAlt').hotkey
-
-  useEffect(() => {
-    const slotEl = rightSlotRef.current
-    if (!slotEl) return
-
-    let frame = 0
-
-    const updateBadgeDensity = () => {
-      const slotWidth = slotEl.getBoundingClientRect().width
-      const nextMaxVisibleBadges = slotWidth >= RIGHT_SLOT_FULL_BADGES_THRESHOLD
-        ? 3
-        : slotWidth >= RIGHT_SLOT_TWO_BADGES_THRESHOLD
-          ? 2
-          : 1
-
-      setMaxVisibleBrowserBadges((prev) => (prev === nextMaxVisibleBadges ? prev : nextMaxVisibleBadges))
-    }
-
-    const schedule = () => {
-      if (frame) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(updateBadgeDensity)
-    }
-
-    const observer = new ResizeObserver(schedule)
-    observer.observe(slotEl)
-    updateBadgeDensity()
-
-    return () => {
-      if (frame) cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [])
 
   // Stoplight padding clears macOS traffic-light controls, which only exist
   // in the Electron desktop window. The webui runs in a regular browser tab
@@ -101,8 +67,8 @@ export function TopBar({
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 z-panel bg-transparent titlebar-drag-region"
-      style={{ height: 'var(--topbar-height)' }}
+      className="fixed top-0 left-0 z-panel bg-transparent titlebar-drag-region"
+      style={{ height: 'var(--topbar-height)', right: rightInset }}
     >
       <div className="flex h-full w-full items-center justify-between gap-2">
       {/* === LEFT: Sidebar + History === */}
@@ -152,10 +118,8 @@ export function TopBar({
 
       {/* === RIGHT: Browser strip + add panel === */}
       {!isCompact && (
-      <div ref={rightSlotRef} className="flex min-w-0 shrink-0 items-center justify-end gap-1" style={{ paddingRight: 12 }}>
-        <div className="min-w-0">
-          <BrowserTabStrip activeSessionId={activeSessionId} maxVisibleBadges={maxVisibleBrowserBadges} />
-        </div>
+      <div className="flex min-w-0 shrink-0 items-center justify-end gap-1" style={{ paddingRight: 12 }}>
+        <BrowserDockToggle />
         {showAddPanelMenu && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

@@ -8,7 +8,7 @@
  * so releaseBrowserOwnershipOnForcedStop() accepts IBrowserPaneManager.
  */
 
-import type { BrowserInstanceInfo } from '@bitlab/shared/protocol'
+import type { BrowserContextSnapshot, BrowserInstanceInfo } from '@bitlab/shared/protocol'
 
 // ---------------------------------------------------------------------------
 // Supporting types — minimal subsets of BPM's internal types
@@ -249,8 +249,18 @@ export interface IBrowserPaneManager {
 
   // -- Monitoring ----------------------------------------------------------
 
+  /**
+   * Ambient snapshot of what the user is looking at, for prompt context.
+   * Carries no page body — that stays an explicit, permissioned read.
+   */
+  getContextSnapshot(workspaceId?: string | null): BrowserContextSnapshot
+
   getConsoleLogs(id: string, options?: BrowserConsoleOptions): BrowserConsoleEntry[]
-  windowResize(id: string, width: number, height: number): { width: number; height: number }
+  /**
+   * Resize the page viewport. Docked tabs have no window of their own, so
+   * implementations emulate device metrics rather than resizing native chrome.
+   */
+  windowResize(id: string, width: number, height: number): Promise<{ width: number; height: number }> | { width: number; height: number }
   getNetworkLogs(id: string, options?: BrowserNetworkOptions): BrowserNetworkEntry[]
   waitFor(id: string, args: BrowserWaitArgs): Promise<BrowserWaitResult>
   getDownloads(id: string, options?: BrowserDownloadOptions): Promise<BrowserDownloadEntry[]>

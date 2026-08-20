@@ -247,6 +247,11 @@ export {
   type DismissibleLayerSnapshot,
   type DismissibleLayerType,
 } from './lib/dismissible-layer-bridge'
+export {
+  isOccludingNativeViews,
+  subscribeNativeViewOcclusion,
+  useNativeViewOcclusion,
+} from './lib/native-view-occlusion'
 
 // Layout constants and hooks
 export {

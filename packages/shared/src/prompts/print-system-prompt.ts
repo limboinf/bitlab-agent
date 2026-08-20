@@ -8,6 +8,7 @@
 
 import { getSystemPrompt, getDateTimeContext, getWorkingDirectoryContext } from './system.ts';
 import { formatSessionState } from '../agent/mode-manager.ts';
+import { formatBrowserState } from '../agent/browser-context.ts';
 
 // ANSI color codes for terminal output
 const colors = {
@@ -110,6 +111,15 @@ const sessionState = formatSessionState('260121-example-session', {
 printSection('2. SESSION STATE - formatSessionState()', sessionState, colors.magenta);
 printAnnotation('Contains: sessionId, permissionMode, modeTransition/modeChangedBy/modeChangedAt/modeVersion (when available), plansFolderPath');
 
+// 2b. Browser State (only present while the browser dock is open)
+const browserState = formatBrowserState({
+  activeTab: { title: "Don't paste the AI.", url: 'https://dontpastetheai.com/' },
+  tabCount: 1,
+  agentDriving: false,
+});
+printSection('2b. BROWSER STATE - formatBrowserState()', browserState ?? '(omitted — dock closed)', colors.magenta);
+printAnnotation('Omitted entirely when the dock is closed. Title/url are sanitized untrusted page content.');
+
 // 3. Workspace Capabilities
 const exampleCapabilities = `<workspace_capabilities>
 local-mcp: enabled (stdio subprocess servers supported)
@@ -159,6 +169,8 @@ const completeUserMessage = `${getDateTimeContext()}
 
 ${sessionState}
 
+${browserState ?? ''}
+
 <sources>
 Active: linear
 Inactive: slack (inactive)
@@ -203,14 +215,15 @@ ${colors.bold}Static System Prompt Components:${colors.reset}
 ${colors.bold}Dynamic User Message Components (per message):${colors.reset}
   1. Date/Time Context                   ${colors.dim}// getDateTimeContext()         [VOLATILE]${colors.reset}
   2. Session State                       ${colors.dim}// formatSessionState()         [VOLATILE]${colors.reset}
-  3. Source State                        ${colors.dim}// formatSourceState()          [VOLATILE]${colors.reset}
-  4. Workspace Capabilities              ${colors.dim}// formatWorkspaceCapabilities()  [STABLE]${colors.reset}
-  5. Working Directory + project_context_file  ${colors.dim}// getWorkingDirectoryContext()  [STABLE]${colors.reset}
-  6. Recovery Context (on resume only)   ${colors.dim}// buildRecoveryContext()${colors.reset}
-  7. File Attachments                    ${colors.dim}// Inline paths or base64${colors.reset}
-  8. User Message Text                   ${colors.dim}// The actual user input${colors.reset}
+  3. Browser State (dock open only)      ${colors.dim}// formatBrowserState()         [VOLATILE]${colors.reset}
+  4. Source State                        ${colors.dim}// formatSourceState()          [VOLATILE]${colors.reset}
+  5. Workspace Capabilities              ${colors.dim}// formatWorkspaceCapabilities()  [STABLE]${colors.reset}
+  6. Working Directory + project_context_file  ${colors.dim}// getWorkingDirectoryContext()  [STABLE]${colors.reset}
+  7. Recovery Context (on resume only)   ${colors.dim}// buildRecoveryContext()${colors.reset}
+  8. File Attachments                    ${colors.dim}// Inline paths or base64${colors.reset}
+  9. User Message Text                   ${colors.dim}// The actual user input${colors.reset}
 
-  ${colors.dim}Claude: 1-5 ride the user tail. Pi (#862): STABLE 4-5 -> system prefix, VOLATILE 1-3 -> user tail.${colors.reset}
+  ${colors.dim}Claude: 1-6 ride the user tail. Pi (#862): STABLE 5-6 -> system prefix, VOLATILE 1-4 -> user tail.${colors.reset}
   ${colors.dim}Builders: PromptBuilder.buildVolatileContextParts() / buildStableContextParts() (composed by buildContextParts())${colors.reset}
 
 ${colors.bold}Key Files:${colors.reset}

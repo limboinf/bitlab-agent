@@ -69,6 +69,7 @@ import {
   stripPiPrefixForDisplay,
 } from './model-picker-helpers'
 import { useModelVisionToggle } from './useModelVisionToggle'
+import { useBrowserMentionPage } from '@/components/browser/useBrowserMentionPage'
 
 function formatFollowUpChipText(text: string, fallback: string, maxLength = 50): string {
   const normalized = text.replace(/\s+/g, ' ').trim()
@@ -536,11 +537,17 @@ export function FreeFormInput({
   // Listen for craft:insert-text events (generic mechanism for inserting text into input)
   // Used by components that want to pre-fill the input with text
   React.useEffect(() => {
-    const handleInsertText = (e: CustomEvent<{ text: string; sessionId?: string }>) => {
+    const handleInsertText = (e: CustomEvent<{ text: string; sessionId?: string; append?: boolean }>) => {
       const targetSessionId = e.detail?.sessionId
       if (!shouldHandleScopedInputEvent({ sessionId, isFocusedPanel, targetSessionId })) return
 
-      const text = coerceInputText(e.detail?.text)
+      const inserted = coerceInputText(e.detail?.text)
+      // Appending keeps whatever the user was already typing — dropping a draft
+      // to add a reference would be its own bug report.
+      const existing = inputRef.current
+      const text = e.detail?.append && existing
+        ? `${existing.replace(/\s*$/, '')} ${inserted}`
+        : inserted
       setInput(text)
       syncToParent(text)
       // Focus the input after inserting
@@ -896,7 +903,10 @@ export function FreeFormInput({
     mcpLabels,
   })
 
-  // Inline mention hook (skills, files and MCP servers)
+  // Null unless the dock is open on a real page — see useBrowserMentionPage.
+  const browserMentionPage = useBrowserMentionPage()
+
+  // Inline mention hook (skills, files, MCP servers and the open browser page)
   const inlineMention = useInlineMention({
     inputRef: richInputRef,
     skills,
@@ -906,6 +916,8 @@ export function FreeFormInput({
     workspaceId: workspaceSlug,
     mcpServers: mcpMentionItems,
     mcpSectionLabel: t('mcpMention.section'),
+    browserPage: browserMentionPage,
+    browserSectionLabel: t('browser.mentionSection'),
   })
 
   // Report height changes to parent (for external animation sync)

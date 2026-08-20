@@ -38,6 +38,7 @@ export class NullBrowserPaneManager implements IBrowserPaneManager {
   destroyForSession(_sessionId: string): void {}
   async clearVisualsForSession(_sessionId: string): Promise<void> {}
   unbindAllForSession(_sessionId: string): void {}
+  getContextSnapshot(_workspaceId?: string | null) { return { activeTab: null, tabCount: 0, agentDriving: false } }
   getOrCreateForSession(_sessionId: string, _options?: { workspaceId?: string | null }): string { return unavailable('getOrCreateForSession') }
   async getOrCreateForSessionAsync(_sessionId: string, _options?: { workspaceId?: string | null }): Promise<string> { return unavailable('getOrCreateForSession') }
   setAgentControl(

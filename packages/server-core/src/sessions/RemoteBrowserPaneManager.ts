@@ -14,7 +14,7 @@
  */
 
 import { CodedError } from '@bitlab/shared/protocol'
-import type { BrowserInstanceInfo } from '@bitlab/shared/protocol'
+import type { BrowserContextSnapshot, BrowserInstanceInfo } from '@bitlab/shared/protocol'
 import type {
   IBrowserPaneManager,
   BrowserScreenshotOptions,
@@ -123,6 +123,15 @@ export class RemoteBrowserPaneManager implements IBrowserPaneManager {
 
   unbindAllForSession(sessionId: string): void {
     this.invokeSync('unbindAllForSession', [sessionId])
+  }
+
+  /**
+   * The browser dock is a Desktop surface; a remote-bridged session has no dock
+   * of its own to describe. Reporting "no active tab" is the honest answer —
+   * better than a synchronous WS round-trip the prompt path can't wait for.
+   */
+  getContextSnapshot(_workspaceId?: string | null): BrowserContextSnapshot {
+    return { activeTab: null, tabCount: 0, agentDriving: false }
   }
 
   /**

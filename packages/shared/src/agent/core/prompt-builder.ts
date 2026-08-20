@@ -13,7 +13,9 @@
  */
 
 import { formatPreferencesForPrompt } from '../../config/preferences.ts';
+import { formatBrowserState } from '../browser-context.ts';
 import { formatSessionState } from '../mode-manager.ts';
+import { getSessionScopedToolCallbacks } from '../session-scoped-tool-callback-registry.ts';
 import { getDateTimeContext, getWorkingDirectoryContext } from '../../prompts/system.ts';
 import { getSessionPlansPath, getSessionDataPath, getSessionPath } from '../../sessions/storage.ts';
 import type {
@@ -87,6 +89,8 @@ export class PromptBuilder {
    *  2. session_state (permission mode + plans/data paths; carries
    *     modeChangedAt/modeVersion and **consumes** the one-shot mode-change user
    *     signal — see {@link formatSessionState})
+   *  3. browser_state (the page the user has open in the dock, when any) —
+   *     omitted entirely when the dock is closed
    *
    * MUST be called exactly once per turn, because it consumes one-shot mode
    * state. Never call it a second time to compute a cache-debug hash — hash the
@@ -112,6 +116,13 @@ export class PromptBuilder {
       dataFolderPath,
       consumeModeChangeUserSignal: true,
     }));
+
+    // Which page the user is looking at. Null (rather than an empty block) when
+    // the dock is closed, so the agent never reasons about a page they left.
+    const browserState = formatBrowserState(
+      getSessionScopedToolCallbacks(sessionId)?.getBrowserContextFn?.() ?? null,
+    );
+    if (browserState) parts.push(browserState);
 
     return parts;
   }

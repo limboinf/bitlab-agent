@@ -57,7 +57,7 @@ export interface MessageAttachment {
  */
 export interface ContentBadge {
   /** Badge type - used for fallback icon if iconBase64 not available */
-  type: 'skill' | 'context' | 'command' | 'file' | 'folder' | 'mcp';
+  type: 'skill' | 'context' | 'command' | 'file' | 'folder' | 'mcp' | 'browser';
   /** Display label (e.g., "Linear", "Commit") */
   label: string;
   /** Original text pattern (e.g., "@linear", "@commit") */

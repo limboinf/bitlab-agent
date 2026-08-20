@@ -6,6 +6,7 @@ import type {
   SessionInfo,
 } from '@bitlab/session-tools-core';
 import { debug } from '../utils/debug.ts';
+import type { BrowserContextSnapshot } from '../protocol/dto.ts';
 import type { BrowserPaneFns } from './browser-tools.ts';
 import type { LLMQueryRequest, LLMQueryResult } from './llm-tool.ts';
 import type { SpawnSessionFn } from './spawn-session-tool.ts';
@@ -15,6 +16,11 @@ export interface SessionScopedToolCallbacks {
   queryFn?: (request: LLMQueryRequest) => Promise<LLMQueryResult>;
   spawnSessionFn?: SpawnSessionFn;
   browserPaneFns?: BrowserPaneFns;
+  /**
+   * Ambient browser state for the prompt. Read once per turn while building the
+   * user-message tail — not a tool, so the agent gets it without asking.
+   */
+  getBrowserContextFn?: () => BrowserContextSnapshot | null;
   getSessionInfoFn?: (sessionId?: string) => SessionInfo | null;
   listSessionsFn?: (options?: ListSessionsOptions) => ListSessionsResult;
   listBackgroundTasksFn?: (sessionId?: string) => BackgroundTaskInfo[];

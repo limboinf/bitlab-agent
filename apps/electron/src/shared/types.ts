@@ -100,18 +100,6 @@ export type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderTy
  * Browser toolbar window IPC channels (preload <-> BrowserPaneManager).
  * Kept separate from RPC_CHANNELS because these are scoped to toolbar windows.
  */
-export const BROWSER_TOOLBAR_CHANNELS = {
-  NAVIGATE: 'browser-toolbar:navigate',
-  GO_BACK: 'browser-toolbar:go-back',
-  GO_FORWARD: 'browser-toolbar:go-forward',
-  RELOAD: 'browser-toolbar:reload',
-  STOP: 'browser-toolbar:stop',
-  OPEN_MENU: 'browser-toolbar:open-menu',
-  HIDE: 'browser-toolbar:hide',
-  DESTROY: 'browser-toolbar:destroy',
-  STATE_UPDATE: 'browser-toolbar:state-update',
-  THEME_COLOR: 'browser-toolbar:theme-color',
-} as const
 
 /** Tool icon mapping entry from tool-icons.json (with icon resolved to data URL) */
 export interface ToolIconMapping {
@@ -129,6 +117,29 @@ export interface BrowserPaneCreateOptions {
   id?: string
   show?: boolean
   bindToSessionId?: string
+}
+
+/**
+ * Dock geometry pushed from the renderer. The renderer is the single source of
+ * truth: main never guesses where the browser column is.
+ */
+export interface BrowserDockStatePayload {
+  /** Dock column is mounted and on screen. */
+  visible: boolean
+  /**
+   * A renderer overlay (dialog, menu) currently covers the dock rect. Native
+   * views always paint above renderer content, so main detaches while it's up.
+   */
+  suppressed: boolean
+  activeInstanceId: string | null
+  /** Placeholder rect in window DIP coordinates, or null when unmeasured. */
+  bounds: { x: number; y: number; width: number; height: number } | null
+}
+
+/** Main → renderer request to open the dock on a given instance. */
+export interface BrowserShowRequest {
+  instanceId: string
+  hostWebContentsId: number
 }
 
 /**
@@ -222,6 +233,8 @@ import type {
   WorkspaceSettings,
   PermissionModeState,
   BrowserInstanceInfo,
+  BrowserContextSnapshot,
+  BrowserAnnotationPick,
   DeepLinkNavigation,
   WindowCloseRequest,
   DirectoryListingResult,
@@ -588,9 +601,13 @@ export interface ElectronAPI {
     stop(id: string): Promise<void>
     focus(id: string): Promise<void>
     emptyStateLaunch(payload: BrowserEmptyStateLaunchPayload): Promise<BrowserEmptyStateLaunchResult>
+    setDockState(state: BrowserDockStatePayload): Promise<void>
+    setAnnotationMode(id: string, enabled: boolean): Promise<void>
     onStateChanged(callback: (info: BrowserInstanceInfo) => void): () => void
     onRemoved(callback: (id: string) => void): () => void
     onInteracted(callback: (id: string) => void): () => void
+    onShowRequest(callback: (payload: BrowserShowRequest) => void): () => void
+    onAnnotationPicked(callback: (payload: BrowserAnnotationPick) => void): () => void
   }
 
   // LLM Connections (provider configurations)

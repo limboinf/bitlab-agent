@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { useRef, useState, useEffect, useCallback, useMemo } from "react"
-import { useAtomValue, useStore } from "jotai"
+import { useAtom, useAtomValue, useStore } from "jotai"
 import { Search } from "lucide-react"
 import { TopBar } from "./TopBar"
 import { HeaderIconButton } from "@/components/ui/HeaderIconButton"
@@ -25,6 +25,14 @@ import { EMPTY_SNAPSHOT, skillsSnapshotAtom } from "@/atoms/skills"
 import { panelStackAtom, panelCountAtom, focusedPanelIdAtom, focusedSessionIdAtom, focusNextPanelAtom, focusPrevPanelAtom, parseSessionIdFromRoute } from "@/atoms/panel-stack"
 import { useContainerWidth } from "@/hooks/useContainerWidth"
 import * as storage from "@/lib/local-storage"
+import { BrowserDock } from "../browser/BrowserDock"
+import { useBrowserInstanceSync } from "../browser/useBrowserInstanceSync"
+import {
+  browserDockOpenAtom,
+  browserDockWidthAtom,
+  DOCK_MAX_WIDTH,
+  DOCK_MIN_WIDTH,
+} from "@/atoms/browser-dock"
 import { toast } from "sonner"
 import { navigate, routes, type Route } from "@/lib/navigate"
 import {
@@ -138,6 +146,13 @@ function AppShellContent({
       storage.get(storage.KEYS.navigationPanelWidth, NAVIGATION_PANEL_DEFAULT_WIDTH),
     )
   })
+
+  // Browser dock — one per window, sitting to the right of the panel stack.
+  // Instance state syncs here, not in the dock: the dock unmounts when closed.
+  useBrowserInstanceSync()
+  const isBrowserDockOpen = useAtomValue(browserDockOpenAtom)
+  const [browserDockWidth, setBrowserDockWidth] = useAtom(browserDockWidthAtom)
+  const [isResizingBrowserDock, setIsResizingBrowserDock] = React.useState(false)
 
   // Hides both sidebar and navigator (CMD+. toggle)
   // Seed from either focused window param or persisted preference, then keep it toggleable.
@@ -472,6 +487,29 @@ function AppShellContent({
     return () => document.removeEventListener('paste', handleGlobalPaste)
   }, [focusedSessionId, session.selected])
 
+  // Resize the browser dock. Mirrors the navigation sash, but measured from the
+  // right edge — the dock is anchored there.
+  React.useEffect(() => {
+    if (!isResizingBrowserDock) return
+
+    const widthFromPointer = (clientX: number) =>
+      Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, window.innerWidth - clientX))
+
+    const handleMouseMove = (e: MouseEvent) => setBrowserDockWidth(widthFromPointer(e.clientX))
+    const handleMouseUp = (e: MouseEvent) => {
+      setBrowserDockWidth(widthFromPointer(e.clientX))
+      setIsResizingBrowserDock(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingBrowserDock, setBrowserDockWidth])
+
   // Resize the single navigation domain.
   React.useEffect(() => {
     if (!isResizingNavigation) return
@@ -783,14 +821,14 @@ function AppShellContent({
 
   // Create a brand new dedicated browser window and focus it.
   // Intentionally unbound: this action should always create a NEW window.
-  const handleNewBrowserWindow = useCallback(async () => {
+  // Opening a browser means "new tab in the dock" — `focus` asks the main
+  // process to raise a show-request, which is what actually opens the dock.
+  const handleNewBrowserTab = useCallback(async () => {
     try {
-      const instanceId = await window.electronAPI.browserPane.create({
-        show: true,
-      })
+      const instanceId = await window.electronAPI.browserPane.create({ show: true })
       await window.electronAPI.browserPane.focus(instanceId)
     } catch (error) {
-      console.error('[Chat] Failed to create browser window:', error)
+      console.error('[Chat] Failed to create browser tab:', error)
       toast.error(t('toast.failedToCreateBrowser'))
     }
   }, [t])
@@ -1014,7 +1052,7 @@ function AppShellContent({
                 hidden: isNavigationPanelHidden,
               })}
           isSidebarAndNavigatorHidden={effectiveSidebarAndNavigatorHidden}
-          isRightSidebarVisible={false}
+          isRightSidebarVisible={isBrowserDockOpen}
           isCompact={isAutoCompact}
           isResizing={isResizingNavigation}
         />
@@ -1058,10 +1096,32 @@ function AppShellContent({
         </div>
         )}
 
+        {/* Browser dock — global to the window, always the rightmost column. */}
+        {isBrowserDockOpen && !isAutoCompact && (
+          <div
+            onMouseDown={(event) => {
+              event.preventDefault()
+              setIsResizingBrowserDock(true)
+            }}
+            aria-label={t('browser.resizeDock')}
+            className="absolute inset-y-0 z-panel cursor-col-resize"
+            style={{
+              width: PANEL_SASH_HIT_WIDTH,
+              right: browserDockWidth - PANEL_SASH_HALF_HIT_WIDTH,
+            }}
+          />
+        )}
+        {!isAutoCompact && <BrowserDock activeSessionId={effectiveSessionId} />}
+
       </div>
 
-      {/* Overlay chrome — transparent so sidebar/content colors run to the window top. */}
+      {/*
+        Overlay chrome — transparent so sidebar/content colors run to the window
+        top. It stops at the dock's left edge: the dock brings its own tab strip,
+        and a native view would paint over anything we drew across it anyway.
+      */}
       <TopBar
+        rightInset={isBrowserDockOpen && !isAutoCompact ? browserDockWidth : 0}
         activeSessionId={effectiveSessionId}
         onBack={goBack}
         onForward={goForward}
@@ -1069,7 +1129,7 @@ function AppShellContent({
         canGoForward={canGoForward}
         onToggleSidebar={handleToggleSidebar}
         onAddSessionPanel={() => handleNewChat(true)}
-        onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
+        onAddBrowserPanel={() => { void handleNewBrowserTab() }}
         showAddPanelMenu={!isSkillsNavigation(navState)}
         isCompact={isAutoCompact}
       />

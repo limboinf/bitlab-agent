@@ -1,14 +1,17 @@
 /**
  * Tests for BrowserPaneManager.
  *
- * Mocks Electron BrowserWindow and session modules to validate lifecycle,
- * session binding, and navigation behavior.
+ * Mocks Electron WebContentsView/BrowserWindow and session modules to validate
+ * lifecycle, session binding, navigation, and dock attachment behavior.
+ *
+ * Browser instances are docked views inside a host window, not standalone
+ * windows, so most tests register a dock first via `attachDock()`.
  */
 
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 
 const createdWindows: any[] = []
-let toolbarLoadFailuresRemaining = 0
+let webContentsIdCounter = 0
 const mockShellOpenExternal = mock(async () => {})
 const mockIpcMainHandle = mock(() => {})
 
@@ -16,6 +19,7 @@ function createMockWebContents() {
   const listeners: Record<string, Function[]> = {}
   let currentUrl = 'about:blank'
   return {
+    id: ++webContentsIdCounter,
     userAgent: 'Mock Chrome Electron/99.0.0',
     session: {},
     isDestroyed: mock(() => false),
@@ -25,19 +29,10 @@ function createMockWebContents() {
     },
     loadURL: mock(async (url: string) => {
       currentUrl = url
-      const isToolbarUrl = typeof url === 'string' && url.includes('browser-toolbar.html')
-      if (isToolbarUrl && toolbarLoadFailuresRemaining > 0) {
-        toolbarLoadFailuresRemaining--
-        throw new Error('mock toolbar load failure')
-      }
     }),
     loadFile: mock(async (path: string, opts?: { query?: Record<string, string> }) => {
       const query = opts?.query ? `?${new URLSearchParams(opts.query).toString()}` : ''
       currentUrl = `file://${path}${query}`
-      if (path.includes('browser-toolbar.html') && toolbarLoadFailuresRemaining > 0) {
-        toolbarLoadFailuresRemaining--
-        throw new Error('mock toolbar load failure')
-      }
     }),
     getTitle: mock(() => 'Test Page'),
     getURL: mock(() => currentUrl),
@@ -62,6 +57,8 @@ function createMockWebContents() {
     executeJavaScript: mock(async (expr: string) => eval(expr)),
     focus: mock(() => {}),
     setWindowOpenHandler: mock((_handler: any) => {}),
+    close: mock(() => {}),
+    getZoomFactor: mock(() => 1),
     send: mock((_channel: string, _payload?: unknown) => {}),
     debugger: {
       attach: mock(() => {}),
@@ -79,11 +76,14 @@ function createMockWebContents() {
   }
 }
 
-function createMockBrowserView() {
+function createMockView() {
   const webContents = createMockWebContents()
+  let bounds = { x: 0, y: 0, width: 0, height: 0 }
   return {
     webContents,
-    setBounds: mock(() => {}),
+    setBounds: mock((next: typeof bounds) => { bounds = next }),
+    getBounds: mock(() => bounds),
+    setVisible: mock((_visible: boolean) => {}),
     setAutoResize: mock(() => {}),
   }
 }
@@ -126,9 +126,10 @@ function createMockWindow(opts?: { width?: number; height?: number; minWidth?: n
     destroy: mock(() => {
       win._emit('closed')
     }),
-    setBrowserView: mock((_view: any) => {}),
-    addBrowserView: mock((_view: any) => {}),
-    setTopBrowserView: mock((_view: any) => {}),
+    contentView: {
+      addChildView: mock((_view: any) => {}),
+      removeChildView: mock((_view: any) => {}),
+    },
     setBackgroundColor: mock((_color: string) => {}),
     getContentSize: mock(() => [contentWidth, contentHeight]),
     setContentSize: mock((width: number, height: number) => {
@@ -145,18 +146,21 @@ mock.module('electron', () => ({
   app: {
     getPath: mock((name: string) => name === 'downloads' ? '/tmp/mock-downloads' : `/tmp/mock-${name}`),
   },
-  BrowserWindow: class MockBrowserWindow {
-    webContents: any
-    constructor(opts?: any) {
-      const win = createMockWindow(opts)
-      this.webContents = win.webContents
-      Object.assign(this, win)
-    }
-  },
-  BrowserView: class MockBrowserView {
+  BrowserWindow: Object.assign(
+    class MockBrowserWindow {
+      webContents: any
+      constructor(opts?: any) {
+        const win = createMockWindow(opts)
+        this.webContents = win.webContents
+        Object.assign(this, win)
+      }
+    },
+    { getAllWindows: mock(() => createdWindows) },
+  ),
+  WebContentsView: class MockWebContentsView {
     webContents: any
     constructor(_opts?: any) {
-      const view = createMockBrowserView()
+      const view = createMockView()
       this.webContents = view.webContents
       Object.assign(this, view)
     }
@@ -228,6 +232,8 @@ mock.module('../browser-cdp', () => ({
     }))
     renderTemporaryOverlay = mock(async () => {})
     clearTemporaryOverlay = mock(async () => {})
+    setViewportOverride = mock(async () => {})
+    clearViewportOverride = mock(async () => {})
     getViewportMetrics = mock(async () => ({ width: 1200, height: 900, dpr: 2, scrollX: 0, scrollY: 0 }))
     getElementGeometry = mock(async () => ({
       ref: '@e1',
@@ -247,9 +253,32 @@ const { BrowserPaneManager } = await import('../browser-pane-manager')
 describe('BrowserPaneManager', () => {
   let manager: InstanceType<typeof BrowserPaneManager>
 
+  /**
+   * Register a dock the way the renderer would, and point it at `activeId`.
+   * Without this there is nowhere for a tab to attach — background tabs are
+   * live but view-less, which is the normal state, not an error.
+   */
+  function attachDock(activeInstanceId: string | null, overrides?: {
+    visible?: boolean
+    suppressed?: boolean
+    bounds?: { x: number; y: number; width: number; height: number } | null
+    host?: any
+  }) {
+    const host = overrides?.host ?? createMockWindow()
+    manager.setDockState(host.webContents.id, {
+      visible: overrides?.visible ?? true,
+      suppressed: overrides?.suppressed ?? false,
+      activeInstanceId,
+      bounds: overrides?.bounds === undefined
+        ? { x: 800, y: 40, width: 480, height: 800 }
+        : overrides.bounds,
+    })
+    return host
+  }
+
   beforeEach(() => {
     createdWindows.length = 0
-    toolbarLoadFailuresRemaining = 0
+    webContentsIdCounter = 0
     mockShellOpenExternal.mockClear()
     mockIpcMainHandle.mockClear()
     manager = new BrowserPaneManager()
@@ -274,25 +303,16 @@ describe('BrowserPaneManager', () => {
       expect.stringContaining('browser-empty-state.html'),
       { query: { themeMode: 'dark' } },
     )
-    expect(instance.toolbarView.webContents.loadFile).toHaveBeenCalledWith(
-      expect.stringContaining('browser-toolbar.html'),
-      { query: { instanceId: 'theme-dark', themeMode: 'dark' } },
-    )
   })
 
-  it('updates an open browser window when the app theme changes', async () => {
+  it('updates an open browser tab when the app theme changes', async () => {
     manager.createInstance('theme-live')
     await Bun.sleep(0)
     const instance = (manager as any).instances.get('theme-live')
 
     manager.setThemeMode('dark')
 
-    expect(instance.window.setBackgroundColor).toHaveBeenLastCalledWith('#2b292e')
     expect(instance.pageView.webContents.setBackgroundColor).toHaveBeenLastCalledWith('#2b292e')
-    expect(instance.toolbarView.webContents.send).toHaveBeenCalledWith(
-      'browser-toolbar:theme-mode',
-      'dark',
-    )
     expect(instance.pageView.webContents.executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('"dark"'),
     )
@@ -306,7 +326,7 @@ describe('BrowserPaneManager', () => {
     expect(manager.listInstances()).toHaveLength(1)
   })
 
-  it('allows http(s) popups with shared browser partition', () => {
+  it('opens http(s) window.open targets as a new tab instead of a window', () => {
     manager.createInstance('popup-allow')
     const instance = (manager as any).instances.get('popup-allow')
     const openHandler = instance.pageView.webContents.setWindowOpenHandler.mock.calls[0][0]
@@ -317,10 +337,34 @@ describe('BrowserPaneManager', () => {
       frameName: 'oauth-popup',
     })
 
-    expect(result.action).toBe('allow')
-    expect(result.overrideBrowserWindowOptions?.webPreferences?.partition).toBe('persist:browser-pane')
-    expect(result.overrideBrowserWindowOptions?.webPreferences?.nodeIntegration).toBe(false)
-    expect(result.overrideBrowserWindowOptions?.webPreferences?.contextIsolation).toBe(true)
+    // Denied as a native window, re-opened as a sibling tab in the same dock.
+    expect(result).toEqual({ action: 'deny' })
+    const tabs = manager.listInstances()
+    expect(tabs).toHaveLength(2)
+    expect(tabs.some((t) => t.id !== 'popup-allow')).toBe(true)
+  })
+
+  it('inherits workspace and session ownership when opening a new tab', () => {
+    manager.createInstance('popup-owner', { workspaceId: 'ws-1', ownerType: 'session', ownerSessionId: 's-1' })
+    const instance = (manager as any).instances.get('popup-owner')
+    const openHandler = instance.pageView.webContents.setWindowOpenHandler.mock.calls[0][0]
+
+    openHandler({ url: 'https://example.com/popup', disposition: 'new-popup', frameName: '' })
+
+    const opened = manager.listInstances().find((t) => t.id !== 'popup-owner')
+    expect(opened?.workspaceId).toBe('ws-1')
+    expect(opened?.ownerSessionId).toBe('s-1')
+  })
+
+  it('denies non-http(s) window.open targets without opening a tab', () => {
+    manager.createInstance('popup-scheme')
+    const instance = (manager as any).instances.get('popup-scheme')
+    const openHandler = instance.pageView.webContents.setWindowOpenHandler.mock.calls[0][0]
+
+    const result = openHandler({ url: 'ftp://example.com/file', disposition: 'new-popup', frameName: '' })
+
+    expect(result).toEqual({ action: 'deny' })
+    expect(manager.listInstances()).toHaveLength(1)
   })
 
   it('denies app deep-link popups and forwards to deep-link handler', async () => {
@@ -339,44 +383,22 @@ describe('BrowserPaneManager', () => {
     expect(mockShellOpenExternal).toHaveBeenCalledWith('bitlab://settings')
   })
 
-  it('destroys child popups when parent instance is destroyed', () => {
-    manager.createInstance('popup-parent')
-    const instance = (manager as any).instances.get('popup-parent')
-
-    const popupWindow = createMockWindow({ width: 520, height: 720 })
-    instance.pageView.webContents._listeners['did-create-window'][0](popupWindow, { url: 'https://accounts.google.com/signin' })
-
-    expect((manager as any).popupWindowsByParentInstanceId.get('popup-parent')?.size).toBe(1)
-
-    manager.destroyInstance('popup-parent')
-
-    expect(popupWindow.destroy).toHaveBeenCalledTimes(1)
-    expect((manager as any).popupWindowsByParentInstanceId.has('popup-parent')).toBe(false)
-  })
-
   it('destroys instances', () => {
     manager.createInstance('d1')
     manager.destroyInstance('d1')
     expect(manager.listInstances()).toHaveLength(0)
   })
 
-  it('destroys instance via toolbar destroy IPC handler', async () => {
-    manager.createInstance('d-ipc-destroy')
-    manager.registerToolbarIpc()
+  it('detaches the view from its dock when the tab is destroyed', () => {
+    manager.createInstance('d-detach')
+    const host = attachDock('d-detach')
+    const instance = (manager as any).instances.get('d-detach')
 
-    const destroyRegistration = (
-      mockIpcMainHandle.mock.calls as unknown as Array<[
-        string,
-        (_event: unknown, instanceId: string) => Promise<void>,
-      ]>
-    ).find(([channel]) => channel === 'browser-toolbar:destroy')
+    expect(host.contentView.addChildView).toHaveBeenCalled()
 
-    expect(destroyRegistration).toBeTruthy()
-    if (!destroyRegistration) throw new Error('Expected browser-toolbar:destroy IPC registration')
+    manager.destroyInstance('d-detach')
 
-    const [, destroyHandler] = destroyRegistration
-    await destroyHandler({}, 'd-ipc-destroy')
-
+    expect(host.contentView.removeChildView).toHaveBeenCalledWith(instance.pageView)
     expect(manager.listInstances()).toHaveLength(0)
   })
 
@@ -402,8 +424,9 @@ describe('BrowserPaneManager', () => {
     manager.destroyInstance('d-late-state')
     const countAfterDestroy = states.length
 
-    instance.window._emit('hide')
-    instance.window._emit('show')
+    // A late dock push naming the dead instance must not resurrect its events.
+    attachDock('d-late-state')
+    instance.pageView.webContents._emit('did-start-loading')
 
     expect(states.length).toBe(countAfterDestroy)
   })
@@ -613,133 +636,159 @@ describe('BrowserPaneManager', () => {
     }
   })
 
-  it('focus brings the instance window to front', () => {
+  it('focus raises a show request for the renderer to open the dock', () => {
+    const requests: Array<{ instanceId: string; hostWebContentsId: number }> = []
+    manager.onShowRequest((payload) => requests.push(payload))
+
     manager.createInstance('f1')
+    const host = attachDock('f1')
     manager.focus('f1')
 
-    const instance = (manager as any).instances.get('f1')
-    instance.toolbarView.webContents.getURL = mock(() => 'http://localhost:5173/browser-toolbar.html?instanceId=f1')
-    instance.toolbarView.webContents._emit('did-finish-load')
-
-    expect(instance.window.show).toHaveBeenCalled()
-    expect(instance.window.focus).toHaveBeenCalled()
+    expect(host.show).toHaveBeenCalled()
+    expect(host.focus).toHaveBeenCalled()
+    expect(requests).toEqual([{ instanceId: 'f1', hostWebContentsId: host.webContents.id }])
   })
 
-  it('dedupes repeated focus calls before ready-to-show', () => {
-    manager.createInstance('f2')
+  it('focus without any dock is a no-op rather than a crash', () => {
+    const requests: unknown[] = []
+    manager.onShowRequest((payload) => requests.push(payload))
 
-    manager.focus('f2')
-    manager.focus('f2')
-    manager.focus('f2')
-
-    const instance = (manager as any).instances.get('f2')
-    instance.toolbarView.webContents.getURL = mock(() => 'http://localhost:5173/browser-toolbar.html?instanceId=f2')
-    instance.toolbarView.webContents._emit('did-finish-load')
-
-    expect(instance.window.show.mock.calls.length).toBe(1)
-    expect(instance.window.focus.mock.calls.length).toBe(1)
+    manager.createInstance('f-no-dock')
+    expect(() => manager.focus('f-no-dock')).not.toThrow()
+    expect(requests).toHaveLength(0)
   })
 
-  it('cancels deferred pre-ready focus when hide happens first', () => {
-    manager.createInstance('f-hide-race')
+  it('attaches only the dock active tab and detaches the rest', () => {
+    manager.createInstance('tab-a')
+    manager.createInstance('tab-b')
 
-    manager.focus('f-hide-race')
-    manager.hide('f-hide-race')
+    const host = attachDock('tab-a')
+    const a = (manager as any).instances.get('tab-a')
+    const b = (manager as any).instances.get('tab-b')
 
-    const instance = (manager as any).instances.get('f-hide-race')
-    const showCallsBeforeReady = instance.window.show.mock.calls.length
-    const focusCallsBeforeReady = instance.window.focus.mock.calls.length
+    expect(a.host).toBe(host)
+    expect(b.host).toBeNull()
+    expect(manager.listInstances().find((i) => i.id === 'tab-a')?.isVisible).toBe(true)
 
-    instance.toolbarView.webContents.getURL = mock(() => 'http://localhost:5173/browser-toolbar.html?instanceId=f-hide-race')
-    instance.toolbarView.webContents._emit('did-finish-load')
+    // Switching tabs moves the single native slot over.
+    attachDock('tab-b', { host })
 
-    expect(instance.window.show.mock.calls.length).toBe(showCallsBeforeReady)
-    expect(instance.window.focus.mock.calls.length).toBe(focusCallsBeforeReady)
+    expect(a.host).toBeNull()
+    expect(b.host).toBe(host)
+    expect(host.contentView.removeChildView).toHaveBeenCalledWith(a.pageView)
   })
 
-  it('user close hides window and keeps instance alive', () => {
+  it('parks the page view on the reported dock rect', () => {
+    manager.createInstance('bounds-1')
+    attachDock('bounds-1', { bounds: { x: 700, y: 48, width: 500, height: 820 } })
+
+    const instance = (manager as any).instances.get('bounds-1')
+    expect(instance.pageView.setBounds).toHaveBeenLastCalledWith({ x: 700, y: 48, width: 500, height: 820 })
+  })
+
+  it('scales dock bounds by the host zoom factor', () => {
+    manager.createInstance('bounds-zoom')
+    const host = createMockWindow()
+    host.webContents.getZoomFactor = mock(() => 2)
+    attachDock('bounds-zoom', { host, bounds: { x: 100, y: 20, width: 300, height: 400 } })
+
+    const instance = (manager as any).instances.get('bounds-zoom')
+    expect(instance.pageView.setBounds).toHaveBeenLastCalledWith({ x: 200, y: 40, width: 600, height: 800 })
+  })
+
+  it('detaches while a renderer overlay suppresses the dock', () => {
+    manager.createInstance('suppress-1')
+    const host = attachDock('suppress-1')
+    const instance = (manager as any).instances.get('suppress-1')
+    expect(instance.host).toBe(host)
+
+    attachDock('suppress-1', { host, suppressed: true })
+
+    expect(instance.host).toBeNull()
+    expect(manager.listInstances()[0].isVisible).toBe(false)
+  })
+
+  it('detaches when the dock is closed but keeps the tab alive', () => {
+    manager.createInstance('dock-closed')
+    const host = attachDock('dock-closed')
+
+    attachDock(null, { host, visible: false, bounds: null })
+
+    const instance = (manager as any).instances.get('dock-closed')
+    expect(instance.host).toBeNull()
+    expect(manager.listInstances()).toHaveLength(1)
+  })
+
+  it('hide detaches the tab without destroying it', () => {
     manager.createInstance('h1')
+    attachDock('h1')
+
+    manager.hide('h1')
+
     const instance = (manager as any).instances.get('h1')
-
-    const closeEvent = { preventDefault: mock(() => {}) }
-    instance.window._emit('close', closeEvent)
-
-    expect(closeEvent.preventDefault).toHaveBeenCalled()
-    expect(instance.window.hide).toHaveBeenCalled()
+    expect(instance.host).toBeNull()
     expect(manager.listInstances()).toHaveLength(1)
     expect(manager.listInstances()[0].isVisible).toBe(false)
   })
 
-  it('does not intercept close when destroy is explicit', () => {
-    manager.createInstance('h-explicit-destroy')
-    const instance = (manager as any).instances.get('h-explicit-destroy')
+  it('releases dock views when the host window closes', () => {
+    manager.createInstance('host-closed')
+    const host = attachDock('host-closed')
+    const instance = (manager as any).instances.get('host-closed')
 
-    ;(manager as any).destroyingIds.add('h-explicit-destroy')
+    host._emit('closed')
 
-    const closeEvent = { preventDefault: mock(() => {}) }
-    instance.window._emit('close', closeEvent)
-
-    expect(closeEvent.preventDefault).not.toHaveBeenCalled()
-    expect(instance.window.hide).not.toHaveBeenCalled()
+    expect(instance.host).toBeNull()
+    expect((manager as any).docks.size).toBe(0)
+    expect(manager.listInstances()).toHaveLength(1)
   })
 
   it('still destroys instance when cleanup throws', () => {
     manager.createInstance('destroy-cleanup-throw')
     const instance = (manager as any).instances.get('destroy-cleanup-throw')
 
-    ;(manager as any).updateNativeOverlayState = () => {
-      throw new Error('mock overlay cleanup failure')
+    ;(manager as any).detachInstance = () => {
+      throw new Error('mock detach failure')
     }
 
     expect(() => manager.destroyInstance('destroy-cleanup-throw')).not.toThrow()
-    expect(instance.window.destroy).toHaveBeenCalledTimes(1)
+    expect(instance.pageView.webContents.close).toHaveBeenCalledTimes(1)
     expect(manager.listInstances()).toHaveLength(0)
   })
 
-  it('emits removed callback when window closes', () => {
+  it('emits removed callback when the page webContents is destroyed', () => {
     const removed: string[] = []
     manager.onRemoved((id) => removed.push(id))
     manager.createInstance('r1')
 
     const instance = (manager as any).instances.get('r1')
-    instance.window._emit('closed')
+    instance.pageView.webContents._emit('destroyed')
 
     expect(removed).toEqual(['r1'])
     expect(manager.listInstances()).toHaveLength(0)
   })
 
-  it('retries toolbar load and recovers', async () => {
-    toolbarLoadFailuresRemaining = 2
-    manager.createInstance('retry-toolbar')
+  it('detaches and reports a crashed tab when its render process dies', () => {
+    manager.createInstance('crash-1')
+    const host = attachDock('crash-1')
+    const instance = (manager as any).instances.get('crash-1')
 
-    await Bun.sleep(1400)
+    instance.pageView.webContents._emit('render-process-gone', { reason: 'crashed', exitCode: 133 })
 
-    const instance = (manager as any).instances.get('retry-toolbar')
-    const toolbarWebContents = instance.toolbarView.webContents
-    const fileAttempts = toolbarWebContents.loadFile.mock.calls.length
-    const toolbarUrlAttempts = toolbarWebContents.loadURL.mock.calls
-      .filter((args: [string]) => args[0]?.includes('browser-toolbar.html')).length
-    const totalAttempts = fileAttempts + toolbarUrlAttempts
-
-    expect(totalAttempts).toBe(3)
-    expect(toolbarWebContents.loadURL).not.toHaveBeenCalledWith(expect.stringContaining('data:text/html'))
+    expect(instance.host).toBeNull()
+    expect(host.contentView.removeChildView).toHaveBeenCalledWith(instance.pageView)
+    expect(manager.listInstances()[0].crashed?.reason).toBe('crashed')
   })
 
-  it('loads toolbar fallback page after retry exhaustion', async () => {
-    toolbarLoadFailuresRemaining = 20
-    manager.createInstance('fallback-toolbar')
+  it('clears the crash flag once the tab starts loading again', () => {
+    manager.createInstance('crash-2')
+    const instance = (manager as any).instances.get('crash-2')
 
-    await Bun.sleep(3200)
+    instance.pageView.webContents._emit('render-process-gone', { reason: 'oom', exitCode: 9 })
+    expect(manager.listInstances()[0].crashed).not.toBeNull()
 
-    const instance = (manager as any).instances.get('fallback-toolbar')
-    const toolbarWebContents = instance.toolbarView.webContents
-    const fileAttempts = toolbarWebContents.loadFile.mock.calls.length
-    const toolbarUrlAttempts = toolbarWebContents.loadURL.mock.calls
-      .filter((args: [string]) => args[0]?.includes('browser-toolbar.html')).length
-    const totalAttempts = fileAttempts + toolbarUrlAttempts
-
-    expect(totalAttempts).toBe(5)
-    expect(toolbarWebContents.loadURL).toHaveBeenCalledWith(expect.stringContaining('data:text/html'))
+    instance.pageView.webContents._emit('did-start-loading')
+    expect(manager.listInstances()[0].crashed).toBeNull()
   })
 
   it('captures and filters console entries', () => {
@@ -769,17 +818,18 @@ describe('BrowserPaneManager', () => {
   })
 
   it('dedupes repeated observer theme signals', () => {
+    const states: string[] = []
     manager.createInstance('theme-dedupe')
     const instance = (manager as any).instances.get('theme-dedupe')
     instance.themeObserverToken = 'tok-2'
+    manager.onStateChange((info) => states.push(info.id))
 
     instance.pageView.webContents._emit('console-message', 1, '__bitlab_theme_color__:tok-2:#445566')
-    const sendCallsAfterFirst = instance.toolbarView.webContents.send.mock.calls.length
+    const emitsAfterFirst = states.length
 
     instance.pageView.webContents._emit('console-message', 1, '__bitlab_theme_color__:tok-2:#445566')
-    const sendCallsAfterSecond = instance.toolbarView.webContents.send.mock.calls.length
 
-    expect(sendCallsAfterSecond).toBe(sendCallsAfterFirst)
+    expect(states.length).toBe(emitsAfterFirst)
   })
 
   it('ignores observer theme signals from stale token', () => {
@@ -803,107 +853,6 @@ describe('BrowserPaneManager', () => {
 
     instance.pageView.webContents._emit('console-message', 1, '__bitlab_theme_color__:tok-null:__NULL__')
     expect(manager.listInstances().find(i => i.id === 'theme-null')?.themeColor).toBeNull()
-  })
-
-  it('replays toolbar state with theme color when window is shown', () => {
-    manager.createInstance('theme-show-replay')
-    const instance = (manager as any).instances.get('theme-show-replay')
-
-    instance.currentUrl = 'https://example.com'
-    instance.title = 'Example'
-    instance.canGoBack = true
-    instance.canGoForward = false
-    instance.themeColor = '#123456'
-
-    const sendsBeforeShow = instance.toolbarView.webContents.send.mock.calls.length
-    instance.window._emit('show')
-
-    const sendCallsAfterShow = instance.toolbarView.webContents.send.mock.calls.slice(sendsBeforeShow)
-    expect(sendCallsAfterShow).toContainEqual([
-      'browser-toolbar:state-update',
-      {
-        url: 'https://example.com',
-        title: 'Example',
-        isLoading: false,
-        canGoBack: true,
-        canGoForward: false,
-        themeColor: '#123456',
-      },
-    ])
-  })
-
-  it('replays full toolbar state when toolbar renderer finishes loading', () => {
-    toolbarLoadFailuresRemaining = 20
-    manager.createInstance('toolbar-finish-load-replay')
-    const instance = (manager as any).instances.get('toolbar-finish-load-replay')
-
-    instance.currentUrl = 'https://craft.do'
-    instance.title = 'Craft'
-    instance.isLoading = true
-    instance.canGoBack = true
-    instance.canGoForward = true
-    instance.themeColor = '#654321'
-
-    instance.toolbarView.webContents.getURL = mock(() => 'http://localhost:5173/browser-toolbar.html?instanceId=toolbar-finish-load-replay')
-
-    const sendsBeforeFinishLoad = instance.toolbarView.webContents.send.mock.calls.length
-    instance.toolbarView.webContents._emit('did-finish-load')
-
-    const sendCallsAfterFinishLoad = instance.toolbarView.webContents.send.mock.calls.slice(sendsBeforeFinishLoad)
-    expect(sendCallsAfterFinishLoad).toContainEqual([
-      'browser-toolbar:state-update',
-      {
-        url: 'https://craft.do',
-        title: 'Craft',
-        isLoading: true,
-        canGoBack: true,
-        canGoForward: true,
-        themeColor: '#654321',
-      },
-    ])
-  })
-
-  it('does not mark toolbar ready for about:blank did-finish-load', () => {
-    toolbarLoadFailuresRemaining = 20
-    manager.createInstance('toolbar-ignore-about-blank')
-    const instance = (manager as any).instances.get('toolbar-ignore-about-blank')
-
-    instance.toolbarView.webContents.getURL = mock(() => 'about:blank')
-    instance.toolbarView.webContents._emit('did-finish-load')
-
-    expect(instance.toolbarReady).toBe(false)
-  })
-
-  it('marks toolbar ready for fallback data page did-finish-load', () => {
-    toolbarLoadFailuresRemaining = 20
-    manager.createInstance('toolbar-fallback-ready')
-    const instance = (manager as any).instances.get('toolbar-fallback-ready')
-
-    instance.toolbarView.webContents.getURL = mock(() => 'data:text/html;charset=UTF-8,%3Chtml%3E%3C%2Fhtml%3E')
-    instance.toolbarView.webContents._emit('did-finish-load')
-
-    expect(instance.toolbarReady).toBe(true)
-  })
-
-  it('keeps focus deferred until a valid toolbar document loads', () => {
-    toolbarLoadFailuresRemaining = 20
-    manager.createInstance('toolbar-focus-guard')
-    const instance = (manager as any).instances.get('toolbar-focus-guard')
-
-    manager.focus('toolbar-focus-guard')
-    expect(instance.pendingShowOnReady).toBe(true)
-    expect(instance.window.show).toHaveBeenCalledTimes(0)
-
-    instance.toolbarView.webContents.getURL = mock(() => 'about:blank')
-    instance.toolbarView.webContents._emit('did-finish-load')
-    expect(instance.window.show).toHaveBeenCalledTimes(0)
-
-    instance.toolbarView.webContents.getURL = mock(() => 'file:///mock/renderer/browser-toolbar.html')
-    instance.toolbarView.webContents._emit('did-finish-load')
-
-    expect(instance.toolbarReady).toBe(true)
-    expect(instance.window.show).toHaveBeenCalledTimes(1)
-    expect(instance.window.focus).toHaveBeenCalledTimes(1)
   })
 
   it('runs early theme extraction shortly after navigation', async () => {
@@ -958,8 +907,10 @@ describe('BrowserPaneManager', () => {
     await expect(manager.screenshot('screenshot-empty-png')).rejects.toThrow('Failed to capture screenshot: empty image buffer')
   })
 
-  it('recovers screenshot via non-disruptive inactive reveal and restores hidden state', async () => {
+  it('recovers screenshot by briefly activating the tab and restores the previous one', async () => {
     manager.createInstance('screenshot-rescue-success')
+    manager.createInstance('screenshot-rescue-other')
+    const host = attachDock('screenshot-rescue-other')
     const instance = (manager as any).instances.get('screenshot-rescue-success')
 
     let captureCalls = 0
@@ -988,10 +939,10 @@ describe('BrowserPaneManager', () => {
     const result = await manager.screenshot('screenshot-rescue-success', { includeMetadata: true })
 
     expect(result.imageBuffer.toString()).toBe('rescued-png')
-    expect(instance.window.showInactive).toHaveBeenCalledTimes(1)
-    expect(instance.window.focus).not.toHaveBeenCalled()
-    expect(instance.window.hide).toHaveBeenCalled()
-    expect(result.metadata?.warnings?.some((w: string) => w.includes('temporary inactive reveal'))).toBe(true)
+    // The other tab is active again once the capture is done.
+    expect((manager as any).docks.get(host.webContents.id).activeInstanceId).toBe('screenshot-rescue-other')
+    expect(instance.host).toBeNull()
+    expect(result.metadata?.warnings?.some((w: string) => w.includes('briefly activating'))).toBe(true)
   })
 
   it('throws when region screenshot capture returns empty NativeImage', async () => {
@@ -1070,32 +1021,208 @@ describe('BrowserPaneManager', () => {
     ).rejects.toThrow('Resolved screenshot region is outside the current viewport')
   })
 
-  it('resizes browser window viewport and returns effective applied size', () => {
+  it('resizes the viewport through CDP emulation rather than a window', async () => {
     manager.createInstance('resize-1')
-    const resized = manager.windowResize('resize-1', 1280, 720)
+    const resized = await manager.windowResize('resize-1', 1280, 720)
 
     const instance = (manager as any).instances.get('resize-1')
-    expect(instance.window.setContentSize).toHaveBeenCalledWith(1280, 768)
+    expect(instance.cdp.setViewportOverride).toHaveBeenCalledWith(1280, 720, false)
     expect(resized).toEqual({ width: 1280, height: 720 })
   })
 
-  it('returns effective viewport size when min window constraints apply', () => {
-    manager.createInstance('resize-min')
-    const resized = manager.windowResize('resize-min', 200, 200)
+  it('emulates touch for viewports below the tablet breakpoint', async () => {
+    manager.createInstance('resize-mobile')
+    const resized = await manager.windowResize('resize-mobile', 375, 812)
 
-    // BrowserWindow minHeight is 500, toolbar is 48, so effective viewport height is 452.
-    expect(resized).toEqual({ width: 700, height: 452 })
+    const instance = (manager as any).instances.get('resize-mobile')
+    expect(instance.cdp.setViewportOverride).toHaveBeenCalledWith(375, 812, true)
+    expect(resized).toEqual({ width: 375, height: 812 })
+  })
+
+  it('clamps viewport requests to a usable minimum', async () => {
+    manager.createInstance('resize-min')
+    const resized = await manager.windowResize('resize-min', 200, 200)
+
+    expect(resized).toEqual({ width: 320, height: 240 })
+  })
+
+  describe('ambient context snapshot', () => {
+    it('reports nothing when no dock is open', () => {
+      manager.createInstance('ctx-closed')
+      const snap = manager.getContextSnapshot()
+
+      // A closed dock must not leak the page the user walked away from.
+      expect(snap.activeTab).toBeNull()
+      expect(snap.tabCount).toBe(1)
+    })
+
+    it('reports the dock active tab', () => {
+      manager.createInstance('ctx-1')
+      const instance = (manager as any).instances.get('ctx-1')
+      instance.title = 'Example Site'
+      instance.currentUrl = 'https://example.com/'
+      attachDock('ctx-1')
+
+      const snap = manager.getContextSnapshot()
+      expect(snap.activeTab).toEqual({ title: 'Example Site', url: 'https://example.com/' })
+      expect(snap.agentDriving).toBe(false)
+    })
+
+    it('reports nothing while an overlay suppresses the dock', () => {
+      manager.createInstance('ctx-suppressed')
+      const host = attachDock('ctx-suppressed')
+      attachDock('ctx-suppressed', { host, suppressed: true })
+
+      expect(manager.getContextSnapshot().activeTab).toBeNull()
+    })
+
+    it('flags when an agent is driving the active tab', () => {
+      manager.createInstance('ctx-agent')
+      manager.bindSession('ctx-agent', 'sess-ctx')
+      attachDock('ctx-agent')
+      manager.setAgentControl('sess-ctx', { displayName: 'Navigate' })
+
+      expect(manager.getContextSnapshot().agentDriving).toBe(true)
+    })
+
+    it('does not report a tab from another workspace', () => {
+      manager.createInstance('ctx-ws', { workspaceId: 'ws-a' })
+      attachDock('ctx-ws')
+
+      expect(manager.getContextSnapshot('ws-b').activeTab).toBeNull()
+      expect(manager.getContextSnapshot('ws-a').activeTab).not.toBeNull()
+    })
+  })
+
+  describe('session reuse targets the tab the user is watching', () => {
+    it('adopts the dock active tab over an older unbound one', () => {
+      manager.createInstance('reuse-old')
+      manager.createInstance('reuse-watched')
+      attachDock('reuse-watched')
+
+      // Without an explicit dock-active preference this picks 'reuse-old' and
+      // the agent silently drives a tab the user cannot see.
+      expect(manager.createForSession('sess-reuse')).toBe('reuse-watched')
+    })
+
+    it('falls back to any unbound tab when no dock is open', () => {
+      manager.createInstance('reuse-only')
+      expect(manager.createForSession('sess-nodock')).toBe('reuse-only')
+    })
+  })
+
+  describe('annotation mode', () => {
+    it('injects the picker and reports mode on the instance', async () => {
+      manager.createInstance('anno-1')
+      await manager.setAnnotationMode('anno-1', true)
+
+      const instance = (manager as any).instances.get('anno-1')
+      expect(instance.annotationMode).toBe(true)
+      const injected = instance.pageView.webContents.executeJavaScript.mock.calls
+        .map((args: [string]) => String(args[0]))
+      expect(injected.some((src: string) => src.includes('__bitlabAnnotate'))).toBe(true)
+    })
+
+    it('disables the picker without tearing down the page', async () => {
+      manager.createInstance('anno-off')
+      await manager.setAnnotationMode('anno-off', true)
+      await manager.setAnnotationMode('anno-off', false)
+
+      const instance = (manager as any).instances.get('anno-off')
+      expect(instance.annotationMode).toBe(false)
+      const calls = instance.pageView.webContents.executeJavaScript.mock.calls
+        .map((args: [string]) => String(args[0]))
+      expect(calls.some((src: string) => src.includes('disable()'))).toBe(true)
+    })
+
+    it('re-injects after navigation, because a load wipes the picker', async () => {
+      manager.createInstance('anno-nav')
+      await manager.setAnnotationMode('anno-nav', true)
+      const instance = (manager as any).instances.get('anno-nav')
+      const before = instance.pageView.webContents.executeJavaScript.mock.calls.length
+
+      instance.pageView.webContents._emit('did-navigate', 'https://example.com/next')
+      await Bun.sleep(0)
+
+      expect(instance.pageView.webContents.executeJavaScript.mock.calls.length).toBeGreaterThan(before)
+    })
+
+    it('captures a pick as a screenshot and reports it', async () => {
+      const picks: any[] = []
+      manager.onAnnotationPicked((payload) => picks.push(payload))
+      manager.createInstance('anno-pick')
+      const instance = (manager as any).instances.get('anno-pick')
+
+      instance.pageView.webContents._emit(
+        'console-message',
+        1,
+        '__bitlab_annotation__:' + JSON.stringify({ x: 10, y: 20, width: 100, height: 40, label: 'button.cta Get started' }),
+      )
+      await Bun.sleep(10)
+
+      expect(picks).toHaveLength(1)
+      expect(picks[0].instanceId).toBe('anno-pick')
+      expect(picks[0].label).toBe('button.cta Get started')
+      expect(picks[0].mimeType).toBe('image/png')
+      expect(picks[0].imageBase64.length).toBeGreaterThan(0)
+    })
+
+    it('sanitizes a hostile element label — it becomes a filename', async () => {
+      const picks: any[] = []
+      manager.onAnnotationPicked((payload) => picks.push(payload))
+      manager.createInstance('anno-evil')
+      const instance = (manager as any).instances.get('anno-evil')
+
+      instance.pageView.webContents._emit(
+        'console-message',
+        1,
+        '__bitlab_annotation__:' + JSON.stringify({
+          x: 0, y: 0, width: 10, height: 10,
+          label: '../../etc/passwd\u0000; rm -rf /',
+        }),
+      )
+      await Bun.sleep(10)
+
+      expect(picks[0].label).not.toContain('/')
+      expect(picks[0].label).not.toContain('..')
+      expect(picks[0].label).not.toContain(';')
+    })
+
+    it('ignores a malformed annotation signal', async () => {
+      const picks: any[] = []
+      manager.onAnnotationPicked((payload) => picks.push(payload))
+      manager.createInstance('anno-bad')
+      const instance = (manager as any).instances.get('anno-bad')
+
+      instance.pageView.webContents._emit('console-message', 1, '__bitlab_annotation__:not-json')
+      await Bun.sleep(10)
+
+      expect(picks).toHaveLength(0)
+      // And it must not be logged as page console noise either.
+      expect(manager.getConsoleLogs('anno-bad', { level: 'all', limit: 10 })).toHaveLength(0)
+    })
   })
 
   describe('agent control overlay', () => {
-    it('setAgentControl activates native overlay on bound instance', async () => {
-      manager.createInstance('ac-1')
-      manager.bindSession('ac-1', 'sess-1')
+    /**
+     * The input shield only paints once the tab is attached to a dock and its
+     * overlay page has loaded — a background tab has no view to shield.
+     */
+    function dockedWithShield(instanceId: string, sessionId: string) {
+      manager.createInstance(instanceId)
+      manager.bindSession(instanceId, sessionId)
+      const host = attachDock(instanceId)
+      const instance = (manager as any).instances.get(instanceId)
+      instance.nativeOverlayReady = true
+      return { instance, host }
+    }
+
+    it('setAgentControl activates the input shield on the bound instance', async () => {
+      const { instance } = dockedWithShield('ac-1', 'sess-1')
 
       manager.setAgentControl('sess-1', { displayName: 'Navigate Page', intent: 'Loading example.com' })
       await Promise.resolve()
 
-      const instance = (manager as any).instances.get('ac-1')
       expect(instance.agentControl).toEqual({
         active: true,
         sessionId: 'sess-1',
@@ -1107,19 +1234,18 @@ describe('BrowserPaneManager', () => {
       expect(manager.listInstances().find(i => i.id === 'ac-1')?.agentControlActive).toBe(true)
     })
 
-    it('keeps native overlay visible for active session control', async () => {
-      manager.createInstance('ac-idle')
-      manager.bindSession('ac-idle', 'sess-idle')
+    it('covers the page rect with the shield while control is active', async () => {
+      const { instance } = dockedWithShield('ac-idle', 'sess-idle')
 
       manager.setAgentControl('sess-idle', {
         displayName: 'Browser',
-        intent: 'Session controls this window',
+        intent: 'Session controls this tab',
       })
       await Promise.resolve()
 
-      const instance = (manager as any).instances.get('ac-idle')
-      expect(instance.nativeOverlayView.setBounds).toHaveBeenCalledWith({ x: 0, y: 48, width: 1200, height: 852 })
-      expect(instance.nativeOverlayView.webContents.focus).not.toHaveBeenCalled()
+      // The shield tracks the page view exactly — same rect, painted above it.
+      expect(instance.nativeOverlayView.setBounds).toHaveBeenLastCalledWith(instance.pageView.getBounds())
+      expect(instance.nativeOverlayView.setVisible).toHaveBeenLastCalledWith(true)
       expect(manager.listInstances().find(i => i.id === 'ac-idle')?.agentControlActive).toBe(true)
     })
 
@@ -1138,9 +1264,8 @@ describe('BrowserPaneManager', () => {
       expect(acStateEvents.some((event) => event.agentControlActive === false)).toBe(true)
     })
 
-    it('reapplies native overlay after did-stop-loading while control is active', async () => {
-      manager.createInstance('ac-reapply')
-      manager.bindSession('ac-reapply', 'sess-reapply')
+    it('reapplies the shield after did-stop-loading while control is active', async () => {
+      dockedWithShield('ac-reapply', 'sess-reapply')
 
       manager.setAgentControl('sess-reapply', { displayName: 'Navigate Page', intent: 'Loading example.com' })
       await Promise.resolve()
@@ -1154,59 +1279,54 @@ describe('BrowserPaneManager', () => {
       expect(instance.nativeOverlayView.webContents.executeJavaScript.mock.calls.length).toBeGreaterThan(callCountAfterSet)
     })
 
-    it('reapplies native overlay after hide/show while control is active', async () => {
+    it('reapplies the input shield when the tab is reattached to the dock', async () => {
       manager.createInstance('ac-show-reapply')
       manager.bindSession('ac-show-reapply', 'sess-show-reapply')
 
+      const host = attachDock('ac-show-reapply')
       manager.setAgentControl('sess-show-reapply', { displayName: 'Click Button', intent: 'Clicking submit' })
       await Promise.resolve()
 
       const instance = (manager as any).instances.get('ac-show-reapply')
+      instance.nativeOverlayReady = true
       const callCountAfterSet = instance.nativeOverlayView.webContents.executeJavaScript.mock.calls.length
 
-      instance.window._emit('hide')
-      instance.window._emit('show')
+      attachDock(null, { host, visible: false, bounds: null })
+      attachDock('ac-show-reapply', { host })
       await Promise.resolve()
 
       expect(instance.nativeOverlayView.webContents.executeJavaScript.mock.calls.length).toBeGreaterThan(callCountAfterSet)
     })
 
     it('setAgentControl uses fallback label when no intent', async () => {
-      manager.createInstance('ac-2')
-      manager.bindSession('ac-2', 'sess-2')
+      dockedWithShield('ac-2', 'sess-2')
 
       manager.setAgentControl('sess-2', { displayName: 'Browser Snapshot' })
       await Promise.resolve()
 
-      const instance = (manager as any).instances.get('ac-2')
-      const calls = instance.nativeOverlayView.webContents.executeJavaScript.mock.calls
-      expect(calls.length).toBeGreaterThan(0)
-      expect(String(calls[calls.length - 1][0])).toContain('Browser Snapshot')
+      // The label rides the DTO now — the banner that renders it is React.
+      expect(manager.listInstances().find(i => i.id === 'ac-2')?.agentControlLabel)
+        .toBe('Browser Snapshot')
     })
 
     it('setAgentControl uses default label when no metadata', async () => {
-      manager.createInstance('ac-3')
-      manager.bindSession('ac-3', 'sess-3')
+      dockedWithShield('ac-3', 'sess-3')
 
       manager.setAgentControl('sess-3', {})
       await Promise.resolve()
 
-      const instance = (manager as any).instances.get('ac-3')
-      const calls = instance.nativeOverlayView.webContents.executeJavaScript.mock.calls
-      expect(calls.length).toBeGreaterThan(0)
-      expect(String(calls[calls.length - 1][0])).toContain('Agent is working…')
+      expect(manager.listInstances().find(i => i.id === 'ac-3')?.agentControlLabel)
+        .toBe('Agent is working…')
     })
 
-    it('clearAgentControl dismisses native overlay', () => {
-      manager.createInstance('ac-4')
-      manager.bindSession('ac-4', 'sess-4')
+    it('clearAgentControl hides the shield', () => {
+      const { instance } = dockedWithShield('ac-4', 'sess-4')
 
       manager.setAgentControl('sess-4', { displayName: 'Click Button', intent: 'Clicking submit' })
       manager.clearAgentControl('sess-4')
 
-      const instance = (manager as any).instances.get('ac-4')
       expect(instance.agentControl).toBeNull()
-      expect(instance.nativeOverlayView.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 0, height: 0 })
+      expect(instance.nativeOverlayView.setVisible).toHaveBeenLastCalledWith(false)
     })
 
     it('clearAgentControl is a no-op when not active', () => {
@@ -1220,15 +1340,13 @@ describe('BrowserPaneManager', () => {
     })
 
     it('clearVisualsForSession resets agent control state', async () => {
-      manager.createInstance('ac-6')
-      manager.bindSession('ac-6', 'sess-6')
+      const { instance } = dockedWithShield('ac-6', 'sess-6')
 
       manager.setAgentControl('sess-6', { displayName: 'Fill Input', intent: 'Typing email' })
       await manager.clearVisualsForSession('sess-6')
 
-      const instance = (manager as any).instances.get('ac-6')
       expect(instance.agentControl).toBeNull()
-      expect(instance.nativeOverlayView.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 0, height: 0 })
+      expect(instance.nativeOverlayView.setVisible).toHaveBeenLastCalledWith(false)
     })
 
     it('setAgentControl ignores unbound sessions', () => {

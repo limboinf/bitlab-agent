@@ -19,6 +19,7 @@ import { useEffect, type ReactNode } from 'react'
 import * as ReactDOM from 'react-dom'
 import { type LucideIcon } from 'lucide-react'
 import { useOverlayMode, OVERLAY_LAYOUT } from '../../lib/layout'
+import { useNativeViewOcclusion } from '../../lib/native-view-occlusion'
 import { FullscreenOverlayBase } from './FullscreenOverlayBase'
 import { FullscreenOverlayBaseHeader } from './FullscreenOverlayBaseHeader'
 import { OverlayErrorBanner } from './OverlayErrorBanner'
@@ -92,6 +93,10 @@ export function PreviewOverlay({
   const bgClass = className || OVERLAY_BG
   const responsiveMode = useOverlayMode()
   const isModal = responsiveMode === 'modal'
+
+  // Modal mode owns its own portal, so it has to report occlusion itself;
+  // fullscreen mode inherits it from FullscreenOverlayBase.
+  useNativeViewOcclusion(isOpen && isModal && !embedded)
 
   // Handle Escape key for modal mode only (fullscreen mode uses FullscreenOverlayBase which handles ESC)
   useEffect(() => {

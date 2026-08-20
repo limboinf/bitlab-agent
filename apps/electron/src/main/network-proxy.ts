@@ -146,15 +146,41 @@ function buildElectronProxyConfig(settings: NetworkProxySettings): Electron.Prox
 }
 
 /**
+ * Proxy settings inherited from the environment, used when the app has no proxy
+ * of its own configured. Without this, Node's fetch ignores HTTPS_PROXY entirely
+ * (unlike curl or the CLI tools users expect to behave the same), so requests to
+ * region-restricted endpoints fail even though the browser reaches them fine.
+ *
+ * Note a macOS GUI launch inherits no shell environment — configure the proxy in
+ * settings for that case.
+ */
+function readEnvProxySettings(): NetworkProxySettings | undefined {
+  const { HTTP_PROXY, http_proxy, HTTPS_PROXY, https_proxy, NO_PROXY, no_proxy } = process.env;
+  const httpProxy = HTTP_PROXY || http_proxy;
+  // A lone HTTPS_PROXY is the common setup; fall back to the http one for either protocol.
+  const httpsProxy = HTTPS_PROXY || https_proxy || httpProxy;
+  if (!httpProxy && !httpsProxy) return undefined;
+
+  // Loopback must stay direct: the app talks to its own local server over HTTP.
+  const noProxy = [NO_PROXY || no_proxy, 'localhost,127.0.0.1,::1'].filter(Boolean).join(',');
+  return { enabled: true, httpProxy: httpProxy || httpsProxy, httpsProxy, noProxy };
+}
+
+/**
  * Read persisted proxy settings and apply to both Node and Electron.
  * Safe to call before app.whenReady() — Electron session setup is skipped until ready.
  */
 export async function applyConfiguredProxySettings(): Promise<void> {
-  const settings = getNetworkProxySettings();
+  const configured = getNetworkProxySettings();
+  // Only fall back to the environment when the user never touched the setting —
+  // an explicit "off" means direct, not "guess from my shell".
+  const envSettings = configured ? undefined : readEnvProxySettings();
+  const settings = envSettings ?? configured;
 
   const hasHttpProxy = !!settings?.httpProxy;
   const hasNoProxy = !!settings?.noProxy;
   log.info('[proxy] Applying proxy settings:', {
+    source: envSettings ? 'environment' : 'settings',
     enabled: settings?.enabled ?? false,
     hasHttpProxy,
     hasHttpsProxy: !!settings?.httpsProxy,

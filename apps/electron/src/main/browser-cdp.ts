@@ -472,6 +472,24 @@ export class BrowserCDP {
     }
   }
 
+  /**
+   * Emulate a viewport size. The docked browser can't be resized by resizing a
+   * window (there isn't one), so viewport emulation is how `resize` works —
+   * same mechanism DevTools device mode uses.
+   */
+  async setViewportOverride(width: number, height: number, mobile = false): Promise<void> {
+    await this.send('Emulation.setDeviceMetricsOverride', {
+      width,
+      height,
+      deviceScaleFactor: 0,
+      mobile,
+    })
+  }
+
+  async clearViewportOverride(): Promise<void> {
+    await this.send('Emulation.clearDeviceMetricsOverride')
+  }
+
   async renderTemporaryOverlay(params: {
     geometries: ElementGeometry[]
     includeMetadata?: boolean

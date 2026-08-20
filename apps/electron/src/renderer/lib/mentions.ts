@@ -94,6 +94,17 @@ export function findMentionMatches(
     })
   }
 
+  // Match browser mentions: [browser:url]
+  const browserPattern = /\[browser:([^\]]+)\]/g
+  while ((match = browserPattern.exec(text)) !== null) {
+    matches.push({
+      type: 'browser',
+      id: match[1]!,
+      fullMatch: match[0],
+      startIndex: match.index,
+    })
+  }
+
   // Match folder mentions: [folder:path]
   const folderPattern = /(\[folder:([^\]]+)\])/g
   while ((match = folderPattern.exec(text)) !== null) {
@@ -129,6 +140,9 @@ export function removeMention(text: string, type: MentionItemType, id: string): 
       break
     case 'mcp':
       pattern = new RegExp(`\\[mcp:${escapeRegExp(id)}\\]`, 'g')
+      break
+    case 'browser':
+      pattern = new RegExp(`\\[browser:${escapeRegExp(id)}\\]`, 'g')
       break
     case 'skill':
     default:
@@ -224,6 +238,10 @@ export function extractBadges(
       filePath = match.id
     } else if (match.type === 'mcp') {
       label = match.id
+    } else if (match.type === 'browser') {
+      // Hostname, not the page title: the chip has to stay short, and a title
+      // is attacker-controlled text sitting in the user's own composer.
+      label = hostnameForBadge(match.id)
     }
 
     // For skills, create fully-qualified rawText (pluginName:slug) so the agent
@@ -254,4 +272,13 @@ export function extractBadges(
 
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Short, non-spoofable label for a browser chip. Falls back to the raw string. */
+function hostnameForBadge(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '') || url
+  } catch {
+    return url
+  }
 }

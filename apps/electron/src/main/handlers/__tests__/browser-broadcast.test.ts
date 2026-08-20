@@ -73,6 +73,8 @@ function makeDeps(opts: {
   captureStateCb?: (cb: (info: BrowserInstanceInfo) => void) => void
   captureRemovedCb?: (cb: (id: string) => void) => void
   captureInteractedCb?: (cb: (id: string) => void) => void
+  captureShowRequestCb?: (cb: (payload: { instanceId: string; hostWebContentsId: number }) => void) => void
+  captureAnnotationCb?: (cb: (payload: unknown) => void) => void
 }): HandlerDeps {
   return {
     sessionManager: {} as HandlerDeps['sessionManager'],
@@ -94,6 +96,9 @@ function makeDeps(opts: {
       onStateChange: (cb: (info: BrowserInstanceInfo) => void) => opts.captureStateCb?.(cb),
       onRemoved: (cb: (id: string) => void) => opts.captureRemovedCb?.(cb),
       onInteracted: (cb: (id: string) => void) => opts.captureInteractedCb?.(cb),
+      onShowRequest: (cb: (payload: { instanceId: string; hostWebContentsId: number }) => void) =>
+        opts.captureShowRequestCb?.(cb),
+      onAnnotationPicked: (cb: (payload: unknown) => void) => opts.captureAnnotationCb?.(cb),
     } as unknown as NonNullable<HandlerDeps['browserPaneManager']>,
   }
 }

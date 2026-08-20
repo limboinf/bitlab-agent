@@ -57,6 +57,7 @@ import {
   setLastPlanFilePath,
   getSessionScopedToolCallbacks,
 } from './session-scoped-tools.ts';
+import { formatBrowserState } from './browser-context.ts';
 import { attachSessionSelfManagementBindings } from './session-self-management-bindings.ts';
 
 // Session tool proxy definitions (for registering with subprocess)
@@ -1883,7 +1884,12 @@ export class PiAgent extends BaseAgent {
       ];
       const volatileParts = [
         `<session_state permission_mode="${promptModeDiagnostics.permissionMode}" />`,
-      ];
+        // Which page the user is looking at, when the browser dock is open.
+        // Volatile by nature — it belongs on the user tail, not the cached prefix.
+        formatBrowserState(
+          getSessionScopedToolCallbacks(this._sessionId)?.getBrowserContextFn?.() ?? null,
+        ),
+      ].filter((part): part is string => !!part);
 
       // Process attachments
       const attachmentParts: string[] = [];

@@ -103,6 +103,7 @@ const FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="12" heig
 
 /** Server icon for `[mcp:server]` badges (lucide "server", 12px). */
 const MCP_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg>`
+const BROWSER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg>`
 
 /** Known code file extensions - used to pick code file icon vs generic file icon */
 const CODE_EXTENSIONS = new Set([
@@ -156,6 +157,8 @@ function renderBadgeHTML(
       iconHtml = FOLDER_ICON_SVG
     } else if (type === 'mcp') {
       iconHtml = MCP_ICON_SVG
+    } else if (type === 'browser') {
+      iconHtml = BROWSER_ICON_SVG
     }
   }
 

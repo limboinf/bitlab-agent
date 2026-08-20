@@ -4,6 +4,7 @@ import { XIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
+import { DockSuppressor } from "@/components/browser/useDockSuppression"
 
 function Dialog({
   ...props
@@ -54,8 +55,15 @@ function DialogContent({
   showCloseButton?: boolean
 }) {
   const { t } = useTranslation()
+
   return (
     <DialogPortal data-slot="dialog-portal">
+      {/*
+        Inside the portal, not in this component's body: Radix renders a closed
+        dialog's body but only mounts the portal when it actually opens, so a
+        body-level suppression would detach the browser view permanently.
+      */}
+      <DockSuppressor />
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"

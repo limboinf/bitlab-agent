@@ -1276,8 +1276,12 @@ export class SessionManager implements ISessionManager {
       }
     }
     const browserPaneFns = this.createBrowserPaneFns(managed)
+    const browser = this.browserPaneManager
     mergeSessionScopedToolCallbacks(managed.id, {
       ...(browserPaneFns ? { browserPaneFns } : {}),
+      // Ambient, not a tool: sampled while the prompt is built so the agent
+      // knows which page the user is on without having to go look.
+      ...(browser ? { getBrowserContextFn: () => browser.getContextSnapshot(managed.workspace.id) } : {}),
       getSessionInfoFn: (sessionId = managed.id) => {
         const session = this.sessions.get(sessionId)
         if (!session) return null

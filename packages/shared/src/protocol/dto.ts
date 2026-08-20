@@ -290,11 +290,45 @@ export interface BrowserInstanceInfo {
   boundSessionId: string | null;
   ownerType: 'session' | 'manual';
   ownerSessionId: string | null;
+  /** True when this tab is the active, painted tab of an open browser dock. */
   isVisible: boolean;
   agentControlActive: boolean;
+  /** Human-readable "who is driving and why", shown on the dock banner. */
+  agentControlLabel?: string | null;
   themeColor: string | null;
   workspaceId?: string | null;
+  /** Set when the tab's renderer process died — the dock shows a reload prompt. */
+  crashed?: { reason: string; at: number } | null;
 }
+/**
+ * Ambient snapshot of the user's browser dock, sampled once per turn.
+ *
+ * Carries only what identifies the page — never page body text. Body text is an
+ * explicit, permissioned action, because everything here is attacker-controlled
+ * (see `sanitizeUntrustedPageString`).
+ */
+export interface BrowserContextSnapshot {
+  /** Non-null only when the dock is open and showing a tab. */
+  activeTab: { title: string; url: string } | null;
+  tabCount: number;
+  /** True when an agent currently drives the active tab. */
+  agentDriving: boolean;
+}
+
+/**
+ * An element the user picked in the browser's annotation mode.
+ *
+ * Carries a screenshot rather than markup: it is unambiguous about what was
+ * pointed at, and a picture gives a page nowhere to hide instructions.
+ */
+export interface BrowserAnnotationPick {
+  instanceId: string;
+  /** Short, sanitized element descriptor — becomes part of the attachment name. */
+  label: string;
+  imageBase64: string;
+  mimeType: string;
+}
+
 export interface DeepLinkNavigation {
   view?: string
   workspaceId?: string

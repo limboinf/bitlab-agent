@@ -4,7 +4,7 @@ import type { AgentEvent } from '@bitlab/core/types';
 import type { FileAttachment } from '../utils/files.ts';
 import { getDefaultLlmConnection, getLlmConnections } from '../config/storage.ts';
 import type { Workspace } from '../config/storage.ts';
-import { formatMcpDirective, parseMentions, resolveFileMentions, resolveMcpMentions, resolveSkillMentions } from '../mentions/index.ts';
+import { formatBrowserDirective, formatMcpDirective, parseMentions, resolveBrowserMentions, resolveFileMentions, resolveMcpMentions, resolveSkillMentions } from '../mentions/index.ts';
 import { getSessionPath, getSessionPlansPath, getSessionDataPath } from '../sessions/storage.ts';
 import { loadAllSkills, GLOBAL_AGENT_SKILLS_DIR, PROJECT_AGENT_SKILLS_DIR } from '../skills/storage.ts';
 import { getSkillToolApprovalEnabled } from '../config/storage.ts';
@@ -269,6 +269,7 @@ export abstract class BaseAgent implements AgentBackend {
     cleanMessage: string;
     missingSkills: string[];
     mcpServers: string[];
+    browserPages: string[];
     unmetMcp: Map<string, string[]>;
     grantedTools: string[];
     deniedTools: string[];
@@ -292,7 +293,7 @@ export abstract class BaseAgent implements AgentBackend {
     }
     const names = new Map(skills.map(skill => [skill.slug, skill.metadata.name]));
     const resolved = resolveFileMentions(
-      resolveMcpMentions(resolveSkillMentions(message, names)),
+      resolveBrowserMentions(resolveMcpMentions(resolveSkillMentions(message, names))),
       this.config.session?.workingDirectory ?? this.workingDirectory
     ).trim();
     return {
@@ -300,6 +301,7 @@ export abstract class BaseAgent implements AgentBackend {
       cleanMessage: resolved || (skillPaths.size ? 'Follow the mentioned Skill instructions.' : ''),
       missingSkills: parsed.invalidSkills,
       mcpServers: parsed.mcpServers,
+      browserPages: parsed.browserPages,
       unmetMcp,
       grantedTools,
       deniedTools,
@@ -327,7 +329,7 @@ export abstract class BaseAgent implements AgentBackend {
     // A new user message ends the previous turn, and with it any grant an
     // activated skill was given (§5.10).
     this.permissionManager.clearTurnToolGrants();
-    const { skillPaths, cleanMessage, missingSkills, mcpServers, unmetMcp, grantedTools, deniedTools } =
+    const { skillPaths, cleanMessage, missingSkills, mcpServers, browserPages, unmetMcp, grantedTools, deniedTools } =
       this.extractSkillPaths(message);
     // One switch turns the whole mechanism off without editing any skill.
     this.permissionManager.grantToolsForTurn(
@@ -347,6 +349,7 @@ export abstract class BaseAgent implements AgentBackend {
       branchContext,
       this.formatSkillDirective(skillPaths, unmetMcp),
       formatMcpDirective(mcpServers),
+      formatBrowserDirective(browserPages),
       cleanMessage,
     ]
       .filter(Boolean)

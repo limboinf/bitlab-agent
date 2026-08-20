@@ -12,7 +12,7 @@ import { getInlineMenuFixedStyle } from './inline-menu-position'
 // Types
 // ============================================================================
 
-export type MentionItemType = 'skill' | 'file' | 'folder' | 'mcp'
+export type MentionItemType = 'skill' | 'file' | 'folder' | 'mcp' | 'browser'
 
 export interface MentionItem {
   id: string
@@ -24,6 +24,8 @@ export interface MentionItem {
   file?: { path: string; type: 'file' | 'directory'; relativePath: string }
   /** MCP server status line, shown as the item's description. */
   mcpStatus?: string
+  /** Page the browser dock currently shows, for `browser` items. */
+  browserPage?: { title: string; url: string }
 }
 
 export interface MentionSection {
@@ -457,6 +459,9 @@ export interface UseInlineMentionOptions {
   workspaceId?: string
   /** Enabled MCP servers offered as `[mcp:name]` mentions. */
   mcpServers?: Array<{ name: string; status?: string }>
+  /** Page open in the browser dock, offered as `@browser`. Absent when the dock is closed. */
+  browserPage?: { title: string; url: string } | null
+  browserSectionLabel?: string
   /** Localized section label (the menu owns no copy of its own). */
   mcpSectionLabel?: string
 }
@@ -480,6 +485,8 @@ export function useInlineMention({
   onSelect,
   workspaceId,
   mcpServers = [],
+  browserPage = null,
+  browserSectionLabel = 'Browser',
   mcpSectionLabel = 'MCP',
 }: UseInlineMentionOptions): UseInlineMentionReturn {
   const [isOpen, setIsOpen] = React.useState(false)
@@ -542,6 +549,22 @@ export function useInlineMention({
       })
     }
 
+    // Browser section: only present while the dock actually shows a page, so
+    // the menu never offers a page the user already closed.
+    if (browserPage) {
+      result.push({
+        id: 'browser',
+        label: browserSectionLabel,
+        items: [{
+          id: browserPage.url,
+          type: 'browser' as const,
+          label: browserPage.title || browserPage.url,
+          description: browserPage.url,
+          browserPage,
+        }],
+      })
+    }
+
     // Files section (from async search results)
     if (fileResults.length > 0) {
       result.push({
@@ -552,7 +575,7 @@ export function useInlineMention({
     }
 
     return result
-  }, [skills, fileResults, mcpServers, mcpSectionLabel])
+  }, [skills, fileResults, mcpServers, mcpSectionLabel, browserPage, browserSectionLabel])
 
   const handleInputChange = React.useCallback((value: string, cursorPosition: number) => {
     // Store current state for handleSelect
@@ -707,6 +730,8 @@ export function useInlineMention({
         mentionText = buildMentionText('folder', item.file?.relativePath || item.id)
       } else if (item.type === 'mcp') {
         mentionText = buildMentionText('mcp', item.id)
+      } else if (item.type === 'browser') {
+        mentionText = buildMentionText('browser', item.browserPage?.url || item.id)
       } else {
         mentionText = buildMentionText('skill', item.id)
       }

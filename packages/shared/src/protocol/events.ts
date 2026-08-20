@@ -2,6 +2,7 @@ import type { ThemeOverrides } from '../config/index.ts';
 import type { LoadedSkill } from '../skills/types.ts';
 import { RPC_CHANNELS } from './channels.ts';
 import type {
+  BrowserAnnotationPick,
   BrowserInstanceInfo,
   DeepLinkNavigation,
   SessionEvent,
@@ -29,6 +30,8 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.browserPane.STATE_CHANGED]: [info: BrowserInstanceInfo];
   [RPC_CHANNELS.browserPane.REMOVED]: [id: string];
   [RPC_CHANNELS.browserPane.INTERACTED]: [id: string];
+  [RPC_CHANNELS.browserPane.SHOW_REQUEST]: [payload: { instanceId: string; hostWebContentsId: number }];
+  [RPC_CHANNELS.browserPane.ANNOTATION_PICKED]: [payload: BrowserAnnotationPick];
   [RPC_CHANNELS.notification.NAVIGATE]: [data: { workspaceId: string; sessionId: string }];
   [RPC_CHANNELS.deeplink.NAVIGATE]: [navigation: DeepLinkNavigation];
   [RPC_CHANNELS.menu.NEW_CHAT]: [];

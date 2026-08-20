@@ -1,4 +1,4 @@
-import { RPC_CHANNELS, type BrowserPaneCreateOptions, type BrowserEmptyStateLaunchPayload } from '../../shared/types'
+import { RPC_CHANNELS, type BrowserPaneCreateOptions, type BrowserEmptyStateLaunchPayload, type BrowserDockStatePayload } from '../../shared/types'
 import type { BrowserScreenshotOptions } from '../browser-pane-manager'
 import { pushTyped, type RpcServer } from '@bitlab/server-core/transport'
 import type { HandlerDeps } from './handler-deps'
@@ -14,6 +14,8 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.browserPane.STOP,
   RPC_CHANNELS.browserPane.FOCUS,
   RPC_CHANNELS.browserPane.LAUNCH,
+  RPC_CHANNELS.browserPane.SET_DOCK_STATE,
+  RPC_CHANNELS.browserPane.SET_ANNOTATION_MODE,
   RPC_CHANNELS.browserPane.SNAPSHOT,
   RPC_CHANNELS.browserPane.CLICK,
   RPC_CHANNELS.browserPane.FILL,
@@ -107,6 +109,18 @@ export function registerBrowserHandlers(server: RpcServer, deps: HandlerDeps): v
       platform.logger.error('[browser-pane] empty-state launch IPC failed:', err)
       throw err
     }
+  })
+
+  // The renderer owns dock geometry; it pushes the whole state on every change
+  // (mount, resize, tab switch, overlay open/close) and main reconciles views.
+  server.handle(RPC_CHANNELS.browserPane.SET_DOCK_STATE, (ctx, state: BrowserDockStatePayload) => {
+    const hostWebContentsId = ctx.webContentsId
+    if (hostWebContentsId == null) return
+    browserPaneManager.setDockState(hostWebContentsId, state)
+  })
+
+  server.handle(RPC_CHANNELS.browserPane.SET_ANNOTATION_MODE, async (_ctx, id: string, enabled: boolean) => {
+    await browserPaneManager.setAnnotationMode(id, enabled)
   })
 
   server.handle(RPC_CHANNELS.browserPane.SNAPSHOT, async (_ctx, id: string) => {
@@ -203,5 +217,16 @@ export function registerBrowserHandlers(server: RpcServer, deps: HandlerDeps): v
 
   browserPaneManager.onInteracted((id) => {
     pushTyped(server, RPC_CHANNELS.browserPane.INTERACTED, { to: 'all' }, id)
+  })
+
+  // "Surface this tab" — main can't mount the dock itself, so it asks the
+  // renderer to. Broadcast to all for the same reason as the state pushes
+  // above; the renderer ignores requests aimed at another host window.
+  browserPaneManager.onShowRequest((payload) => {
+    pushTyped(server, RPC_CHANNELS.browserPane.SHOW_REQUEST, { to: 'all' }, payload)
+  })
+
+  browserPaneManager.onAnnotationPicked((payload) => {
+    pushTyped(server, RPC_CHANNELS.browserPane.ANNOTATION_PICKED, { to: 'all' }, payload)
   })
 }

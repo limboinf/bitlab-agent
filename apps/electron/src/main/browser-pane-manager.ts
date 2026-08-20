@@ -1,19 +1,26 @@
 /**
  * BrowserPaneManager
  *
- * Owns browser instances as dedicated BrowserWindow objects.
- * Each instance maps 1:1 to a full native window while preserving
- * shared session/cookie partition and CDP automation support.
+ * Owns browser instances as `WebContentsView`s docked into the right-hand
+ * column of an app window. There are no standalone browser windows: every
+ * instance lives inside a host window's dock, and the renderer owns the dock's
+ * geometry (it reports the placeholder rect via `setDockState`).
+ *
+ * One dock per host window; instances are tabs within it. Only the active tab
+ * is attached to the host — background tabs keep their webContents alive
+ * (and keep loading) but hold no native view.
  */
 
 import { join, parse as parsePath } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { validateFilePath, getWorkspaceAllowedDirs } from '@bitlab/server-core/handlers'
-import { BrowserView, BrowserWindow, app, ipcMain, nativeTheme, session, shell, type Session as ElectronSession } from 'electron'
+import { WebContentsView, BrowserWindow, app, ipcMain, nativeTheme, session, shell, type Session as ElectronSession } from 'electron'
 import { mainLog } from './logger'
 import type { WindowManager } from './window-manager'
 import { BrowserCDP, type AccessibilitySnapshot, type ElementGeometry } from './browser-cdp'
 import {
+  type BrowserAnnotationPick,
+  type BrowserContextSnapshot,
   type BrowserEmptyStateLaunchPayload,
   type BrowserEmptyStateLaunchResult,
   type BrowserInstanceInfo,
@@ -33,9 +40,6 @@ import type {
 export type { BrowserInstanceInfo }
 
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
-const TOOLBAR_LOAD_MAX_RETRIES = 4
-const TOOLBAR_LOAD_RETRY_DELAY_MS = 500
-const TOOLBAR_HEIGHT = 48
 const MAX_CONSOLE_LOG_ENTRIES = 500
 const MAX_NETWORK_LOG_ENTRIES = 500
 const MAX_DOWNLOAD_LOG_ENTRIES = 200
@@ -47,6 +51,26 @@ const SCREENSHOT_RESCUE_PAINT_DELAY_MS = 180
 const SCREENSHOT_NETWORK_IDLE_TIMEOUT_MS = 1_000
 const SCREENSHOT_NETWORK_IDLE_MS = 300
 const THEME_COLOR_SIGNAL_PREFIX = '__bitlab_theme_color__:'
+const ANNOTATION_SIGNAL_PREFIX = '__bitlab_annotation__:'
+/** Cap on the descriptor a page can put in an attachment filename. */
+const ANNOTATION_LABEL_MAX = 60
+
+/**
+ * The element descriptor becomes an attachment filename, and it is page-authored
+ * text. Keep it to characters that cannot escape a path or a shell word.
+ */
+function sanitizeAnnotationLabel(raw: string): string {
+  const cleaned = String(raw ?? '')
+    .replace(/[\u0000-\u001F\u007F-\u009F]+/g, ' ')
+    .replace(/[^\p{L}\p{N} ._#-]/gu, '-')
+    // Collapse dot runs so no filename ever carries a `..` segment, and trim
+    // leading dots so it cannot become a hidden file either.
+    .replace(/\.{2,}/g, '.')
+    .replace(/\s+/g, ' ')
+    .replace(/^[.\-\s]+|[.\-\s]+$/g, '')
+    .slice(0, ANNOTATION_LABEL_MAX)
+  return cleaned || 'element'
+}
 const THEME_COLOR_NULL_SENTINEL = '__NULL__'
 const THEME_OBSERVER_MIN_INTERVAL_MS = 120
 const EARLY_THEME_EXTRACTION_DELAY_MS = 100
@@ -108,21 +132,6 @@ const THEME_COLOR_EXTRACTOR_FN = String.raw`
 }
 `
 
-/** IPC channels for the browser toolbar preload */
-const TOOLBAR_CHANNELS = {
-  NAVIGATE: 'browser-toolbar:navigate',
-  GO_BACK: 'browser-toolbar:go-back',
-  GO_FORWARD: 'browser-toolbar:go-forward',
-  RELOAD: 'browser-toolbar:reload',
-  STOP: 'browser-toolbar:stop',
-  MENU_GEOMETRY: 'browser-toolbar:menu-geometry',
-  FORCE_CLOSE_MENU: 'browser-toolbar:force-close-menu',
-  HIDE: 'browser-toolbar:hide',
-  DESTROY: 'browser-toolbar:destroy',
-  STATE_UPDATE: 'browser-toolbar:state-update',
-  THEME_COLOR: 'browser-toolbar:theme-color',
-  THEME_MODE: 'browser-toolbar:theme-mode',
-} as const
 type BrowserThemeMode = 'light' | 'dark' | 'system'
 export const BROWSER_PANE_SESSION_PARTITION = 'persist:browser-pane'
 const SESSION_PARTITION = BROWSER_PANE_SESSION_PARTITION
@@ -136,15 +145,40 @@ interface AgentControlState {
 
 interface AgentControlLockState {
   active: boolean
-  previousResizable: boolean
+}
+
+/** Rect in host-window DIP coordinates, as measured by the renderer placeholder. */
+export interface DockBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/**
+ * Per-host-window dock. The renderer owns every field here and pushes the whole
+ * thing through `setDockState` — the main process never guesses geometry.
+ */
+interface DockState {
+  window: BrowserWindow
+  bounds: DockBounds | null
+  /** Dock column is mounted and visible in the renderer. */
+  visible: boolean
+  /**
+   * A renderer overlay (dialog, menu) currently covers the dock rect. Native
+   * views always paint above renderer content, so we detach while it's up.
+   */
+  suppressed: boolean
+  activeInstanceId: string | null
 }
 
 interface BrowserInstance {
   id: string
-  window: BrowserWindow
-  toolbarView: BrowserView
-  pageView: BrowserView
-  nativeOverlayView: BrowserView
+  /** Host window this instance is attached to, or null while it's a background tab. */
+  host: BrowserWindow | null
+  pageView: WebContentsView
+  /** Transparent input shield — the only thing that must paint above the page. */
+  nativeOverlayView: WebContentsView
   cdp: BrowserCDP
   currentUrl: string
   title: string
@@ -162,16 +196,12 @@ interface BrowserInstance {
    * subsequent rebinds may overwrite it with the new binder's workspace.
    */
   workspaceId: string | null
+  /** True when this instance is the active tab of a visible, unsuppressed dock. */
   isVisible: boolean
-  isHiding: boolean
-  keepAliveOnWindowClose: boolean
-  toolbarReady: boolean
-  toolbarMenuOpen: boolean
-  toolbarMenuHeight: number
-  toolbarMenuOverlayActive: boolean
-  showOnCreate: boolean
-  pendingShowOnReady: boolean
-  pendingShowToken: number
+  /** Set when the page's renderer process died; cleared on the next successful load. */
+  crashed: { reason: string; at: number } | null
+  /** Element-picking mode: hover highlights, click captures instead of activating. */
+  annotationMode: boolean
   lastAction: LastBrowserAction | null
   agentControl: AgentControlState | null
   lockState: AgentControlLockState
@@ -329,16 +359,17 @@ let instanceCounter = 0
 
 export class BrowserPaneManager implements IBrowserPaneManager {
   private instances: Map<string, BrowserInstance> = new Map()
-  private destroyingIds: Set<string> = new Set()
   private stateChangeCallback: ((info: BrowserInstanceInfo) => void) | null = null
   private removedCallback: ((id: string) => void) | null = null
   private interactedCallback: ((id: string) => void) | null = null
+  private showRequestCallback: ((payload: { instanceId: string; hostWebContentsId: number }) => void) | null = null
+  private annotationCallback: ((payload: BrowserAnnotationPick) => void) | null = null
   private partitionPermissionsInitialized = false
   private partitionObserversInitialized = false
   private inFlightRequestsByWebContentsId = new Map<number, number>()
   private lastNetworkActivityByWebContentsId = new Map<number, number>()
-  private popupWindowsByParentInstanceId = new Map<string, Set<BrowserWindow>>()
-  private popupParentByWebContentsId = new Map<number, string>()
+  /** Docks keyed by host window webContents id. */
+  private docks = new Map<number, DockState>()
   private windowManager: WindowManager | null = null
   private sessionPathResolver: ((sessionId: string) => string | null) | null = null
   private themeMode: BrowserThemeMode = 'system'
@@ -361,6 +392,223 @@ export class BrowserPaneManager implements IBrowserPaneManager {
 
   onInteracted(callback: (id: string) => void): void {
     this.interactedCallback = callback
+  }
+
+  /**
+   * Main → renderer: "open the dock on this instance". The main process cannot
+   * mount the dock itself — the dock column is renderer layout — so anything
+   * that used to call `window.show()` now raises this instead.
+   */
+  onShowRequest(callback: (payload: { instanceId: string; hostWebContentsId: number }) => void): void {
+    this.showRequestCallback = callback
+  }
+
+  /** Main → renderer: the user picked an element in annotation mode. */
+  onAnnotationPicked(callback: (payload: BrowserAnnotationPick) => void): void {
+    this.annotationCallback = callback
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dock plumbing
+  //
+  // The renderer is the single source of truth for dock geometry/visibility.
+  // It pushes the whole dock state on every change (mount, resize, tab switch,
+  // overlay open/close) and we reconcile native views against it.
+  // ---------------------------------------------------------------------------
+
+  /** Renderer → main: full dock state for one host window. Idempotent. */
+  setDockState(
+    hostWebContentsId: number,
+    next: { visible: boolean; suppressed: boolean; activeInstanceId: string | null; bounds: DockBounds | null },
+  ): void {
+    const window = this.findWindowByWebContentsId(hostWebContentsId)
+
+    if (!window || window.isDestroyed()) {
+      this.docks.delete(hostWebContentsId)
+      return
+    }
+
+    const isNewDock = !this.docks.has(hostWebContentsId)
+
+    const dock: DockState = {
+      window,
+      visible: next.visible,
+      suppressed: next.suppressed,
+      activeInstanceId: next.activeInstanceId,
+      bounds: next.bounds ? this.normalizeBounds(next.bounds, window) : null,
+    }
+    this.docks.set(hostWebContentsId, dock)
+
+    if (isNewDock) {
+      // Detach any views still parented to this window when it goes away,
+      // otherwise their webContents outlive a destroyed native parent.
+      window.once('closed', () => this.releaseDock(hostWebContentsId))
+    }
+
+    // One line that answers "why is the dock blank?" — the three gates that
+    // decide whether anything paints, plus the rect we were handed.
+    mainLog.info(
+      `[browser-pane] dock state host=${hostWebContentsId} visible=${dock.visible} suppressed=${dock.suppressed}`
+      + ` active=${dock.activeInstanceId ?? 'none'} bounds=${dock.bounds ? `${dock.bounds.width}x${dock.bounds.height}@${dock.bounds.x},${dock.bounds.y}` : 'null'}`
+      + ` paintable=${this.isDockPaintable(dock)}`,
+    )
+
+    this.reconcileDock(dock)
+  }
+
+  /** Drop a dock when its host window goes away. */
+  releaseDock(hostWebContentsId: number): void {
+    const dock = this.docks.get(hostWebContentsId)
+    if (!dock) return
+    this.docks.delete(hostWebContentsId)
+
+    for (const instance of this.instances.values()) {
+      if (instance.host === dock.window) {
+        this.detachInstance(instance)
+      }
+    }
+  }
+
+  private findWindowByWebContentsId(id: number): BrowserWindow | null {
+    return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w.webContents.id === id) ?? null
+  }
+
+  /**
+   * The renderer measures in CSS pixels; view bounds are in DIP. Those differ
+   * exactly by the window's zoom factor, so a zoomed-in app would otherwise
+   * park the page view short of its placeholder.
+   */
+  private normalizeBounds(bounds: DockBounds, host: BrowserWindow): DockBounds {
+    const zoom = host.webContents.getZoomFactor?.() ?? 1
+    const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1
+
+    return {
+      x: Math.round(bounds.x * scale),
+      y: Math.round(bounds.y * scale),
+      width: Math.max(0, Math.round(bounds.width * scale)),
+      height: Math.max(0, Math.round(bounds.height * scale)),
+    }
+  }
+
+  /** A dock can host views only when it is mounted, unsuppressed and measured. */
+  private isDockPaintable(dock: DockState): boolean {
+    return dock.visible
+      && !dock.suppressed
+      && !!dock.bounds
+      && dock.bounds.width > 0
+      && dock.bounds.height > 0
+      && !dock.window.isDestroyed()
+  }
+
+  private findDockForInstance(instance: BrowserInstance): DockState | null {
+    for (const dock of this.docks.values()) {
+      if (dock.activeInstanceId === instance.id) return dock
+    }
+    return null
+  }
+
+  /**
+   * Attach exactly the dock's active instance, detach everyone else that was
+   * pointing at this host. Called on every dock state push.
+   */
+  private reconcileDock(dock: DockState): void {
+    const activeId = dock.activeInstanceId
+    const shouldPaint = this.isDockPaintable(dock)
+
+    for (const instance of this.instances.values()) {
+      const isActiveHere = shouldPaint && instance.id === activeId
+      if (isActiveHere) {
+        this.attachInstance(instance, dock)
+      } else if (instance.host === dock.window) {
+        this.detachInstance(instance)
+      }
+    }
+  }
+
+  private attachInstance(instance: BrowserInstance, dock: DockState): void {
+    if (this.isInstanceDestroyed(instance) || dock.window.isDestroyed() || !dock.bounds) return
+
+    if (instance.host !== dock.window) {
+      this.detachInstance(instance)
+      dock.window.contentView.addChildView(instance.pageView)
+      dock.window.contentView.addChildView(instance.nativeOverlayView)
+      instance.host = dock.window
+    }
+
+    instance.pageView.setBounds(dock.bounds)
+    instance.pageView.setVisible(true)
+    this.updateNativeOverlayState(instance)
+
+    if (!instance.isVisible) {
+      mainLog.info(`[browser-pane] attached id=${instance.id} to host=${dock.window.webContents.id}`)
+      instance.isVisible = true
+      this.emitStateChange(instance)
+      if (!instance.themeColor) {
+        void this.extractThemeColor(instance)
+      }
+    }
+  }
+
+  private detachInstance(instance: BrowserInstance): void {
+    const host = instance.host
+    instance.host = null
+
+    if (host && !host.isDestroyed() && !this.isInstanceDestroyed(instance)) {
+      try {
+        host.contentView.removeChildView(instance.nativeOverlayView)
+        host.contentView.removeChildView(instance.pageView)
+      } catch (error) {
+        mainLog.warn(`[browser-pane] detach failed id=${instance.id}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    if (instance.isVisible) {
+      mainLog.info(`[browser-pane] detached id=${instance.id}`)
+      instance.isVisible = false
+      this.emitStateChange(instance)
+    }
+  }
+
+  /** Re-apply bounds for whichever instance currently owns each dock. */
+  private relayoutAllDocks(): void {
+    for (const dock of this.docks.values()) {
+      if (dock.window.isDestroyed()) {
+        this.docks.delete(dock.window.webContents.id)
+        continue
+      }
+      this.reconcileDock(dock)
+    }
+  }
+
+  private isInstanceDestroyed(instance: BrowserInstance): boolean {
+    return instance.pageView.webContents.isDestroyed()
+  }
+
+  /**
+   * Pick the dock a new/agent-driven instance should surface in. Prefers the
+   * window whose workspace matches, then the focused window.
+   */
+  private resolveHostDock(workspaceId: string | null): DockState | null {
+    if (this.docks.size === 0) return null
+
+    if (workspaceId && this.windowManager) {
+      for (const dock of this.docks.values()) {
+        if (dock.window.isDestroyed()) continue
+        const dockWorkspace = this.windowManager.getWorkspaceForWindow(dock.window.webContents.id)
+        if (dockWorkspace === workspaceId) return dock
+      }
+    }
+
+    const focused = this.windowManager?.getFocusedWindow() ?? null
+    if (focused && !focused.isDestroyed()) {
+      const dock = this.docks.get(focused.webContents.id)
+      if (dock) return dock
+    }
+
+    for (const dock of this.docks.values()) {
+      if (!dock.window.isDestroyed()) return dock
+    }
+    return null
   }
 
   setThemeMode(mode: string): void {
@@ -388,19 +636,14 @@ export class BrowserPaneManager implements IBrowserPaneManager {
 
   private applyThemeMode(instance: BrowserInstance): void {
     const bgColor = this.themeBackgroundColor()
-    if (!instance.window.isDestroyed()) {
-      instance.window.setBackgroundColor(bgColor)
-    }
 
     const pageWebContents = instance.pageView.webContents
+    if (pageWebContents.isDestroyed()) return
+
     const pageWcWithBg = pageWebContents as typeof pageWebContents & { setBackgroundColor?: (color: string) => void }
     pageWcWithBg.setBackgroundColor?.(bgColor)
 
-    if (!instance.toolbarView.webContents.isDestroyed()) {
-      instance.toolbarView.webContents.send(TOOLBAR_CHANNELS.THEME_MODE, this.themeMode)
-    }
-
-    if (!pageWebContents.isDestroyed() && this.isBrowserEmptyStateUrl(pageWebContents.getURL())) {
+    if (this.isBrowserEmptyStateUrl(pageWebContents.getURL())) {
       void pageWebContents.executeJavaScript(
         `window.__BITLAB_APPLY_BROWSER_THEME__?.(${JSON.stringify(this.themeMode)})`,
       ).catch(() => {})
@@ -426,15 +669,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     // Match the app theme before first paint; "system" resolves through Electron.
     const bgColor = this.themeBackgroundColor()
 
-    const window = new BrowserWindow({
-      width: 1200,
-      height: 900,
-      minWidth: 700,
-      minHeight: 500,
-      show: false, // Always hidden until toolbar is painted (ready-to-show)
-      backgroundColor: bgColor,
-      // Fully chromeless — toolbar is rendered in a dedicated BrowserView
-      frame: false,
+    const pageView = new WebContentsView({
       webPreferences: {
         partition: SESSION_PARTITION,
         session: ses,
@@ -444,18 +679,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       },
     })
 
-    const toolbarView = new BrowserView({
-      webPreferences: {
-        preload: join(__dirname, 'browser-toolbar-preload.cjs'),
-        partition: SESSION_PARTITION,
-        session: ses,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: false,
-      },
-    })
-
-    const pageView = new BrowserView({
+    const nativeOverlayView = new WebContentsView({
       webPreferences: {
         partition: SESSION_PARTITION,
         session: ses,
@@ -465,24 +689,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       },
     })
 
-    const supportsMultiView = typeof window.addBrowserView === 'function' && typeof window.setTopBrowserView === 'function'
-    if (!supportsMultiView) {
-      throw new Error('[browser-pane] Native overlay requires BrowserWindow.addBrowserView + setTopBrowserView')
-    }
-
-    const nativeOverlayView = new BrowserView({
-      webPreferences: {
-        partition: SESSION_PARTITION,
-        session: ses,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    })
-
-    // Set BrowserView backgrounds to match theme so about:blank doesn't flash white
-    const toolbarWcWithBg = toolbarView.webContents as typeof toolbarView.webContents & { setBackgroundColor?: (color: string) => void }
-    toolbarWcWithBg.setBackgroundColor?.('#00000000')
+    // Set view backgrounds to match theme so about:blank doesn't flash white
     const pageWcWithBg = pageView.webContents as typeof pageView.webContents & { setBackgroundColor?: (color: string) => void }
     pageWcWithBg.setBackgroundColor?.(bgColor)
     const overlayWcWithBg = nativeOverlayView.webContents as typeof nativeOverlayView.webContents & { setBackgroundColor?: (color: string) => void }
@@ -492,8 +699,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
 
     const instance: BrowserInstance = {
       id: instanceId,
-      window,
-      toolbarView,
+      host: null,
       pageView,
       nativeOverlayView,
       cdp,
@@ -508,21 +714,11 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       ownerSessionId,
       workspaceId,
       isVisible: false,
-      isHiding: false,
-      keepAliveOnWindowClose: true,
-      toolbarReady: false,
-      toolbarMenuOpen: false,
-      toolbarMenuHeight: 0,
-      toolbarMenuOverlayActive: false,
-      showOnCreate: shouldShow,
-      pendingShowOnReady: false,
-      pendingShowToken: 0,
+      crashed: null,
+      annotationMode: false,
       lastAction: null,
       agentControl: null,
-      lockState: {
-        active: false,
-        previousResizable: this.getWindowResizable(window),
-      },
+      lockState: { active: false },
       nativeOverlayReady: false,
       themeColor: null,
       inPageThemeTimer: null,
@@ -539,27 +735,17 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       pageView.webContents.setUserAgent(sanitizedUa)
     }
 
-    window.addBrowserView(pageView)
-    window.addBrowserView(nativeOverlayView)
-    window.addBrowserView(toolbarView)
-    window.setTopBrowserView(toolbarView)
     void this.loadNativeOverlayPage(instance)
 
-    this.layoutAllViews(instance)
-
-    this.setupWindowListeners(instance)
+    this.setupInstanceListeners(instance)
     this.instances.set(instanceId, instance)
     this.emitStateChange(instance)
-    mainLog.info(`[browser-pane] toolbar version: v4-react-chromeless`)
     mainLog.info(`[browser-pane] Created instance: ${instanceId} (show=${shouldShow}, ownerType=${ownerType}, ownerSessionId=${ownerSessionId ?? 'none'})`)
 
-    void this.loadToolbarPage(instance)
-      .finally(() => {
-        // Safety net: if Electron never fires ready-to-show, still unblock focus/show behavior.
-        if (!instance.toolbarReady) {
-          this.markToolbarReady(instance, 'toolbar-load-finalized')
-        }
-      })
+    if (shouldShow) {
+      this.focus(instanceId)
+    }
+
     void this.loadEmptyStatePage(instance).catch((error) => {
       mainLog.warn(`[browser-pane] empty-state load failed id=${instance.id}: ${error instanceof Error ? error.message : String(error)}`)
       void pageView.webContents.loadURL('about:blank')
@@ -575,17 +761,15 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       return
     }
 
-    const destroyedBefore = instance.window.isDestroyed()
-    mainLog.info(`[browser-pane] destroy requested id=${id} destroyedBefore=${destroyedBefore} keepAlive=${instance.keepAliveOnWindowClose}`)
+    const destroyedBefore = this.isInstanceDestroyed(instance)
+    mainLog.info(`[browser-pane] destroy requested id=${id} destroyedBefore=${destroyedBefore}`)
 
-    // Clear pending timers before destroying the window
+    // Clear pending timers before tearing the views down
     if (instance.inPageThemeTimer) {
       clearTimeout(instance.inPageThemeTimer)
       instance.inPageThemeTimer = null
     }
     instance.themeObserverToken = null
-    instance.pendingShowOnReady = false
-    instance.pendingShowToken += 1
 
     // Clean up in-flight network tracking for this instance's webContents
     const wcId = instance.pageView.webContents.id
@@ -600,19 +784,19 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       }
     }
 
-    runCleanup('closePopupsForParent', () => this.closePopupsForParent(instance.id, 'parent_destroy'))
     runCleanup('applyAgentControlLock', () => this.applyAgentControlLock(instance, false))
-    runCleanup('updateNativeOverlayState', () => this.updateNativeOverlayState(instance))
+    runCleanup('detachInstance', () => this.detachInstance(instance))
 
     try {
-      if (!instance.window.isDestroyed()) {
-        this.destroyingIds.add(id)
-        instance.window.destroy()
+      if (!this.isInstanceDestroyed(instance)) {
+        instance.pageView.webContents.close()
+      }
+      if (!instance.nativeOverlayView.webContents.isDestroyed()) {
+        instance.nativeOverlayView.webContents.close()
       }
     } catch (error) {
       mainLog.warn(`[browser-pane] destroy failed id=${id} error=${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      // Finalize synchronously in case closed does not fire (or fires later).
       this.finalizeDestroyedInstance(instance, 'destroy')
       mainLog.info(`[browser-pane] destroy completed id=${id} removed=${!this.instances.has(id)}`)
     }
@@ -628,16 +812,16 @@ export class BrowserPaneManager implements IBrowserPaneManager {
   }
 
   /**
-   * Get an instance that is confirmed alive (window not destroyed).
-   * Throws a clear error if the instance is missing or its window was closed.
+   * Get an instance that is confirmed alive (page webContents not destroyed).
+   * Throws a clear error if the instance is missing or its tab was closed.
    * Automatically cleans up stale entries from the instance map.
    */
   private requireAliveInstance(id: string): BrowserInstance {
     const instance = this.instances.get(id)
     if (!instance) throw new Error(`Browser instance not found: ${id}`)
-    if (instance.window.isDestroyed()) {
+    if (this.isInstanceDestroyed(instance)) {
       this.cleanupDestroyedInstance(instance, `lookup by id ${id}`)
-      throw new Error(`Browser window was closed (instance: ${id})`)
+      throw new Error(`Browser tab was closed (instance: ${id})`)
     }
     return instance
   }
@@ -728,7 +912,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
   listInstances(): BrowserInstanceInfo[] {
     const infos: BrowserInstanceInfo[] = []
     for (const instance of this.instances.values()) {
-      if (instance.window.isDestroyed()) {
+      if (this.isInstanceDestroyed(instance)) {
         this.cleanupDestroyedInstance(instance, 'listInstances')
         continue
       }
@@ -770,10 +954,13 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     return this.instances.size
   }
 
+  /** Host windows currently showing a docked browser tab. */
   getBrowserWindows(): BrowserWindow[] {
-    return Array.from(this.instances.values())
-      .map((instance) => instance.window)
-      .filter((win) => !win.isDestroyed())
+    const hosts = new Set<BrowserWindow>()
+    for (const instance of this.instances.values()) {
+      if (instance.host && !instance.host.isDestroyed()) hosts.add(instance.host)
+    }
+    return Array.from(hosts)
   }
 
   async navigate(id: string, url: string): Promise<{ url: string; title: string }> {
@@ -800,7 +987,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
         timeoutHandle = setTimeout(() => reject(new Error(`Navigation to "${normalizedUrl}" timed out after ${timeoutMs / 1000}s`)), timeoutMs)
       })
       await Promise.race([loaded, timeout])
-      this.pushToolbarState(instance)
 
       return { url: instance.currentUrl, title: instance.title }
     } finally {
@@ -826,85 +1012,54 @@ export class BrowserPaneManager implements IBrowserPaneManager {
 
   reload(id: string): void {
     const instance = this.instances.get(id)
-    if (!instance || instance.window.isDestroyed()) return
+    if (!instance || this.isInstanceDestroyed(instance)) return
     instance.pageView.webContents.reload()
   }
 
   stop(id: string): void {
     const instance = this.instances.get(id)
-    if (!instance || instance.window.isDestroyed()) return
+    if (!instance || this.isInstanceDestroyed(instance)) return
     instance.pageView.webContents.stop()
   }
 
+  /**
+   * Surface this instance: ask the owning renderer to open its dock on this
+   * tab. The main process can't mount the dock itself, so the actual attach
+   * happens when the renderer echoes back through `setDockState`.
+   */
   focus(id: string): void {
     const instance = this.instances.get(id)
-    if (!instance) return
+    if (!instance || this.isInstanceDestroyed(instance)) return
 
-    const win = instance.window
-    if (win.isDestroyed()) return
-
-    // If toolbar hasn't painted yet, defer showing until markToolbarReady runs.
-    // Token guard prevents stale deferred focus from showing after hide/destroy.
-    if (!instance.toolbarReady) {
-      if (instance.pendingShowOnReady) return
-      instance.pendingShowOnReady = true
-      const token = ++instance.pendingShowToken
-      mainLog.info(`[browser-pane] focus deferred until ready id=${instance.id} token=${token}`)
+    const dock = this.findDockForInstance(instance) ?? this.resolveHostDock(instance.workspaceId)
+    if (!dock) {
+      mainLog.warn(`[browser-pane] focus with no dock available id=${id}`)
       return
     }
 
-    if (win.isMinimized()) win.restore()
-    win.show()
-    win.focus()
+    const host = dock.window
+    if (host.isDestroyed()) return
+    if (host.isMinimized()) host.restore()
+    host.show()
+    host.focus()
 
-    instance.isVisible = true
-    this.emitStateChange(instance)
+    this.showRequestCallback?.({ instanceId: id, hostWebContentsId: host.webContents.id })
   }
 
+  /**
+   * Detach this tab from its dock without destroying it. The renderer keeps the
+   * tab in its strip; the page keeps running in the background.
+   */
   hide(id: string): void {
     const instance = this.instances.get(id)
-    if (!instance) return
+    if (!instance || this.isInstanceDestroyed(instance)) return
 
-    // Re-entrancy guard: bail if a hide is already in progress. Prevents the
-    // 'close' listener from re-entering hide() during teardown, which can crash
-    // Chromium's compositor when the BrowserView is mid-load.
-    if (instance.isHiding) return
-
-    const win = instance.window
-    if (win.isDestroyed()) return
-
-    instance.isHiding = true
-
-    // Cancel any deferred show request queued before toolbar was ready.
-    if (instance.pendingShowOnReady) {
-      instance.pendingShowOnReady = false
-      instance.pendingShowToken += 1
+    const dock = this.findDockForInstance(instance)
+    if (dock) {
+      dock.activeInstanceId = null
     }
 
-    this.forceCloseToolbarMenu(instance, 'window-hide')
-
-    // Cancel an in-flight page load before hiding. Hiding the window while the
-    // BrowserView is still loading can trigger a Chromium compositor assertion
-    // and kill the main process.
-    if (instance.isLoading) {
-      try {
-        const pageWc = instance.pageView.webContents
-        if (!pageWc.isDestroyed()) pageWc.stop()
-      } catch (error) {
-        mainLog.warn(`[browser-pane] failed to stop page load before hide id=${id}: ${(error as Error)?.message ?? error}`)
-      }
-    }
-
-    win.hide()
-
-    instance.isVisible = false
-
-    // Defer the state-change callback so native window teardown completes before
-    // listeners (which may touch BrowserView/Chromium internals) run.
-    queueMicrotask(() => {
-      instance.isHiding = false
-      this.emitStateChange(instance)
-    })
+    this.detachInstance(instance)
   }
 
   async getAccessibilitySnapshot(id: string): Promise<AccessibilitySnapshot> {
@@ -1384,18 +1539,19 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       }
     }
 
-    const window = instance.window
+    // Rescue: hidden capture kept coming back empty, so give the page a real
+    // display surface by briefly making it the dock's active tab. Costs a
+    // visible flicker, which is why it only runs after every hidden attempt
+    // has failed.
     const wasVisible = instance.isVisible
+    const dock = wasVisible ? this.findDockForInstance(instance) : this.resolveHostDock(instance.workspaceId)
+    const previousActiveId = dock?.activeInstanceId ?? null
 
-    if (!window.isDestroyed()) {
+    if (dock && !dock.window.isDestroyed()) {
       try {
-        if (!wasVisible) {
-          if (window.isMinimized()) {
-            window.restore()
-          }
-          window.showInactive()
-          instance.isVisible = true
-          this.emitStateChange(instance)
+        if (!wasVisible && this.isDockPaintable(dock)) {
+          dock.activeInstanceId = instance.id
+          this.reconcileDock(dock)
           rescueUsed = true
           await this.sleep(SCREENSHOT_RESCUE_PAINT_DELAY_MS)
           await this.waitForScreenshotReadiness(instance.id)
@@ -1421,15 +1577,14 @@ export class BrowserPaneManager implements IBrowserPaneManager {
 
         if (rescueResult) {
           if (rescueUsed) {
-            warnings.push('Capture required temporary inactive reveal for rendering; browser visibility was restored immediately.')
+            warnings.push('Capture required briefly activating the browser tab; the previous tab was restored immediately.')
           }
           return { imageBuffer: rescueResult.buffer, imageFormat: rescueResult.format, warnings }
         }
       } finally {
-        if (!wasVisible && !window.isDestroyed()) {
-          window.hide()
-          instance.isVisible = false
-          this.emitStateChange(instance)
+        if (rescueUsed && !dock.window.isDestroyed()) {
+          dock.activeInstanceId = previousActiveId
+          this.reconcileDock(dock)
         }
       }
     }
@@ -1441,7 +1596,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     if (sawDisplaySurfaceUnavailable) {
       throw new Error(
         `Failed to capture ${options.errorPrefix}: current display surface is unavailable. `
-        + `Try focusing the browser window first ("focus ${instance.id}" or "open --foreground") and retry.`
+        + `Open the browser dock on this tab first ("focus ${instance.id}" or "open --foreground") and retry.`
       )
     }
 
@@ -1670,21 +1825,28 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     return instance.cdp.setFileInputFiles(ref, safePaths)
   }
 
-  windowResize(id: string, width: number, height: number): { width: number; height: number } {
+  /**
+   * Resize the *viewport*, not a window — docked tabs have no window of their
+   * own. Runs through CDP device-metrics emulation, so `resize(375, 812)` gives
+   * a real mobile viewport regardless of how wide the dock happens to be.
+   */
+  async windowResize(id: string, width: number, height: number): Promise<{ width: number; height: number }> {
     const instance = this.requireAliveInstance(id)
 
-    const requestedViewportWidth = Math.max(320, Math.floor(width))
-    const requestedViewportHeight = Math.max(240, Math.floor(height))
-    instance.window.setContentSize(requestedViewportWidth, requestedViewportHeight + TOOLBAR_HEIGHT)
+    const viewportWidth = Math.max(320, Math.floor(width))
+    const viewportHeight = Math.max(240, Math.floor(height))
 
-    this.layoutAllViews(instance)
+    // Widths below the tablet breakpoint also emulate touch, matching how
+    // device mode behaves — load-time device gates then resolve the same way.
+    await instance.cdp.setViewportOverride(viewportWidth, viewportHeight, viewportWidth < 768)
 
-    // Return effective viewport dimensions after OS/window min-size constraints are applied.
-    const [appliedContentWidth, appliedContentHeight] = instance.window.getContentSize()
-    return {
-      width: Math.max(0, Math.floor(appliedContentWidth)),
-      height: Math.max(0, Math.floor(appliedContentHeight - TOOLBAR_HEIGHT)),
-    }
+    return { width: viewportWidth, height: viewportHeight }
+  }
+
+  /** Drop viewport emulation and go back to filling the dock. */
+  async clearViewportOverride(id: string): Promise<void> {
+    const instance = this.requireAliveInstance(id)
+    await instance.cdp.clearViewportOverride()
   }
 
   async evaluate(id: string, expression: string): Promise<unknown> {
@@ -1694,7 +1856,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
 
   async detectSecurityChallenge(id: string): Promise<{ detected: boolean; provider: string; signals: string[] }> {
     const instance = this.instances.get(id)
-    if (!instance || instance.window.isDestroyed()) return { detected: false, provider: 'none', signals: [] }
+    if (!instance || this.isInstanceDestroyed(instance)) return { detected: false, provider: 'none', signals: [] }
 
     const signals: string[] = []
     const title = instance.title || ''
@@ -1815,7 +1977,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
   getBoundForSession(sessionId: string): string | null {
     for (const instance of this.instances.values()) {
       if (instance.ownerType === 'session' && instance.ownerSessionId === sessionId) {
-        if (instance.window.isDestroyed()) {
+        if (this.isInstanceDestroyed(instance)) {
           this.cleanupDestroyedInstance(instance, `getBoundForSession(${sessionId})`)
           continue
         }
@@ -1851,7 +2013,47 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     if (candidates.length === 0) return null
 
     // Prefer visible windows first, then fall back to first available.
-    return candidates.find((i) => i.isVisible) ?? candidates[0]
+    // The tab the user is looking at wins. `isVisible` happens to track the
+    // dock's active tab today, but relying on that coincidence is how the agent
+    // ends up driving tab B while the user watches tab A — so ask the docks
+    // directly instead.
+    const dockActiveIds = new Set(
+      Array.from(this.docks.values())
+        .filter((dock) => this.isDockPaintable(dock) && dock.activeInstanceId)
+        .map((dock) => dock.activeInstanceId as string),
+    )
+
+    return candidates.find((i) => dockActiveIds.has(i.id)) ?? candidates[0]
+  }
+
+  /**
+   * Ambient snapshot for the prompt: which page the user is looking at.
+   *
+   * Deliberately carries no page body — body text is a permissioned, explicit
+   * action, not something every turn drags along. Strings here are raw; the
+   * prompt layer sanitizes them (`sanitizeUntrustedPageString`).
+   */
+  getContextSnapshot(workspaceId?: string | null): BrowserContextSnapshot {
+    const visibleInWorkspace = Array.from(this.instances.values()).filter(
+      (instance) => !workspaceId || !instance.workspaceId || instance.workspaceId === workspaceId,
+    )
+
+    for (const dock of this.docks.values()) {
+      if (!this.isDockPaintable(dock) || !dock.activeInstanceId) continue
+
+      const active = this.instances.get(dock.activeInstanceId)
+      if (!active || this.isInstanceDestroyed(active)) continue
+      if (workspaceId && active.workspaceId && active.workspaceId !== workspaceId) continue
+
+      return {
+        activeTab: { title: active.title, url: active.currentUrl },
+        tabCount: visibleInWorkspace.length,
+        agentDriving: !!active.agentControl?.active,
+      }
+    }
+
+    // No open dock — report nothing rather than a page the user closed away from.
+    return { activeTab: null, tabCount: visibleInWorkspace.length, agentDriving: false }
   }
 
   createForSession(
@@ -1910,7 +2112,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
   getBoundInstanceId(sessionId: string): string | null {
     for (const [id, instance] of this.instances) {
       if (instance.boundSessionId === sessionId) {
-        if (instance.window.isDestroyed()) {
+        if (this.isInstanceDestroyed(instance)) {
           this.cleanupDestroyedInstance(instance, `getBoundInstanceId(${sessionId})`)
           continue
         }
@@ -2038,63 +2240,25 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     }
   }
 
-  private getToolbarEffectiveHeight(instance: BrowserInstance): number {
-    if (!instance.toolbarMenuOpen) return TOOLBAR_HEIGHT
-
-    const [, contentHeight] = instance.window.getContentSize()
-    return Math.max(TOOLBAR_HEIGHT, contentHeight)
-  }
-
-  private layoutToolbarView(instance: BrowserInstance): void {
-    const [width] = instance.window.getContentSize()
-    const toolbarHeight = this.getToolbarEffectiveHeight(instance)
-
-    instance.toolbarView.setBounds({ x: 0, y: 0, width, height: toolbarHeight })
-    instance.toolbarView.setAutoResize({ width: true, height: false })
-  }
-
+  /**
+   * The overlay view is a transparent input shield, nothing more. All agent-control
+   * chrome (accent ring, "Agent is driving" chip) is drawn by the renderer around
+   * the dock, where it can't be buried by the native page view.
+   */
   private updateNativeOverlayState(instance: BrowserInstance): void {
-    const control = instance.agentControl
-    const agentActive = !!control?.active
-    const menuActive = !!instance.toolbarMenuOverlayActive
-    const shouldShow = agentActive || menuActive
+    const shouldShield = !!instance.agentControl?.active
 
-    if (!shouldShow || !instance.nativeOverlayReady || instance.window.isDestroyed()) {
-      instance.nativeOverlayView.setBounds({ x: 0, y: 0, width: 0, height: 0 })
-      if (!instance.window.isDestroyed()) {
-        instance.window.setTopBrowserView(instance.toolbarView)
-      }
+    if (this.isInstanceDestroyed(instance) || instance.nativeOverlayView.webContents.isDestroyed()) return
+
+    if (!shouldShield || !instance.nativeOverlayReady || !instance.host || instance.host.isDestroyed()) {
+      instance.nativeOverlayView.setVisible(false)
       return
     }
 
-    const [width, height] = instance.window.getContentSize()
-    const overlayHeight = Math.max(100, height - TOOLBAR_HEIGHT)
-    instance.nativeOverlayView.setBounds({ x: 0, y: TOOLBAR_HEIGHT, width, height: overlayHeight })
-    instance.nativeOverlayView.setAutoResize({ width: true, height: true })
-    instance.window.setTopBrowserView(instance.toolbarView)
+    const bounds = instance.pageView.getBounds()
+    instance.nativeOverlayView.setBounds(bounds)
+    instance.nativeOverlayView.setVisible(true)
 
-    if (agentActive) {
-      const label = this.getAgentControlLabel(control)
-      const accent = this.getResolvedAccentColor()
-
-      void instance.nativeOverlayView.webContents.executeJavaScript(`(() => {
-        const overlay = document.getElementById('overlay');
-        const chip = document.getElementById('chip');
-        const shield = document.getElementById('shield');
-        if (!overlay || !chip || !shield) return;
-
-        overlay.style.borderColor = ${JSON.stringify(accent)};
-        overlay.style.boxShadow = 'inset 0 0 0 1px color-mix(in oklab, ' + ${JSON.stringify(accent)} + ' 45%, transparent), inset 0 0 24px color-mix(in oklab, ' + ${JSON.stringify(accent)} + ' 28%, transparent)';
-        chip.textContent = ${JSON.stringify(label)};
-        chip.style.display = 'inline-flex';
-        shield.style.pointerEvents = 'auto';
-        shield.style.cursor = 'not-allowed';
-        shield.style.background = 'rgba(2, 6, 23, 0.03)';
-      })()`).catch(() => {})
-      return
-    }
-
-    // Menu mode: transparent full-page tap-catcher, no visuals
     void instance.nativeOverlayView.webContents.executeJavaScript(`(() => {
       const overlay = document.getElementById('overlay');
       const chip = document.getElementById('chip');
@@ -2105,37 +2269,23 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       overlay.style.boxShadow = 'none';
       chip.style.display = 'none';
       shield.style.pointerEvents = 'auto';
-      shield.style.cursor = 'default';
-      shield.style.background = 'rgba(0, 0, 0, 0.001)';
+      shield.style.cursor = 'not-allowed';
+      shield.style.background = 'rgba(2, 6, 23, 0.03)';
     })()`).catch(() => {})
   }
 
-  private getWindowResizable(window: BrowserWindow): boolean {
-    return typeof window.isResizable === 'function' ? window.isResizable() : true
-  }
-
-  private setWindowResizable(window: BrowserWindow, value: boolean): void {
-    if (typeof window.setResizable === 'function') {
-      window.setResizable(value)
-    }
-  }
-
+  /**
+   * While the agent drives, the page stops accepting human input. There is no
+   * window to freeze any more — the shield view plus the `before-input-event`
+   * guard is the whole lock.
+   */
   private applyAgentControlLock(instance: BrowserInstance, active: boolean): void {
     const wantsLock = active && !!instance.agentControl?.active
+    if (wantsLock === instance.lockState.active) return
 
-    if (wantsLock && !instance.lockState.active) {
-      instance.lockState.previousResizable = this.getWindowResizable(instance.window)
-      this.setWindowResizable(instance.window, false)
-      instance.lockState.active = true
-      mainLog.info(`[browser-pane] interaction lock enabled id=${instance.id}`)
-      return
-    }
-
-    if (!wantsLock && instance.lockState.active) {
-      this.setWindowResizable(instance.window, instance.lockState.previousResizable)
-      instance.lockState.active = false
-      mainLog.info(`[browser-pane] interaction lock released id=${instance.id}`)
-    }
+    instance.lockState.active = wantsLock
+    this.updateNativeOverlayState(instance)
+    mainLog.info(`[browser-pane] interaction lock ${wantsLock ? 'enabled' : 'released'} id=${instance.id}`)
   }
 
   destroyAll(): void {
@@ -2149,7 +2299,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       return
     }
 
-    this.destroyingIds.delete(instance.id)
     const runCleanup = (label: string, action: () => void): void => {
       try {
         action()
@@ -2157,43 +2306,162 @@ export class BrowserPaneManager implements IBrowserPaneManager {
         mainLog.warn(`[browser-pane] finalize cleanup failed id=${instance.id} step=${label} error=${error instanceof Error ? error.message : String(error)}`)
       }
     }
-    runCleanup('closePopupsForParent', () => this.closePopupsForParent(instance.id, 'parent_destroy'))
-    runCleanup('applyAgentControlLock', () => this.applyAgentControlLock(instance, false))
-    runCleanup('updateNativeOverlayState', () => this.updateNativeOverlayState(instance))
+    runCleanup('detachInstance', () => this.detachInstance(instance))
     runCleanup('cdp.detach', () => instance.cdp.detach())
     this.instances.delete(instance.id)
     this.removedCallback?.(instance.id)
     mainLog.info(`[browser-pane] Destroyed instance: ${instance.id} (${source})`)
   }
 
-  private layoutPageView(instance: BrowserInstance): void {
-    const [width, height] = instance.window.getContentSize()
-    instance.pageView.setBounds({ x: 0, y: TOOLBAR_HEIGHT, width, height: Math.max(100, height - TOOLBAR_HEIGHT) })
-    instance.pageView.setAutoResize({ width: true, height: true })
-    this.updateNativeOverlayState(instance)
+  // ---------------------------------------------------------------------------
+  // Annotation mode — point at an element instead of describing it
+  //
+  // The picker has to live inside the page: the dock's page area is a native
+  // view, so nothing the renderer draws can sit on top of it. It is injected
+  // through executeJavaScript (which runs ahead of the page's own CSP) and
+  // reports picks back over the console channel already used for theme colors.
+  // ---------------------------------------------------------------------------
+
+  private annotationScript(accent: string): string {
+    return `(() => {
+  const KEY = '__bitlabAnnotate';
+  if (window[KEY]) { window[KEY].enable(); return true; }
+
+  const accent = ${JSON.stringify(accent)};
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;display:none;'
+    + 'border:2px solid ' + accent + ';border-radius:3px;'
+    + 'background:color-mix(in oklab, ' + accent + ' 12%, transparent);';
+  let attached = false;
+
+  const describe = (el) => {
+    const tag = (el.tagName || 'node').toLowerCase();
+    const id = el.id ? '#' + el.id : '';
+    const cls = (typeof el.className === 'string' && el.className.trim())
+      ? '.' + el.className.trim().split(/\s+/)[0]
+      : '';
+    const text = (el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    return (tag + id + cls + (text ? ' ' + text : '')).slice(0, ${ANNOTATION_LABEL_MAX});
+  };
+
+  const paint = (el) => {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    box.style.left = r.left + 'px';
+    box.style.top = r.top + 'px';
+    box.style.width = r.width + 'px';
+    box.style.height = r.height + 'px';
+  };
+
+  const onMove = (e) => { if (e.target && e.target.nodeType === 1) paint(e.target); };
+
+  const onPick = (e) => {
+    const el = e.target;
+    if (!el || el.nodeType !== 1) return;
+    // Picking must not also activate the thing being picked.
+    e.preventDefault();
+    e.stopPropagation();
+    const r = el.getBoundingClientRect();
+    console.log(${JSON.stringify(ANNOTATION_SIGNAL_PREFIX)} + JSON.stringify({
+      x: Math.max(0, Math.round(r.left)),
+      y: Math.max(0, Math.round(r.top)),
+      width: Math.round(r.width),
+      height: Math.round(r.height),
+      label: describe(el),
+    }));
+  };
+
+  const api = {
+    enable() {
+      if (!attached) { document.documentElement.appendChild(box); attached = true; }
+      document.addEventListener('mousemove', onMove, true);
+      document.addEventListener('click', onPick, true);
+      document.body && (document.body.style.cursor = 'crosshair');
+    },
+    disable() {
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('click', onPick, true);
+      box.style.display = 'none';
+      document.body && (document.body.style.cursor = '');
+    },
+  };
+
+  window[KEY] = api;
+  api.enable();
+  return true;
+})()`;
   }
 
-  private layoutAllViews(instance: BrowserInstance): void {
-    this.layoutToolbarView(instance)
-    this.layoutPageView(instance)
-    if (!instance.window.isDestroyed()) {
-      instance.window.setTopBrowserView(instance.toolbarView)
+  /**
+   * Turn element picking on or off for a tab.
+   *
+   * Injection is idempotent and re-applied after navigation, because a page
+   * load wipes the picker along with the rest of the document.
+   */
+  async setAnnotationMode(id: string, enabled: boolean): Promise<void> {
+    const instance = this.requireAliveInstance(id)
+    instance.annotationMode = enabled
+
+    if (enabled) {
+      await this.injectAnnotationScript(instance)
+    } else {
+      await instance.pageView.webContents
+        .executeJavaScript(`window.__bitlabAnnotate && window.__bitlabAnnotate.disable()`)
+        .catch(() => {})
+    }
+
+    this.emitStateChange(instance)
+    mainLog.info(`[browser-pane] annotation mode ${enabled ? 'on' : 'off'} id=${id}`)
+  }
+
+  private async injectAnnotationScript(instance: BrowserInstance): Promise<void> {
+    if (this.isInstanceDestroyed(instance)) return
+    try {
+      await instance.pageView.webContents.executeJavaScript(
+        this.annotationScript(this.getResolvedAccentColor()),
+      )
+    } catch (error) {
+      mainLog.warn(`[browser-pane] annotation inject failed id=${instance.id}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
-  private forceCloseToolbarMenu(instance: BrowserInstance, reason: string): void {
-    if (!instance.toolbarMenuOpen && instance.toolbarMenuHeight === 0 && !instance.toolbarMenuOverlayActive) {
-      return
-    }
+  /**
+   * Turn a picked rect into the evidence the model actually reads.
+   *
+   * A screenshot rather than a DOM slice: it is unambiguous about what the user
+   * pointed at, and it carries no markup for a page to hide instructions in.
+   */
+  private async handleAnnotationPick(
+    instance: BrowserInstance,
+    pick: { x: number; y: number; width: number; height: number; label: string },
+  ): Promise<void> {
+    if (!this.annotationCallback) return
 
-    instance.toolbarMenuOpen = false
-    instance.toolbarMenuHeight = 0
-    instance.toolbarMenuOverlayActive = false
-    this.layoutAllViews(instance)
+    const label = sanitizeAnnotationLabel(pick.label)
+    try {
+      const shot = await this.screenshotRegion(instance.id, {
+        x: pick.x,
+        y: pick.y,
+        width: pick.width,
+        height: pick.height,
+        padding: 4,
+        format: 'png',
+      })
 
-    if (!instance.window.isDestroyed() && !instance.toolbarView.webContents.isDestroyed()) {
-      instance.toolbarView.webContents.send(TOOLBAR_CHANNELS.FORCE_CLOSE_MENU, { reason })
+      this.annotationCallback({
+        instanceId: instance.id,
+        label,
+        imageBase64: shot.imageBuffer.toString('base64'),
+        mimeType: 'image/png',
+      })
+    } catch (error) {
+      mainLog.warn(`[browser-pane] annotation capture failed id=${instance.id}: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   private isBrowserEmptyStateUrl(url: string): boolean {
@@ -2284,165 +2552,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     return handled
   }
 
-  private async loadToolbarPage(instance: BrowserInstance): Promise<void> {
-    const query = `instanceId=${encodeURIComponent(instance.id)}&themeMode=${encodeURIComponent(this.themeMode)}`
-    let lastError: unknown = null
-
-    for (let attempt = 0; attempt <= TOOLBAR_LOAD_MAX_RETRIES; attempt++) {
-      try {
-        if (VITE_DEV_SERVER_URL) {
-          await instance.toolbarView.webContents.loadURL(`${VITE_DEV_SERVER_URL}/browser-toolbar.html?${query}`)
-        } else {
-          await instance.toolbarView.webContents.loadFile(
-            join(__dirname, 'renderer/browser-toolbar.html'),
-            { query: { instanceId: instance.id, themeMode: this.themeMode } },
-          )
-        }
-
-        if (attempt > 0) {
-          mainLog.info(`[browser-pane] toolbar load recovered id=${instance.id} attempt=${attempt + 1}`)
-        }
-        return
-      } catch (error) {
-        lastError = error
-        const retrying = attempt < TOOLBAR_LOAD_MAX_RETRIES
-        mainLog.warn(
-          `[browser-pane] toolbar load failed id=${instance.id} attempt=${attempt + 1}/${TOOLBAR_LOAD_MAX_RETRIES + 1}: ${error instanceof Error ? error.message : String(error)}${retrying ? ' (retrying)' : ''}`,
-        )
-
-        if (retrying) {
-          await this.sleep(TOOLBAR_LOAD_RETRY_DELAY_MS)
-        }
-      }
-    }
-
-    const errorText = lastError instanceof Error ? lastError.message : String(lastError ?? 'unknown error')
-    await this.loadToolbarFallback(instance, errorText)
-  }
-
-  private async loadToolbarFallback(instance: BrowserInstance, reason: string): Promise<void> {
-    const safeReason = reason.replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch] || ch))
-    const html = `<!doctype html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Browser Toolbar Error</title>
-    <style>
-      html, body { margin: 0; padding: 0; height: 100%; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fafafb; color: #1f2937; }
-      @media (prefers-color-scheme: dark) { html, body { background: #2b292e; color: #e5e7eb; } }
-      .wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
-      .card { max-width: 640px; margin: 0 20px; padding: 14px 16px; border-radius: 10px; background: rgba(127,127,127,0.12); font-size: 12px; line-height: 1.45; }
-      .title { font-weight: 600; margin-bottom: 6px; }
-      .muted { opacity: 0.8; }
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <div class="card">
-        <div class="title">Browser toolbar failed to load</div>
-        <div class="muted">The page area still works, but toolbar UI is unavailable. Try reopening the browser window.</div>
-        <div class="muted" style="margin-top: 8px; word-break: break-word;">Reason: ${safeReason}</div>
-      </div>
-    </div>
-  </body>
-</html>`
-
-    try {
-      await instance.toolbarView.webContents.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`)
-      mainLog.warn(`[browser-pane] Loaded toolbar fallback id=${instance.id}`)
-    } catch (error) {
-      mainLog.error(`[browser-pane] Failed to load toolbar fallback id=${instance.id}: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms))
-  }
-
-  private pushToolbarState(instance: BrowserInstance): void {
-    if (instance.window.isDestroyed() || instance.toolbarView.webContents.isDestroyed()) return
-    const state = {
-      url: instance.currentUrl,
-      title: instance.title,
-      isLoading: instance.isLoading,
-      canGoBack: instance.canGoBack,
-      canGoForward: instance.canGoForward,
-      themeColor: instance.themeColor,
-    }
-    instance.toolbarView.webContents.send(TOOLBAR_CHANNELS.STATE_UPDATE, state)
-  }
-
-  /** Register IPC handlers for toolbar actions. Call once at app startup. */
-  registerToolbarIpc(): void {
-    const findInstance = (instanceId: string): BrowserInstance | undefined => {
-      return this.instances.get(instanceId)
-    }
-
-    ipcMain.handle(TOOLBAR_CHANNELS.NAVIGATE, async (_event, instanceId: string, url: string) => {
-      const inst = findInstance(instanceId)
-      if (inst) await this.navigate(inst.id, url)
-    })
-
-    ipcMain.handle(TOOLBAR_CHANNELS.GO_BACK, async (_event, instanceId: string) => {
-      const inst = findInstance(instanceId)
-      if (inst) await this.goBack(inst.id)
-    })
-
-    ipcMain.handle(TOOLBAR_CHANNELS.GO_FORWARD, async (_event, instanceId: string) => {
-      const inst = findInstance(instanceId)
-      if (inst) await this.goForward(inst.id)
-    })
-
-    ipcMain.handle(TOOLBAR_CHANNELS.RELOAD, async (_event, instanceId: string) => {
-      const inst = findInstance(instanceId)
-      if (inst) this.reload(inst.id)
-    })
-
-    ipcMain.handle(TOOLBAR_CHANNELS.STOP, async (_event, instanceId: string) => {
-      const inst = findInstance(instanceId)
-      if (inst) this.stop(inst.id)
-    })
-
-    ipcMain.handle(TOOLBAR_CHANNELS.MENU_GEOMETRY, async (_event, instanceId: string, open: boolean, height?: number) => {
-      const inst = findInstance(instanceId)
-      if (!inst) return
-
-      const normalizedOpen = !!open
-      const normalizedHeight = Math.max(0, Math.ceil(Number(height ?? 0)))
-
-      if (!normalizedOpen) {
-        this.forceCloseToolbarMenu(inst, 'renderer-close')
-        return
-      }
-
-      const changed = !inst.toolbarMenuOpen
-        || inst.toolbarMenuHeight !== normalizedHeight
-        || !inst.toolbarMenuOverlayActive
-
-      if (!changed) return
-
-      inst.toolbarMenuOpen = true
-      inst.toolbarMenuHeight = normalizedHeight
-      inst.toolbarMenuOverlayActive = true
-      this.layoutAllViews(inst)
-    })
-
-    ipcMain.handle(TOOLBAR_CHANNELS.HIDE, async (_event, instanceId: string) => {
-      const inst = findInstance(instanceId)
-      mainLog.info(`[browser-pane] toolbar ipc hide requested instanceId=${instanceId} resolved=${inst?.id ?? 'none'}`)
-      if (inst) this.hide(inst.id)
-    })
-
-    ipcMain.handle(TOOLBAR_CHANNELS.DESTROY, async (_event, instanceId: string) => {
-      const inst = findInstance(instanceId)
-      mainLog.info(`[browser-pane] toolbar ipc destroy requested instanceId=${instanceId} resolved=${inst?.id ?? 'none'}`)
-      if (inst) this.destroyInstance(inst.id)
-    })
-
-    mainLog.info('[browser-pane] Toolbar IPC handlers registered')
-  }
-
   // ---------------------------------------------------------------------------
   // Capability IPC — dispatcher for the `client:browser:invoke` WS capability.
   //
@@ -2495,7 +2604,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
    */
   private requireOwnedInstance(instanceId: string, ownerKey: string): void {
     const instance = this.instances.get(instanceId)
-    if (!instance || instance.window.isDestroyed()) {
+    if (!instance || this.isInstanceDestroyed(instance)) {
       throw new CodedError('BROWSER_INSTANCE_NOT_OWNED', `Browser instance "${instanceId}" not found.`)
     }
     const owned = instance.boundSessionId === ownerKey || instance.ownerSessionId === ownerKey
@@ -2509,7 +2618,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
   private listInstancesForOwner(ownerKey: string): BrowserInstanceInfo[] {
     const infos: BrowserInstanceInfo[] = []
     for (const instance of this.instances.values()) {
-      if (instance.window.isDestroyed()) {
+      if (this.isInstanceDestroyed(instance)) {
         this.cleanupDestroyedInstance(instance, 'listInstancesForOwner')
         continue
       }
@@ -2796,28 +2905,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     }
   }
 
-  private markToolbarReady(instance: BrowserInstance, reason: string): void {
-    if (instance.toolbarReady || instance.window.isDestroyed()) return
-
-    instance.toolbarReady = true
-    mainLog.info(`[browser-pane] toolbar ready id=${instance.id} reason=${reason}`)
-
-    const shouldShowNow = instance.showOnCreate || instance.pendingShowOnReady
-    if (!shouldShowNow) return
-
-    const tokenAtReady = instance.pendingShowToken
-    instance.pendingShowOnReady = false
-
-    if (instance.window.isDestroyed()) return
-    if (instance.pendingShowToken !== tokenAtReady) return
-
-    instance.window.show()
-    instance.window.focus()
-    instance.isVisible = true
-    this.emitStateChange(instance)
-
-  }
-
   // ---------------------------------------------------------------------------
   // Agent Control — persistent overlay while agent is using the browser
   // ---------------------------------------------------------------------------
@@ -2926,9 +3013,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
   private applyThemeColor(instance: BrowserInstance, color: string | null): void {
     if (instance.themeColor === color) return
     instance.themeColor = color
-    if (!instance.window.isDestroyed() && !instance.toolbarView.webContents.isDestroyed()) {
-      instance.toolbarView.webContents.send(TOOLBAR_CHANNELS.THEME_COLOR, color)
-    }
     this.emitStateChange(instance)
   }
 
@@ -3041,7 +3125,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
           clearScheduled();
         };
 
-        // Fast first color for initial toolbar paint and after SPA route changes
+        // Fast first color for the dock's first paint and after SPA route changes
         schedule();
       })()
     `).catch(() => {
@@ -3068,87 +3152,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       if (instance.pageView.webContents.id === webContentsId) return instance
     }
     return undefined
-  }
-
-  private registerPopupWindow(parentInstance: BrowserInstance, popupWindow: BrowserWindow, sourceUrl?: string): void {
-    const popupWcId = popupWindow.webContents.id
-    const existingParent = this.popupParentByWebContentsId.get(popupWcId)
-    if (existingParent && existingParent !== parentInstance.id) {
-      this.unregisterPopupWindow(popupWindow, 'reparented')
-    }
-
-    let popups = this.popupWindowsByParentInstanceId.get(parentInstance.id)
-    if (!popups) {
-      popups = new Set<BrowserWindow>()
-      this.popupWindowsByParentInstanceId.set(parentInstance.id, popups)
-    }
-
-    popups.add(popupWindow)
-    this.popupParentByWebContentsId.set(popupWcId, parentInstance.id)
-
-    const initialUrl = sourceUrl || popupWindow.webContents.getURL?.() || 'about:blank'
-    mainLog.info(`[browser-pane] popup created parent=${parentInstance.id} popupWebContentsId=${popupWcId} url=${initialUrl}`)
-
-    popupWindow.webContents.on('did-navigate', (_event, urlFromEvent) => {
-      const popupUrl = typeof popupWindow.webContents.getURL === 'function'
-        ? popupWindow.webContents.getURL()
-        : (urlFromEvent || initialUrl)
-      mainLog.info(`[browser-pane] popup did-navigate parent=${parentInstance.id} popupWebContentsId=${popupWcId} url=${popupUrl}`)
-    })
-
-    popupWindow.webContents.on('did-redirect-navigation', (_event, popupUrl, isInPlace, isMainFrame) => {
-      mainLog.info(
-        `[browser-pane] popup redirect parent=${parentInstance.id} popupWebContentsId=${popupWcId} url=${popupUrl} inPlace=${isInPlace} mainFrame=${isMainFrame}`,
-      )
-    })
-
-    popupWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-      if (!isMainFrame) return
-      mainLog.warn(
-        `[browser-pane] popup did-fail-load parent=${parentInstance.id} popupWebContentsId=${popupWcId} code=${errorCode} url=${validatedURL} error=${errorDescription}`,
-      )
-    })
-
-    popupWindow.on('closed', () => {
-      this.unregisterPopupWindow(popupWindow, 'closed')
-    })
-  }
-
-  private unregisterPopupWindow(popupWindow: BrowserWindow, reason: 'closed' | 'parent_destroy' | 'reparented'): void {
-    const popupWcId = popupWindow.webContents.id
-    const parentId = this.popupParentByWebContentsId.get(popupWcId)
-    if (!parentId) return
-
-    this.popupParentByWebContentsId.delete(popupWcId)
-
-    const popups = this.popupWindowsByParentInstanceId.get(parentId)
-    if (popups) {
-      popups.delete(popupWindow)
-      if (popups.size === 0) {
-        this.popupWindowsByParentInstanceId.delete(parentId)
-      }
-    }
-
-    mainLog.info(`[browser-pane] popup closed parent=${parentId} popupWebContentsId=${popupWcId} reason=${reason}`)
-  }
-
-  private closePopupsForParent(parentId: string, reason: 'parent_destroy'): void {
-    const popups = this.popupWindowsByParentInstanceId.get(parentId)
-    if (!popups || popups.size === 0) return
-
-    for (const popupWindow of Array.from(popups)) {
-      const popupWcId = popupWindow.webContents.id
-      this.unregisterPopupWindow(popupWindow, reason)
-      try {
-        if (!popupWindow.isDestroyed()) {
-          popupWindow.destroy()
-        }
-      } catch (error) {
-        mainLog.warn(
-          `[browser-pane] popup destroy failed parent=${parentId} popupWebContentsId=${popupWcId} reason=${reason} error=${error instanceof Error ? error.message : String(error)}`,
-        )
-      }
-    }
   }
 
   private pushNetworkLog(instance: BrowserInstance, entry: BrowserNetworkEntry): void {
@@ -3341,64 +3344,24 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     }
   }
 
-  private isToolbarUiDocumentUrl(url: string): boolean {
-    if (!url) return false
-    if (url.startsWith('data:text/html')) return true
-
-    try {
-      const parsed = new URL(url)
-      return parsed.pathname.toLowerCase().endsWith('/browser-toolbar.html')
-    } catch {
-      return /browser-toolbar\.html(?:$|[?#])/i.test(url)
-    }
-  }
-
-  private setupWindowListeners(instance: BrowserInstance): void {
+  private setupInstanceListeners(instance: BrowserInstance): void {
     const pageWc = instance.pageView.webContents
-    const toolbarWc = instance.toolbarView.webContents
     const overlayWc = instance.nativeOverlayView.webContents
 
-    instance.window.on('close', (event) => {
-      const explicitDestroy = this.destroyingIds.has(instance.id)
-      const interceptToHide = !explicitDestroy && instance.keepAliveOnWindowClose
-      mainLog.info(`[browser-pane] window close requested id=${instance.id} explicitDestroy=${explicitDestroy} keepAlive=${instance.keepAliveOnWindowClose} interceptToHide=${interceptToHide}`)
-
-      if (interceptToHide) {
-        event.preventDefault()
-        // Skip if a hide is already in flight — hide() guards against re-entry
-        // itself, but bailing here also avoids redundant log noise during the
-        // teardown race that triggered issue #695.
-        if (!instance.isHiding) {
-          this.hide(instance.id)
-        }
-      }
-    })
-
-    instance.window.on('resize', () => {
-      this.layoutAllViews(instance)
-    })
-
-    toolbarWc.on('did-finish-load', () => {
-      const loadedUrl = typeof toolbarWc.getURL === 'function' ? toolbarWc.getURL() : ''
-      if (!this.isToolbarUiDocumentUrl(loadedUrl)) {
-        mainLog.info(`[browser-pane] toolbar did-finish-load ignored id=${instance.id} url=${loadedUrl || 'unknown'}`)
-        this.pushToolbarState(instance)
-        return
-      }
-
-      this.markToolbarReady(instance, 'did-finish-load')
-      this.pushToolbarState(instance)
-    })
-
-    toolbarWc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-      if (!isMainFrame) return
-      mainLog.warn(`[browser-pane] toolbar did-fail-load id=${instance.id} code=${errorCode} url=${validatedURL} error=${errorDescription}`)
+    // The page died on its own (OOM, renderer crash). Codex shipped this exact
+    // bug — a sidebar webview crash taking the whole app with it — so the tab
+    // is torn down and the renderer is told, instead of leaving a dead view up.
+    pageWc.on('render-process-gone', (_event, details) => {
+      mainLog.error(`[browser-pane] page process gone id=${instance.id} reason=${details.reason} exitCode=${details.exitCode}`)
+      instance.crashed = { reason: details.reason, at: Date.now() }
+      this.detachInstance(instance)
+      this.emitStateChange(instance)
     })
 
     pageWc.on('did-start-loading', () => {
+      instance.crashed = null
       instance.isLoading = true
       this.emitStateChange(instance)
-      void this.pushToolbarState(instance)
     })
 
     pageWc.on('did-stop-loading', () => {
@@ -3409,7 +3372,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       this.inFlightRequestsByWebContentsId.set(pageWc.id, 0)
       this.lastNetworkActivityByWebContentsId.set(pageWc.id, Date.now())
       this.emitStateChange(instance)
-      void this.pushToolbarState(instance)
       void this.extractThemeColor(instance)
       this.reapplyAgentControlVisual(instance)
     })
@@ -3425,20 +3387,9 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       }
     })
 
-    toolbarWc.on('before-input-event', (event) => {
-      if (instance.lockState.active) {
-        event.preventDefault()
-      }
-    })
-
-    overlayWc.on('before-input-event', (event, input) => {
-      if (!instance.toolbarMenuOverlayActive) return
-
-      const inputType = input.type || ''
-      if (inputType === 'mouseDown' || inputType === 'touchStart' || inputType === 'pointerDown') {
-        event.preventDefault()
-        this.forceCloseToolbarMenu(instance, 'overlay-tap')
-      }
+    // The shield swallows everything while the agent drives.
+    overlayWc.on('before-input-event', (event) => {
+      event.preventDefault()
     })
 
     pageWc.on('did-navigate', (_event, urlFromEvent) => {
@@ -3460,9 +3411,10 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       this.inFlightRequestsByWebContentsId.set(pageWc.id, 0)
       this.lastNetworkActivityByWebContentsId.set(pageWc.id, Date.now())
       this.emitStateChange(instance)
-      void this.pushToolbarState(instance)
       this.scheduleEarlyThemeExtraction(instance, url)
       this.reapplyAgentControlVisual(instance)
+      // A load wipes the picker along with the document.
+      if (instance.annotationMode) void this.injectAnnotationScript(instance)
     })
 
     pageWc.on('did-redirect-navigation', (_event, url, isInPlace, isMainFrame) => {
@@ -3481,7 +3433,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       void this.maybeHandleEmptyStateLaunch(instance, url).then((handled) => {
         if (handled) {
           this.emitStateChange(instance)
-          void this.pushToolbarState(instance)
           return
         }
 
@@ -3490,7 +3441,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
         instance.themeObserverToken = null
         instance.themeColor = null
         this.emitStateChange(instance)
-        void this.pushToolbarState(instance)
         this.installThemeObserver(instance)
         instance.inPageThemeTimer = setTimeout(() => { void this.extractThemeColor(instance) }, 300)
         this.reapplyAgentControlVisual(instance)
@@ -3503,7 +3453,6 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       const normalized = this.normalizePageState(pageWc.getURL(), title)
       instance.title = normalized.title
       this.emitStateChange(instance)
-      void this.pushToolbarState(instance)
     })
 
     pageWc.on('page-favicon-updated', (_event, favicons) => {
@@ -3520,6 +3469,16 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     })
 
     pageWc.on('console-message', (_event, level, message) => {
+      if (message.startsWith(ANNOTATION_SIGNAL_PREFIX)) {
+        try {
+          const pick = JSON.parse(message.slice(ANNOTATION_SIGNAL_PREFIX.length))
+          void this.handleAnnotationPick(instance, pick)
+        } catch {
+          mainLog.warn(`[browser-pane] malformed annotation signal id=${instance.id}`)
+        }
+        return
+      }
+
       if (message.startsWith(THEME_COLOR_SIGNAL_PREFIX)) {
         const payload = message.slice(THEME_COLOR_SIGNAL_PREFIX.length)
         const delimiterIdx = payload.indexOf(':')
@@ -3559,11 +3518,8 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       }
     })
 
-    pageWc.on('did-create-window', (popupWindow, details) => {
-      const popupUrl = details?.url || popupWindow.webContents?.getURL?.() || 'about:blank'
-      this.registerPopupWindow(instance, popupWindow, popupUrl)
-    })
-
+    // target=_blank / window.open lands as a new tab in the same dock — the
+    // shape Codex and Claude both settled on. Never a separate native window.
     pageWc.setWindowOpenHandler((details) => {
       mainLog.info(
         `[browser-pane] window-open requested id=${instance.id} url=${details.url} disposition=${details.disposition ?? 'unknown'} frameName=${details.frameName || 'none'}`,
@@ -3587,56 +3543,37 @@ export class BrowserPaneManager implements IBrowserPaneManager {
         return { action: 'deny' }
       }
 
-      return {
-        action: 'allow',
-        overrideBrowserWindowOptions: {
-          width: 520,
-          height: 720,
-          minWidth: 420,
-          minHeight: 520,
-          show: true,
-          autoHideMenuBar: true,
-          parent: instance.window,
-          modal: false,
-          webPreferences: {
-            partition: SESSION_PARTITION,
-            session: pageWc.session,
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-          },
-        },
-      }
+      this.openInNewTab(instance, details.url)
+      return { action: 'deny' }
     })
 
     pageWc.on('focus', () => {
       this.interactedCallback?.(instance.id)
     })
 
-    instance.window.on('focus', () => {
-      this.interactedCallback?.(instance.id)
-    })
-
-    instance.window.on('show', () => {
-      instance.isVisible = true
-      this.emitStateChange(instance)
-      this.reapplyAgentControlVisual(instance)
-      this.pushToolbarState(instance)
-      this.updateNativeOverlayState(instance)
-      if (!instance.themeColor) {
-        void this.extractThemeColor(instance)
-      }
-    })
-
-    instance.window.on('hide', () => {
-      instance.isVisible = false
-      this.emitStateChange(instance)
-      this.updateNativeOverlayState(instance)
-    })
-
-    instance.window.on('closed', () => {
+    pageWc.on('destroyed', () => {
       this.finalizeDestroyedInstance(instance, 'closed')
     })
+  }
+
+  /**
+   * Open `url` as a sibling tab of `origin` and surface it. Used by
+   * window.open/target=_blank, which never gets its own native window.
+   */
+  private openInNewTab(origin: BrowserInstance, url: string): string {
+    const tabId = this.createInstance(undefined, {
+      workspaceId: origin.workspaceId,
+      ownerType: origin.ownerType,
+      ownerSessionId: origin.ownerSessionId ?? undefined,
+    })
+
+    void this.navigate(tabId, url).catch((error) => {
+      mainLog.warn(`[browser-pane] new-tab navigation failed id=${tabId} url=${url}: ${error instanceof Error ? error.message : String(error)}`)
+    })
+
+    this.focus(tabId)
+    mainLog.info(`[browser-pane] opened new tab id=${tabId} from=${origin.id} url=${url}`)
+    return tabId
   }
 
   private toInfo(instance: BrowserInstance): BrowserInstanceInfo {
@@ -3653,8 +3590,12 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       ownerSessionId: instance.ownerSessionId,
       isVisible: instance.isVisible,
       agentControlActive: !!instance.agentControl?.active,
+      agentControlLabel: instance.agentControl?.active
+        ? this.getAgentControlLabel(instance.agentControl)
+        : null,
       themeColor: instance.themeColor,
       workspaceId: instance.workspaceId,
+      crashed: instance.crashed,
     }
   }
 

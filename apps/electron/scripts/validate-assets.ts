@@ -9,7 +9,6 @@ const executable = targetPlatform === 'win32' ? '.exe' : ''
 const required = [
   'dist/main.cjs',
   'dist/bootstrap-preload.cjs',
-  'dist/browser-toolbar-preload.cjs',
   'dist/interceptor.cjs',
   'dist/renderer/index.html',
   'dist/resources/config-defaults.json',

@@ -35,6 +35,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { usePlatform } from '../../context/PlatformContext'
 import { cn } from '../../lib/utils'
 import { getDismissibleLayerBridge } from '../../lib/dismissible-layer-bridge'
+import { useNativeViewOcclusion } from '../../lib/native-view-occlusion'
 import { FullscreenOverlayBaseHeader, type OverlayTypeBadge } from './FullscreenOverlayBaseHeader'
 import { OverlayErrorBanner, type OverlayErrorBannerProps } from './OverlayErrorBanner'
 
@@ -107,6 +108,10 @@ export function FullscreenOverlayBase({
   error,
 }: FullscreenOverlayBaseProps) {
   const { onSetTrafficLightsVisible } = usePlatform()
+
+  // Fullscreen means fullscreen: a host with native views (the Electron browser
+  // dock) has to detach them, since no z-index stacks above a native view.
+  useNativeViewOcclusion(isOpen)
 
   // Determine if we should render the structured header.
   // Any header-related prop triggers header rendering.
