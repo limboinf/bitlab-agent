@@ -40,6 +40,31 @@ function postToTokenEndpoint(params: URLSearchParams): Promise<Response> {
   });
 }
 
+/**
+ * Turn a failed token-endpoint response into a readable message.
+ *
+ * OpenAI answers with several shapes: a flat `{error, error_description}` OAuth
+ * error, or a nested `{error: {code, message}}` platform error (that nested one
+ * is what used to surface as "[object Object]"). Falls back to the raw body.
+ */
+async function readTokenErrorMessage(response: Response): Promise<string> {
+  const errorText = await response.text();
+  try {
+    const json = JSON.parse(errorText) as {
+      error?: string | { code?: string; message?: string };
+      error_description?: string;
+    };
+    if (typeof json.error === 'object' && json.error !== null) {
+      const { code, message } = json.error;
+      if (message && code) return `${message} (${code})`;
+      if (message || code) return (message ?? code) as string;
+    }
+    return json.error_description || (typeof json.error === 'string' ? json.error : '') || errorText;
+  } catch {
+    return errorText;
+  }
+}
+
 export interface ChatGptTokens {
   /** JWT id_token containing user identity claims */
   idToken: string;
@@ -127,15 +152,7 @@ export async function exchangeChatGptTokens(
   const response = await postToTokenEndpoint(params);
 
   if (!response.ok) {
-    const errorText = await response.text();
-    let errorMessage: string;
-    try {
-      const errorJson = JSON.parse(errorText);
-      errorMessage = errorJson.error_description || errorJson.error || errorText;
-    } catch {
-      errorMessage = errorText;
-    }
-    throw new Error(`Token exchange failed: ${response.status} - ${errorMessage}`);
+    throw new Error(`Token exchange failed: ${response.status} - ${await readTokenErrorMessage(response)}`);
   }
 
   const data = (await response.json()) as {
@@ -176,15 +193,7 @@ export async function refreshChatGptTokens(
     const response = await postToTokenEndpoint(params);
 
     if (!response.ok) {
-      const errorText = await response.text();
-      let errorMessage: string;
-      try {
-        const errorJson = JSON.parse(errorText);
-        errorMessage = errorJson.error_description || errorJson.error || errorText;
-      } catch {
-        errorMessage = errorText;
-      }
-      throw new Error(`Token refresh failed: ${response.status} - ${errorMessage}`);
+      throw new Error(`Token refresh failed: ${response.status} - ${await readTokenErrorMessage(response)}`);
     }
 
     const data = (await response.json()) as {
@@ -232,18 +241,7 @@ export async function exchangeIdTokenForApiKey(idToken: string): Promise<string>
   const response = await postToTokenEndpoint(params);
 
   if (!response.ok) {
-    const errorText = await response.text();
-    let errorMessage: string;
-    try {
-      const errorJson = JSON.parse(errorText);
-      // Handle both string and object error formats
-      const errorDesc = errorJson.error_description;
-      const errorCode = typeof errorJson.error === 'string' ? errorJson.error : JSON.stringify(errorJson.error);
-      errorMessage = errorDesc || errorCode || errorText;
-    } catch {
-      errorMessage = errorText;
-    }
-    throw new Error(`Token exchange failed: ${response.status} - ${errorMessage}`);
+    throw new Error(`Token exchange failed: ${response.status} - ${await readTokenErrorMessage(response)}`);
   }
 
   const data = (await response.json()) as {

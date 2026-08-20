@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it } from 'bun:test'
 import {
   CHATGPT_OAUTH_CONFIG,
+  exchangeChatGptTokens,
   generateCallbackPage,
   prepareChatGptOAuth,
 } from '../index.ts'
@@ -21,6 +22,39 @@ describe('LLM subscription OAuth', () => {
     expect(url.searchParams.get('code_challenge_method')).toBe('S256')
     expect(url.searchParams.get('codex_cli_simplified_flow')).toBe('true')
     expect(flow.codeVerifier.length).toBeGreaterThanOrEqual(43)
+  })
+
+  describe('token exchange failures', () => {
+    const realFetch = globalThis.fetch
+    afterEach(() => { globalThis.fetch = realFetch })
+
+    const respondWith = (status: number, body: unknown) => {
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
+    }
+
+    it('reports the nested platform error instead of [object Object]', async () => {
+      // OpenAI answers a region-blocked exchange with a nested error object.
+      respondWith(403, {
+        error: {
+          code: 'unsupported_country_region_territory',
+          message: 'Country, region, or territory not supported',
+        },
+      })
+
+      const failure = exchangeChatGptTokens('ac_code', 'verifier')
+      await expect(failure).rejects.toThrow(
+        'Token exchange failed: 403 - Country, region, or territory not supported (unsupported_country_region_territory)',
+      )
+    })
+
+    it('still reports the flat OAuth error shape', async () => {
+      respondWith(400, { error: 'invalid_grant', error_description: 'Code expired' })
+
+      await expect(exchangeChatGptTokens('ac_code', 'verifier')).rejects.toThrow(
+        'Token exchange failed: 400 - Code expired',
+      )
+    })
   })
 
   it('uses Bitlab branding on the retained callback page', () => {
