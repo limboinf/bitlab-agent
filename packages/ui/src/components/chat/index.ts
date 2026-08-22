@@ -6,9 +6,11 @@
 export * from './turn-utils'
 export * from './follow-up-helpers'
 export * from './mcp-activity'
+export * from './task-list-utils'
 
 // Components
 export { TurnCard, ResponseCard, SIZE_CONFIG, ActivityStatusIcon, type TurnCardProps, type ResponseCardProps, type ActivityItem, type ActivityStatus, type ResponseContent, type TodoItem } from './TurnCard'
+export { TaskList, TaskRow, TaskStatusIcon, type TaskListProps } from './TaskList'
 export { InlineExecution, mapToolEventToActivity, type InlineExecutionProps, type InlineExecutionStatus, type InlineActivityItem } from './InlineExecution'
 export { TurnCardActionsMenu, type TurnCardActionsMenuProps } from './TurnCardActionsMenu'
 export { UserMessageBubble, type UserMessageBubbleProps } from './UserMessageBubble'

@@ -49,6 +49,7 @@ import {
   TurnCard,
   UserMessageBubble,
   groupMessagesByTurn,
+  getCurrentTaskList,
   formatTurnAsMarkdown,
   formatActivityAsMarkdown,
   getAssistantTurnUiKey,
@@ -1346,6 +1347,10 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   // Keep ref in sync for scroll handler
   totalTurnCountRef.current = allTurns.length
 
+  // The checklist above the composer belongs to the turn in progress, so it
+  // reads allTurns — pagination trims history, never the live turn.
+  const currentTaskList = React.useMemo(() => getCurrentTaskList(allTurns), [allTurns])
+
   // Reverse pagination: only render last N turns for fast initial render
   const startIndex = Math.max(0, allTurns.length - visibleTurnCount)
   const turns = allTurns.slice(startIndex)
@@ -1456,6 +1461,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
       permissionMode={permissionMode}
       onPermissionModeChange={onPermissionModeChange}
       tasks={backgroundTasks}
+      todos={currentTaskList}
+      todosLive={session.isProcessing}
       sessionId={session.id}
       sessionFolderPath={sessionFolderPath}
       onKillTask={(taskId) => killTask(taskId, backgroundTasks.find(t => t.id === taskId)?.type === 'shell' ? 'shell' : 'agent')}
@@ -1720,7 +1727,6 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                         onExpandedChange={(expanded) => toggleTurn(assistantUiKey, expanded)}
                         expandedActivityGroups={expandedActivityGroups}
                         onExpandedActivityGroupsChange={setExpandedActivityGroups}
-                        todos={turn.todos}
                         onOpenFile={onOpenFile}
                         onOpenUrl={onOpenUrl}
                         isLastResponse={isLastResponse}

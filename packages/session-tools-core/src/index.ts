@@ -56,6 +56,7 @@ export {
   getSessionToolRegistry,
   getToolDefsAsJsonSchema,
   ListBackgroundTasksSchema,
+  TodoWriteSchema,
   ListSessionsSchema,
   MermaidValidateSchema,
   ScriptSandboxSchema,

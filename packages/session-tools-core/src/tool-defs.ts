@@ -12,6 +12,7 @@ import {
   handleSendDeveloperFeedback,
   handleSkillValidate,
   handleSubmitPlan,
+  handleTodoWrite,
   handleTransformData,
   handleUpdatePreferences,
 } from './handlers/index.ts';
@@ -79,6 +80,16 @@ export const ScriptSandboxSchema = z.object({
   timeoutMs: z.number().min(1).max(15000).optional(),
 });
 export const SendDeveloperFeedbackSchema = z.object({ message: z.string() });
+export const TodoWriteSchema = z.object({
+  todos: z.array(
+    z.object({
+      content: z.string().describe('What the task is — one short imperative line.'),
+      status: z
+        .enum(['pending', 'in_progress', 'completed'])
+        .describe('pending (not started) | in_progress (working on it now) | completed (done)'),
+    })
+  ).describe('The COMPLETE task list, replacing any previous list.'),
+});
 export const BrowserToolSchema = z.object({
   command: z.union([z.string(), z.array(z.string())]),
 });
@@ -128,6 +139,14 @@ export const TOOL_DESCRIPTIONS = {
   list_sessions: 'Search and list active or archived sessions in the current workspace.',
   list_background_tasks: 'List background tasks tracked for a session across turns.',
   send_agent_message: 'Send a message and optional attachments to another local session.',
+  todo_write: 'Track multi-step work as a task list shown to the user above the composer. '
+    + 'Send the ENTIRE list every call — it REPLACES the previous one; there are no partial updates. '
+    + 'Add one task per concrete step before starting, keep EXACTLY ONE task in_progress while work '
+    + 'remains, and mark a task completed the moment it is done (never batch completions). '
+    + 'BEFORE you write your final answer, make one last call so nothing is left in_progress — '
+    + 'a list the user is left staring at must reflect what actually happened. '
+    + 'The list is cleared when the user sends the next message, so it describes the current turn only. '
+    + 'Skip it for trivial single-step work.',
 } as const;
 
 export type SessionToolHandler = (
@@ -172,6 +191,7 @@ export const SESSION_TOOL_DEFS: SessionToolDef[] = [
   { name: 'get_session_info', description: TOOL_DESCRIPTIONS.get_session_info, inputSchema: GetSessionInfoSchema, executionMode: 'registry', safeMode: 'allow', readOnly: true, handler: handleGetSessionInfo },
   { name: 'list_sessions', description: TOOL_DESCRIPTIONS.list_sessions, inputSchema: ListSessionsSchema, executionMode: 'registry', safeMode: 'allow', readOnly: true, handler: handleListSessions },
   { name: 'list_background_tasks', description: TOOL_DESCRIPTIONS.list_background_tasks, inputSchema: ListBackgroundTasksSchema, executionMode: 'registry', safeMode: 'allow', readOnly: true, handler: handleListBackgroundTasks },
+  { name: 'todo_write', description: TOOL_DESCRIPTIONS.todo_write, inputSchema: TodoWriteSchema, executionMode: 'registry', safeMode: 'allow', readOnly: true, handler: handleTodoWrite },
   { name: 'send_agent_message', description: TOOL_DESCRIPTIONS.send_agent_message, inputSchema: SendAgentMessageSchema, executionMode: 'registry', safeMode: 'block', handler: handleSendAgentMessage },
 ];
 

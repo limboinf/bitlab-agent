@@ -3,7 +3,7 @@
  *
  * These tests cover:
  * - groupActivitiesByParent() - Task subagent grouping
- * - extractTodosFromActivities() - TodoWrite parsing (internal, tested via exports)
+ * - extractTodosFromActivities() - todo_write parsing (internal, tested via exports)
  * - computeLastChildSet() - Tree view last-child detection
  * - extractTaskOutputData() - TaskOutput JSON parsing (internal, tested indirectly)
  */
@@ -99,14 +99,14 @@ function createTaskOutputActivity(
 }
 
 /**
- * Create a TodoWrite activity with todo items
+ * Create a todo_write activity with todo items
  */
 function createTodoWriteActivity(
-  todos: Array<{ content: string; status: string; activeForm?: string }>,
+  todos: Array<{ content: string; status: string }>,
   overrides: Partial<ActivityItem> = {}
 ): ActivityItem {
   return createActivity({
-    toolName: 'TodoWrite',
+    toolName: 'mcp__session__todo_write',
     toolInput: { todos },
     content: 'Todo list updated successfully',
     status: 'completed',
@@ -642,25 +642,25 @@ describe('isActivityGroup', () => {
 // by checking that turns have correct todos extracted
 // ============================================================================
 
-describe('TodoWrite extraction', () => {
+describe('todo_write extraction', () => {
   // These tests verify the todo extraction behavior by creating activities
-  // and checking groupActivitiesByParent doesn't break with TodoWrite activities
+  // and checking groupActivitiesByParent doesn't break with todo_write activities
 
-  it('includes TodoWrite activities in flat list (not grouped)', () => {
+  it('includes todo_write activities in flat list (not grouped)', () => {
     resetCounters()
     const todoActivity = createTodoWriteActivity([
       { content: 'First task', status: 'completed' },
-      { content: 'Second task', status: 'in_progress', activeForm: 'Working on second task' },
+      { content: 'Second task', status: 'in_progress' },
     ])
 
     const result = groupActivitiesByParent([todoActivity])
 
     expect(result.length).toBe(1)
     expect(isActivityGroup(result[0]!)).toBe(false)
-    expect((result[0] as ActivityItem).toolName).toBe('TodoWrite')
+    expect((result[0] as ActivityItem).toolName).toBe('mcp__session__todo_write')
   })
 
-  it('handles TodoWrite as child of Task', () => {
+  it('handles todo_write as child of Task', () => {
     resetCounters()
     const task = createTaskActivity('Plan implementation')
     const todoChild = createTodoWriteActivity(
@@ -674,6 +674,6 @@ describe('TodoWrite extraction', () => {
     expect(result.length).toBe(1)
     const group = result[0] as ActivityGroup
     expect(group.children.length).toBe(1)
-    expect(group.children[0]!.toolName).toBe('TodoWrite')
+    expect(group.children[0]!.toolName).toBe('mcp__session__todo_write')
   })
 })

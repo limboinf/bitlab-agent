@@ -2,9 +2,11 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 import { CHAT_LAYOUT } from '@/config/layout'
 import type { PermissionMode } from '@bitlab/shared/agent/modes'
+import type { TodoItem } from '@bitlab/ui'
 import type { BackgroundTask } from '../ActiveTasksBar'
 import { ActiveOptionBadges } from '../ActiveOptionBadges'
 import { InputContainer } from './InputContainer'
+import { TaskListStrip } from './TaskListStrip'
 import { InputErrorBoundary } from './InputErrorBoundary'
 
 interface ChatInputZoneProps {
@@ -13,6 +15,10 @@ interface ChatInputZoneProps {
   permissionMode?: PermissionMode
   onPermissionModeChange?: (mode: PermissionMode) => void
   tasks?: BackgroundTask[]
+  /** The current turn's checklist, shown docked above the composer */
+  todos?: readonly TodoItem[]
+  /** Whether the agent is still working on that checklist */
+  todosLive?: boolean
   sessionId: string
   sessionFolderPath?: string
   onKillTask?: (taskId: string) => void
@@ -27,6 +33,8 @@ export function ChatInputZone({
   permissionMode = 'ask',
   onPermissionModeChange,
   tasks = [],
+  todos,
+  todosLive,
   sessionId,
   sessionFolderPath,
   onKillTask,
@@ -49,6 +57,8 @@ export function ChatInputZone({
       compactMode ? 'px-3 pb-3' : 'px-6 @xs/panel:px-10 pb-8',
       className,
     )}>
+      <TaskListStrip todos={todos} live={todosLive} />
+
       {shouldShowOptionBadges && (
         <ActiveOptionBadges
           permissionMode={permissionMode}

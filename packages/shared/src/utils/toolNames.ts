@@ -20,7 +20,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   'Agent': 'Running Agent',
   'WebFetch': 'Fetching URL',
   'WebSearch': 'Searching Web',
-  'TodoWrite': 'Updating Tasks',
+  'todo_write': 'Updating Tasks',
   'NotebookEdit': 'Editing Notebook',
 
   // Documentation tools

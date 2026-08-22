@@ -49,7 +49,7 @@ export interface AssistantTurn {
   isStreaming: boolean
   isComplete: boolean
   timestamp: number
-  /** Extracted from TodoWrite tool - latest todo state in this turn */
+  /** The turn's task list, from its latest successful `todo_write` call */
   todos?: TodoItem[]
 }
 
@@ -276,41 +276,60 @@ function calculateActivityDepths(activities: ActivityItem[]): void {
 }
 
 // ============================================================================
-// TodoWrite Extraction
+// Task List Extraction
 // ============================================================================
 
+/** Registered name of the task-list tool; the Pi SDK prefixes session tools. */
+const TODO_TOOL_NAMES = new Set(['mcp__session__todo_write', 'todo_write'])
+
+const TODO_STATUSES = new Set(['pending', 'in_progress', 'completed'])
+
+function isTodoEntry(value: unknown): value is { content: string; status: TodoItem['status'] } {
+  if (typeof value !== 'object' || value === null) return false
+  const { content, status } = value as Record<string, unknown>
+  return typeof content === 'string' && typeof status === 'string' && TODO_STATUSES.has(status)
+}
+
 /**
- * Extract todos from TodoWrite tool results in activities.
- * Returns the latest todo state (from the most recent TodoWrite call).
+ * The turn's task list, read back off the last `todo_write` that succeeded.
+ *
+ * The tool call IS the state — it carries the whole list and replaces the
+ * previous one, so the newest successful call is the answer and no separate
+ * store has to be kept in sync with it. Failed calls are skipped: a rejected
+ * write never became the list, so showing its payload would be a lie.
  */
 function extractTodosFromActivities(activities: ActivityItem[]): TodoItem[] | undefined {
-  // Find all TodoWrite tool results, get the latest one
-  const todoWriteActivities = activities
-    .filter(a => a.toolName === 'TodoWrite' && a.status === 'completed' && a.content)
-    .sort((a, b) => b.timestamp - a.timestamp) // Most recent first
+  const written = activities
+    .filter(a =>
+      a.toolName && TODO_TOOL_NAMES.has(a.toolName)
+      && a.status === 'completed' && !a.error
+      // Root-level only: a subagent keeps its own checklist, and letting it
+      // overwrite the strip would replace "what the session is doing" with
+      // "what one of its helpers is doing".
+      && !a.parentId
+    )
+    .sort((a, b) => b.timestamp - a.timestamp)
 
-  const latestActivity = todoWriteActivities[0]
-  if (!latestActivity) return undefined
+  const latest = written[0]
+  const todos = latest?.toolInput?.todos
+  if (!Array.isArray(todos) || !todos.every(isTodoEntry)) return undefined
 
-  const latestResult = latestActivity.content
-  if (!latestResult) return undefined
+  return todos.map(todo => ({ content: todo.content, status: todo.status }))
+}
 
-  try {
-    // TodoWrite result is typically a success message, but the input contains the todos
-    // We need to get the toolInput which has the todos array
-    const input = latestActivity.toolInput
-    if (input && Array.isArray(input.todos)) {
-      return input.todos.map((todo: { content: string; status: string; activeForm?: string }) => ({
-        content: todo.content,
-        status: todo.status as 'pending' | 'in_progress' | 'completed',
-        activeForm: todo.activeForm,
-      }))
-    }
-  } catch {
-    // Failed to parse, return undefined
-  }
-
-  return undefined
+/**
+ * The task list to show above the composer: the current turn's, or nothing.
+ *
+ * Scoping it to the turn in progress is what keeps the strip trustworthy. A
+ * checklist from three turns ago describes work the user has already moved on
+ * from, so the moment they send a new message the strip goes quiet and stays
+ * quiet until the agent writes a fresh plan. A finished turn keeps its list
+ * visible — that is the completed checklist, and it is worth reading.
+ */
+export function getCurrentTaskList(turns: Turn[]): TodoItem[] | undefined {
+  const last = turns[turns.length - 1]
+  if (last?.type !== 'assistant') return undefined
+  return last.todos?.length ? last.todos : undefined
 }
 
 // ============================================================================
@@ -377,7 +396,7 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
       // Calculate nesting depths for parent-child tool relationships
       calculateActivityDepths(currentTurn.activities)
 
-      // Extract todos from TodoWrite tool results
+      // The turn's task list, derived from its todo_write calls
       currentTurn.todos = extractTodosFromActivities(currentTurn.activities)
 
       // If interrupted, mark any running activities as error and todos as interrupted

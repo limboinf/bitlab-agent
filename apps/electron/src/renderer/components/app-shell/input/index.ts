@@ -3,6 +3,7 @@ export { InputContainer } from './InputContainer'
 export { ChatInputZone } from './ChatInputZone'
 export { FreeFormInput } from './FreeFormInput'
 export { StructuredInput } from './StructuredInput'
+export { TaskListStrip, type TaskListStripProps } from './TaskListStrip'
 
 // Structured input components
 export { PermissionRequest } from './structured/PermissionRequest'

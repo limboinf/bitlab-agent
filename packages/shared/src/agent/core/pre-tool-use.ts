@@ -90,7 +90,6 @@ export const BUILT_IN_TOOLS = new Set([
   'WebSearch',
   'Task',
   'TaskOutput',
-  'TodoWrite',
   'MultiEdit',
   'NotebookEdit',
   'KillShell',
