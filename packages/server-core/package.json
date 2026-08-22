@@ -1,6 +1,6 @@
 {
   "name": "@bitlab/server-core",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "license": "Apache-2.0",
   "description": "Reusable headless server infrastructure for Bitlab",
   "type": "module",

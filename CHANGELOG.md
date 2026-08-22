@@ -13,6 +13,35 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.6.0] - 2026-08-22
+
+### Added
+
+- **The agent's task list now sits above the message box.** When work takes
+  several steps, the agent keeps a checklist and you can watch it advance
+  without scrolling back through the conversation: one line per step, a
+  spinner on whatever is running, a tick the moment something is done. Collapse
+  it and the header still says how far along things are. The list belongs to
+  the turn you are in — send a new message and it clears, so you are never
+  reading a plan the agent has moved on from. A finished turn keeps its
+  checklist on screen, and once the agent stops, anything it left unticked
+  reads as unfinished instead of spinning forever.
+
+### Fixed
+
+- **Custom endpoints no longer pretend to be small.** A model ID you typed by
+  hand used to fall back to a 131k context window, which capped a 1M-context
+  model at 13% and started compacting almost immediately. Bitlab now asks the
+  endpoint what its models can actually do, including whether they accept
+  images.
+- **The context meter survives a restart.** Reopening a session used to show no
+  meter at all until the agent booted. It now shows how full the context is
+  right away, and explains that the breakdown by system prompt, tools, and
+  messages needs a running agent.
+- **Opening the browser dock no longer switches a desktop window to the phone
+  layout**, and the workspace switcher stops colliding with the macOS traffic
+  lights.
+
 ## [0.5.0] - 2026-08-20
 
 ### Added
@@ -292,6 +321,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.6.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.6.0
 [0.5.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.5.0
 [0.4.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.4.1
 [0.4.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.4.0

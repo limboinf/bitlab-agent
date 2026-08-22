@@ -108,7 +108,7 @@
     },
     "apps/electron": {
       "name": "@bitlab/electron",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "devDependencies": {
         "@bitlab/core": "workspace:*",
         "@bitlab/server-core": "workspace:*",
@@ -152,7 +152,7 @@
     },
     "apps/website": {
       "name": "@bitlab/website",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "astro": "^6.3.1",
       },
@@ -164,7 +164,7 @@
     },
     "apps/webui": {
       "name": "@bitlab/webui",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@bitlab/shared": "workspace:*",
         "@bitlab/ui": "workspace:*",
@@ -179,14 +179,14 @@
     },
     "packages/core": {
       "name": "@bitlab/core",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "devDependencies": {
         "@types/uuid": "^11.0.0",
       },
     },
     "packages/pi-agent-server": {
       "name": "@bitlab/pi-agent-server",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "bin": {
         "pi-agent-server": "./dist/index.js",
       },
@@ -208,7 +208,7 @@
     },
     "packages/server": {
       "name": "@bitlab/server",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "bin": {
         "bitlab-server": "src/index.ts",
       },
@@ -225,7 +225,7 @@
     },
     "packages/server-core": {
       "name": "@bitlab/server-core",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@bitlab/core": "workspace:*",
         "@bitlab/shared": "workspace:*",
@@ -242,7 +242,7 @@
     },
     "packages/session-tools-core": {
       "name": "@bitlab/session-tools-core",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "beautiful-mermaid": "*",
         "gray-matter": "^4.0.3",
@@ -255,7 +255,7 @@
     },
     "packages/shared": {
       "name": "@bitlab/shared",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@bitlab/core": "workspace:*",
         "@bitlab/session-tools-core": "workspace:*",
@@ -283,7 +283,7 @@
     },
     "packages/ui": {
       "name": "@bitlab/ui",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@bitlab/core": "workspace:*",
         "@bitlab/shared": "workspace:*",
