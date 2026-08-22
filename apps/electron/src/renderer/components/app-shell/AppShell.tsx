@@ -1023,9 +1023,14 @@ function AppShellContent({
   return (
     <AppShellProvider value={appShellContextValue}>
       {/* === OUTER LAYOUT: Unified Panel Stack | Right Sidebar === */}
+      {/* @container/shell sits here — on the whole window, browser dock
+          included — so the compact (touch) stylesheet keys off window width,
+          exactly like isAutoCompact does. Scoping it to the panel area instead
+          made opening the dock shrink the container below 768px and flip a
+          desktop window into mobile styling. */}
       <div
         ref={shellRef}
-        className="flex items-stretch relative"
+        className="flex items-stretch relative @container/shell"
         style={{
           height: '100%',
           paddingRight: 0,

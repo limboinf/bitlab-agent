@@ -1439,10 +1439,12 @@ html.dark[data-scenic] .fullscreen-overlay-background {
   }
 
   /* Top safe area: keep the navigator's first row clear of the iOS notch
-     when the app runs as a PWA / mobile webui. Desktop builds report 0px
-     for the inset so this is a no-op there. */
+     when the app runs as a PWA / mobile webui. This rule lives outside
+     @layer, so it beats the element's own pt-[var(--topbar-height)] — add
+     the topbar height back in, or the workspace switcher rides up into the
+     title bar and collides with the macOS traffic lights. */
   [data-panel-role="navigator"] {
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
   }
 
   /* Workspace pill chevron: 12px is hard to read at narrow widths,

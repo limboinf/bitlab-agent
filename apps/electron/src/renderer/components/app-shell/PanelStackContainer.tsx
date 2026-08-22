@@ -117,7 +117,7 @@ export function PanelStackContainer({
       <div
         ref={scrollRef}
         data-mobile-menu-root="true"
-        className="flex-1 min-w-0 relative panel-scroll @container/shell"
+        className="flex-1 min-w-0 relative panel-scroll"
         style={{
           paddingBlock: PANEL_STACK_VERTICAL_OVERFLOW,
           marginBlock: -PANEL_STACK_VERTICAL_OVERFLOW,
@@ -164,7 +164,7 @@ export function PanelStackContainer({
     <div
       ref={scrollRef}
       data-mobile-menu-root="true"
-      className="flex-1 min-w-0 flex relative z-panel panel-scroll @container/shell"
+      className="flex-1 min-w-0 flex relative z-panel panel-scroll"
       style={{
         overflowX: 'auto',
         overflowY: 'hidden',
