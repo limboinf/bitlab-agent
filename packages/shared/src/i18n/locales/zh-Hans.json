@@ -71,6 +71,7 @@
   "chat.contextBadge": "上下文标记",
   "chat.contextCompact": "立即压缩",
   "chat.contextCompactBusy": "等待当前回合结束",
+  "chat.contextCompositionPending": "成分需要 agent 运行后才能统计",
   "chat.contextMessages": "对话消息",
   "chat.contextPending": "下次回复后才能确定",
   "chat.contextSkills": "Skills 目录",

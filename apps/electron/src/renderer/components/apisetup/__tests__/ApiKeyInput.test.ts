@@ -3,6 +3,8 @@ import {
   resolveCustomEndpointPayload,
   resolvePiAuthProviderForSubmit,
   resolvePresetStateForBaseUrlChange,
+  resolveTierCustomEndpoint,
+  buildTierSetupModels,
 } from '../submit-helpers'
 import { pickTierDefaults, resolveTierModels } from '../tier-models'
 
@@ -62,11 +64,25 @@ describe('resolvePiAuthProviderForSubmit', () => {
 })
 
 describe('resolvePresetStateForBaseUrlChange', () => {
-  it('updates the remembered provider when the typed URL matches a known preset', () => {
+  it('keeps an explicit Custom selection even when the URL matches a known preset', () => {
+    // Custom is the only route to free-form model entry, so URL sniffing must
+    // not snap the user back into the preset's managed tier dropdowns.
     expect(resolvePresetStateForBaseUrlChange({
       matchedPreset: 'openrouter',
       activePreset: 'custom',
       activePresetHasEmptyUrl: true,
+      lastNonCustomPreset: 'anthropic',
+    })).toEqual({
+      activePreset: 'custom',
+      lastNonCustomPreset: 'anthropic',
+    })
+  })
+
+  it('still adopts a matched preset when the user did not pick Custom', () => {
+    expect(resolvePresetStateForBaseUrlChange({
+      matchedPreset: 'openrouter',
+      activePreset: 'anthropic',
+      activePresetHasEmptyUrl: false,
       lastNonCustomPreset: 'anthropic',
     })).toEqual({
       activePreset: 'openrouter',
@@ -152,5 +168,124 @@ describe('resolveCustomEndpointPayload', () => {
       customEndpoint: undefined,
       piAuthProvider: undefined,
     })
+  })
+})
+
+describe('resolveTierModels with custom endpoint hydration', () => {
+  it('drops unknown saved IDs by default', () => {
+    const resolved = resolveTierModels(MODELS, ['stealth/ox-alpha', 'pi/zai-balanced', 'pi/zai-fast'])
+
+    expect(resolved.best).toBe(pickTierDefaults(MODELS).best)
+  })
+
+  it('keeps hand-typed IDs when the connection is a custom endpoint', () => {
+    const resolved = resolveTierModels(
+      MODELS,
+      ['stealth/ox-alpha', 'pi/zai-balanced', 'pi/zai-fast'],
+      { allowUnknownIds: true },
+    )
+
+    expect(resolved).toEqual({
+      best: 'stealth/ox-alpha',
+      default_: 'pi/zai-balanced',
+      cheap: 'pi/zai-fast',
+    })
+  })
+})
+
+describe('resolveTierCustomEndpoint', () => {
+  const OPENROUTER_CATALOG = [
+    { id: 'pi/openai/gpt-5.6-terra', api: 'openai-completions' },
+    { id: 'pi/google/gemini-3.5-flash', api: 'openai-completions' },
+  ]
+
+  it('returns null when every tier is a known catalog model', () => {
+    expect(resolveTierCustomEndpoint(
+      ['pi/openai/gpt-5.6-terra', 'pi/google/gemini-3.5-flash'],
+      OPENROUTER_CATALOG,
+    )).toBeNull()
+  })
+
+  it('pins the connection to the provider protocol when a tier holds an unknown ID', () => {
+    expect(resolveTierCustomEndpoint(
+      ['stealth/ox-alpha', 'pi/google/gemini-3.5-flash'],
+      OPENROUTER_CATALOG,
+    )).toEqual({
+      customEndpoint: { api: 'openai-completions' },
+      piAuthProvider: 'openai',
+    })
+  })
+
+  it('uses anthropic-messages for providers whose catalog speaks it', () => {
+    expect(resolveTierCustomEndpoint(
+      ['some-unreleased-model'],
+      [{ id: 'pi/claude-opus-4-8', api: 'anthropic-messages' }],
+    )).toEqual({
+      customEndpoint: { api: 'anthropic-messages' },
+      piAuthProvider: 'anthropic',
+    })
+  })
+
+  it('defaults to openai-completions when the catalog carries no protocol hint', () => {
+    expect(resolveTierCustomEndpoint(['mystery-model'], [{ id: 'pi/known' }]))
+      .toEqual({
+        customEndpoint: { api: 'openai-completions' },
+        piAuthProvider: 'openai',
+      })
+  })
+})
+
+describe('buildTierSetupModels', () => {
+  const CATALOG = [
+    { id: 'pi/openai/gpt-5.6-terra', contextWindow: 400_000, supportsImages: true, reasoning: true },
+    { id: 'pi/google/gemini-3.5-flash', contextWindow: 1_000_000, supportsImages: true, reasoning: false },
+  ]
+
+  it('sends bare IDs on a plain provider connection', () => {
+    // The Pi catalog is the authority there; copying it into the payload would
+    // just create a second copy to drift.
+    expect(buildTierSetupModels({
+      tierModelIds: ['pi/openai/gpt-5.6-terra', 'pi/google/gemini-3.5-flash'],
+      catalog: CATALOG,
+      customMeta: {},
+      isCustomEndpoint: false,
+    })).toEqual(['pi/openai/gpt-5.6-terra', 'pi/google/gemini-3.5-flash'])
+  })
+
+  it('carries catalog capabilities for every tier once the connection is a custom endpoint', () => {
+    // Otherwise all three collapse to buildCustomEndpointModelDef's 131k default.
+    const models = buildTierSetupModels({
+      tierModelIds: ['pi/openai/gpt-5.6-terra', 'stealth/ox-alpha'],
+      catalog: CATALOG,
+      customMeta: { 'stealth/ox-alpha': { contextWindow: 1_048_576, supportsImages: true } },
+      isCustomEndpoint: true,
+    })
+
+    expect(models).toEqual([
+      { id: 'pi/openai/gpt-5.6-terra', contextWindow: 400_000, supportsImages: true, supportsThinking: true },
+      { id: 'stealth/ox-alpha', contextWindow: 1_048_576, supportsImages: true },
+    ])
+  })
+
+  it('omits unknown capabilities instead of inventing them', () => {
+    expect(buildTierSetupModels({
+      tierModelIds: ['mystery-model'],
+      catalog: [],
+      customMeta: {},
+      isCustomEndpoint: true,
+    })).toEqual([{ id: 'mystery-model' }])
+  })
+
+  it('lets the catalog win over stale custom metadata for the same ID', () => {
+    const models = buildTierSetupModels({
+      tierModelIds: ['pi/google/gemini-3.5-flash'],
+      catalog: CATALOG,
+      customMeta: { 'pi/google/gemini-3.5-flash': { contextWindow: 1, supportsImages: false } },
+      isCustomEndpoint: true,
+    })
+
+    expect(models).toEqual([
+      { id: 'pi/google/gemini-3.5-flash', contextWindow: 1_000_000, supportsImages: true, supportsThinking: false },
+    ])
   })
 })

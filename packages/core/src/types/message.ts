@@ -386,6 +386,12 @@ export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /**
+   * Occupied context at the last measurement — the context meter's `tokens`.
+   * Distinct from `inputTokens`, which is the billing fact for one request:
+   * occupancy counts cache reads and writes too. Persisted so a reopened
+   * session can show its meter before an agent runtime exists.
+   */
   contextTokens: number;
   costUsd: number;
   cacheReadTokens?: number;
@@ -537,8 +543,16 @@ export interface ContextUsageReading {
   contextWindow: number;
   /** Occupancy percent, or null whenever `tokens` is null. */
   percent: number | null;
-  /** Independent heuristic composition; does not sum to `tokens`. */
-  breakdown: ContextBreakdown;
+  /**
+   * Independent heuristic composition; does not sum to `tokens`.
+   *
+   * Absent unless an agent runtime is live. Occupancy above is a measurement of
+   * persisted history and survives a restart, but composition depends on the
+   * system prompt and the tool definitions of currently-connected MCP servers —
+   * neither of which exists until the agent boots. Keeping it optional is what
+   * lets a restored session show occupancy instead of nothing at all.
+   */
+  breakdown?: ContextBreakdown;
 }
 
 /**

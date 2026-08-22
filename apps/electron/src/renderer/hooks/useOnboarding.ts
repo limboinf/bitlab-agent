@@ -19,6 +19,8 @@ import type { ProviderChoice } from '@/components/onboarding/ProviderSelectStep'
 import type { LocalModelSubmitData } from '@/components/onboarding/LocalModelStep'
 import type { ApiKeySubmitData } from '@/components/apisetup'
 import type { CustomEndpointConfig } from '@config/llm-connections'
+import { isMaskedCredentialValue } from '@bitlab/shared/credentials/types'
+import type { LlmSetupModel } from '@bitlab/shared/protocol'
 import type { SetupNeeds, LlmConnectionSetup } from '../../shared/types'
 
 interface UseOnboardingOptions {
@@ -126,7 +128,7 @@ export function apiSetupMethodToConnectionSetup(
     credential?: string
     baseUrl?: string
     connectionDefaultModel?: string
-    models?: string[]
+    models?: Array<string | LlmSetupModel>
     piAuthProvider?: string
     modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier'
     customEndpoint?: CustomEndpointConfig
@@ -192,7 +194,7 @@ export function useOnboarding({
     options?: {
       baseUrl?: string
       connectionDefaultModel?: string
-      models?: string[]
+      models?: Array<string | LlmSetupModel>
       piAuthProvider?: string
       modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier'
       customEndpoint?: CustomEndpointConfig
@@ -315,8 +317,12 @@ export function useOnboarding({
     setState(s => ({ ...s, credentialStatus: 'validating', errorMessage: undefined }))
 
     try {
-      // When editing an existing connection, API key is optional (empty = keep existing credential)
-      if (!data.apiKey.trim() && editingSlug) {
+      // When editing an existing connection, API key is optional (empty = keep existing credential).
+      // The edit form pre-fills the *masked* stored key, so an untouched field means the same
+      // thing. It must never reach the connection test either — a mask lands verbatim in an
+      // Authorization header and the request dies on the non-ASCII bullets.
+      const keepStoredCredential = !data.apiKey.trim() || isMaskedCredentialValue(data.apiKey)
+      if (keepStoredCredential && editingSlug) {
         const saved = await handleSaveConfig(undefined, {
           baseUrl: data.baseUrl,
           connectionDefaultModel: data.connectionDefaultModel,
@@ -354,7 +360,7 @@ export function useOnboarding({
         provider: setupTestProvider,
         apiKey: data.apiKey,
         baseUrl: data.baseUrl,
-        model: data.models?.[0],
+        model: typeof data.models?.[0] === 'string' ? data.models[0] : data.models?.[0]?.id,
         piAuthProvider: data.piAuthProvider,
         customEndpoint: data.customEndpoint,
       })

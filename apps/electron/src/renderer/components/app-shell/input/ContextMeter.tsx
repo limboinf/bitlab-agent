@@ -98,12 +98,13 @@ export function ContextMeter({
   const reading = displayPercent === null ? '—' : `${displayPercent}%`
   const ariaLabel = t('chat.contextAria', { percent: reading })
 
-  const breakdownTotal =
-    breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens
+  const breakdownTotal = breakdown
+    ? breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens
+    : 0
   // A zero-width part is dropped rather than rendered, so an empty context
   // never draws a hairline that reads as occupancy.
   const segments =
-    displayPercent === null || breakdownTotal === 0
+    !breakdown || displayPercent === null || breakdownTotal === 0
       ? []
       : ROWS.map(row => ({
           key: row.key,
@@ -172,17 +173,32 @@ export function ContextMeter({
         </div>
 
         <div className="mt-2 h-1.5 w-full rounded-full bg-foreground/10 overflow-hidden flex">
-          {segments.map(segment => (
-            <div
-              key={segment.key}
-              style={{ width: `${segment.width}%`, backgroundColor: segment.color }}
-            />
-          ))}
+          {segments.length > 0 ? (
+            segments.map(segment => (
+              <div
+                key={segment.key}
+                style={{ width: `${segment.width}%`, backgroundColor: segment.color }}
+              />
+            ))
+          ) : (
+            // Occupancy is known even when its composition is not, so the bar
+            // fills as one undifferentiated block rather than reading as empty.
+            displayPercent !== null && displayPercent > 0 && (
+              <div
+                style={{ width: `${displayPercent}%` }}
+                className="bg-foreground/40"
+              />
+            )
+          )}
         </div>
 
         {tokens === null ? (
           <p className="mt-3 text-[12px] text-foreground/50">
             {t('chat.contextPending')}
+          </p>
+        ) : !breakdown ? (
+          <p className="mt-3 text-[12px] text-foreground/50">
+            {t('chat.contextCompositionPending')}
           </p>
         ) : (
           <dl className="mt-3 space-y-1.5">

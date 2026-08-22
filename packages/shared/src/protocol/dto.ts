@@ -246,12 +246,24 @@ export interface FileAttachment {
 export interface SessionFile { name: string; path: string; type: 'file' | 'directory'; size?: number; children?: SessionFile[] }
 export interface FileSearchResult { name: string; path: string; type: 'file' | 'directory'; relativePath: string }
 
+/**
+ * One model in a setup payload. A bare string carries no capability hints and
+ * lets the provider catalog fill them in; the object form pins what the catalog
+ * cannot know — the case for a hand-typed model ID on a custom endpoint.
+ */
+export interface LlmSetupModel {
+  id: string;
+  contextWindow?: number;
+  supportsImages?: boolean;
+  supportsThinking?: boolean;
+}
+
 export interface LlmConnectionSetup {
   slug: string;
   credential?: string;
   baseUrl?: string | null;
   defaultModel?: string | null;
-  models?: string[] | null;
+  models?: Array<string | LlmSetupModel> | null;
   piAuthProvider?: string;
   modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier';
   updateOnly?: boolean;

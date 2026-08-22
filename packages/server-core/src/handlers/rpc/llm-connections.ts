@@ -15,10 +15,12 @@ import {
   setSetupDeferred,
   touchLlmConnection,
   updateLlmConnection,
+  type CustomEndpointConfig,
   type LlmConnection,
   type LlmConnectionWithStatus,
 } from '@bitlab/shared/config'
 import { getCredentialManager } from '@bitlab/shared/credentials'
+import { isMaskedCredentialValue } from '@bitlab/shared/credentials/types'
 import {
   resolveSetupTestConnectionHint,
   testBackendConnection,
@@ -30,11 +32,13 @@ import {
   getWorkspaceOrThrow,
 } from '@bitlab/server-core/handlers'
 import {
+  fetchEndpointModelMeta,
   parseTestConnectionError,
   createBuiltInConnection,
   piAuthProviderDisplayName,
   resolveCustomEndpointSetup,
   setupTestRequiresApiKey,
+  toStoredModels,
   validateModelList,
   validateSetupTestInput,
 } from '@bitlab/server-core/domain'
@@ -58,6 +62,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.pi.GET_API_KEY_PROVIDERS,
   RPC_CHANNELS.pi.GET_PROVIDER_BASE_URL,
   RPC_CHANNELS.pi.GET_PROVIDER_MODELS,
+  RPC_CHANNELS.pi.GET_ENDPOINT_MODEL_META,
   RPC_CHANNELS.chatgpt.START_OAUTH,
   RPC_CHANNELS.chatgpt.COMPLETE_OAUTH,
   RPC_CHANNELS.chatgpt.CANCEL_OAUTH,
@@ -80,7 +85,7 @@ function createConnection(setup: LlmConnectionSetup): LlmConnection {
   const providerType = customEndpoint ? 'pi_compat' : 'pi'
   const piAuthProvider = custom?.piAuthProvider ?? setup.piAuthProvider
   const models = setup.models?.length
-    ? setup.models
+    ? toStoredModels(setup.models)
     : getDefaultModelsForConnection(providerType, piAuthProvider)
   const defaultModel = setup.defaultModel
     ?? getDefaultModelForConnection(providerType, piAuthProvider)
@@ -130,7 +135,14 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
       }
 
       const persisted = existing
-        ? updateLlmConnection(setup.slug, { ...connection, slug: undefined } as Partial<Omit<LlmConnection, 'slug'>>)
+        ? updateLlmConnection(setup.slug, {
+            ...connection,
+            slug: undefined,
+            // The form is authoritative. Without an explicit null, a connection
+            // that once used a custom model ID could never go back to plain
+            // catalog models — undefined means "keep" to updateLlmConnection.
+            customEndpoint: connection.customEndpoint ?? null,
+          } as Partial<Omit<LlmConnection, 'slug' | 'customEndpoint'>> & { customEndpoint: CustomEndpointConfig | null })
         : addLlmConnection(connection)
       if (!persisted) return { success: false, error: 'Failed to save connection.' }
 
@@ -182,6 +194,17 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
     }
   })
 
+  server.handle(RPC_CHANNELS.pi.GET_ENDPOINT_MODEL_META, async (_ctx, args: {
+    baseUrl: string
+    modelId: string
+    apiKey?: string
+  }) => {
+    // A masked placeholder is not a usable bearer token. Most catalogs answer
+    // /models unauthenticated anyway, so drop it and still try.
+    const apiKey = args.apiKey && !isMaskedCredentialValue(args.apiKey) ? args.apiKey : undefined
+    return fetchEndpointModelMeta({ baseUrl: args.baseUrl, modelId: args.modelId, apiKey })
+  })
+
   server.handle(RPC_CHANNELS.pi.GET_API_KEY_PROVIDERS, async () => getPiApiKeyProviders())
   server.handle(RPC_CHANNELS.pi.GET_PROVIDER_BASE_URL, async (_ctx, provider: string) => getPiProviderBaseUrl(provider))
   server.handle(RPC_CHANNELS.pi.GET_PROVIDER_MODELS, async (_ctx, provider: string) => {
@@ -194,6 +217,10 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
           .map(model => ({
             id: model.id.startsWith('pi/') ? model.id : `pi/${model.id}`,
             name: model.name,
+            // Protocol the provider speaks — lets the setup UI pin a custom
+            // model ID to the right custom-endpoint API without guessing.
+            api: (model as { api?: string }).api,
+            supportsImages: (model.input ?? []).includes('image'),
             costInput: model.cost.input,
             costOutput: model.cost.output,
             contextWindow: model.contextWindow,

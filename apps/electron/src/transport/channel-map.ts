@@ -84,6 +84,7 @@ export const CHANNEL_MAP = {
   getPiApiKeyProviders: invoke(RPC_CHANNELS.pi.GET_API_KEY_PROVIDERS),
   getPiProviderBaseUrl: invoke(RPC_CHANNELS.pi.GET_PROVIDER_BASE_URL),
   getPiProviderModels: invoke(RPC_CHANNELS.pi.GET_PROVIDER_MODELS),
+  getEndpointModelMeta: invoke(RPC_CHANNELS.pi.GET_ENDPOINT_MODEL_META),
   getSessionModel: invoke(RPC_CHANNELS.sessions.GET_MODEL),
   setSessionModel: invoke(RPC_CHANNELS.sessions.SET_MODEL),
 

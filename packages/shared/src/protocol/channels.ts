@@ -183,6 +183,8 @@ export const RPC_CHANNELS = {
     GET_API_KEY_PROVIDERS: 'pi:getApiKeyProviders',
     GET_PROVIDER_BASE_URL: 'pi:getProviderBaseUrl',
     GET_PROVIDER_MODELS: 'pi:getProviderModels',
+    /** Probe an OpenAI-compatible /models endpoint for one model's capabilities. */
+    GET_ENDPOINT_MODEL_META: 'pi:getEndpointModelMeta',
   },
   dialog: {
     OPEN_FOLDER: 'dialog:openFolder',

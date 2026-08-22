@@ -103,6 +103,19 @@ describe('updateLlmConnection – customEndpoint', () => {
     expect(conn.name).toBe('Renamed Endpoint')
   })
 
+  it('clears customEndpoint when explicitly passed null', () => {
+    // A connection drops back to plain catalog models once its hand-typed model
+    // ID is gone. `undefined` means "keep", so only null can express the removal.
+    const { runUpdate, readConnection } = setup([
+      makeConnection({ customEndpoint: { api: 'openai-completions' } }),
+    ])
+
+    const ok = runUpdate('custom-compat', { customEndpoint: null })
+    expect(ok).toBe(true)
+
+    expect(readConnection('custom-compat').customEndpoint).toBeUndefined()
+  })
+
   it('overwrites customEndpoint protocol when updated', () => {
     const { runUpdate, readConnection } = setup([
       makeConnection({ customEndpoint: { api: 'openai-completions' } }),

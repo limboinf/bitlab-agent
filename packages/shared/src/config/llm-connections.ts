@@ -1,6 +1,7 @@
 /** Named Pi provider and custom endpoint configurations. */
 
 import type { ModelDefinition } from './models.ts';
+import { getModelContextWindow } from './models.ts';
 
 type PiModelResolver = (piAuthProvider?: string) => ModelDefinition[];
 let piModelResolver: PiModelResolver = () => [];
@@ -176,6 +177,41 @@ export function modelSupportsImages(
     return model.supportsImages;
   }
   return connection.customEndpoint?.supportsImages ?? false;
+}
+
+/**
+ * Resolve a model's context window from durable configuration alone.
+ *
+ * Deliberately config-only: the agent runtime knows the window too, but it does
+ * not exist between app launches, and a session that was reopened still has to
+ * be able to meter itself. Resolving here also means a model swapped while the
+ * app was closed is reflected, where replaying a stored number would not be.
+ *
+ * Order matters. A connection's own model entry wins because it is the only
+ * place a custom endpoint's capabilities are recorded — the shared catalog has
+ * never heard of a hand-typed model ID. Returns undefined when nothing knows,
+ * leaving the caller to decide between a stale reading and none.
+ */
+export function resolveModelContextWindow(
+  connection: Pick<LlmConnection, 'providerType' | 'models' | 'piAuthProvider'> | undefined,
+  modelId: string | undefined,
+): number | undefined {
+  if (!modelId) return undefined;
+
+  const configured = connection?.models?.find(candidate =>
+    (typeof candidate === 'string' ? candidate : candidate.id) === modelId
+  );
+  if (configured && typeof configured !== 'string' && configured.contextWindow) {
+    return configured.contextWindow;
+  }
+
+  const fromProvider = getModelsForProviderType(
+    connection?.providerType ?? 'pi',
+    connection?.piAuthProvider,
+  ).find(model => model.id === modelId)?.contextWindow;
+  if (fromProvider) return fromProvider;
+
+  return getModelContextWindow(modelId);
 }
 
 export function getModelsForProviderType(

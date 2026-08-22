@@ -6,6 +6,7 @@ import {
   resolveCustomEndpointSetup,
   createBuiltInConnection,
   BUILT_IN_CONNECTION_TEMPLATES,
+  toStoredModels,
 } from './connection-setup-logic'
 
 describe('validateSetupTestInput', () => {
@@ -136,4 +137,42 @@ describe('createBuiltInConnection seeds midStreamBehavior', () => {
     expect(conn.midStreamBehavior).toBe('steer')
   })
 
+})
+
+describe('toStoredModels', () => {
+  it('keeps plain IDs as strings', () => {
+    expect(toStoredModels(['pi/a', 'pi/b'])).toEqual(['pi/a', 'pi/b'])
+  })
+
+  it('collapses a hint-free object back to a bare ID', () => {
+    expect(toStoredModels([{ id: 'pi/a' }])).toEqual(['pi/a'])
+  })
+
+  it('stores capability hints so they survive into the Pi subprocess', () => {
+    const stored = toStoredModels([
+      { id: 'stealth/ox-alpha', contextWindow: 1_048_576, supportsImages: true },
+    ])
+
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toEqual({
+      id: 'stealth/ox-alpha',
+      name: 'stealth/ox-alpha',
+      shortName: 'stealth/ox-alpha',
+      description: '',
+      contextWindow: 1_048_576,
+      supportsImages: true,
+    } as never)
+  })
+
+  it('omits a context window it was never given rather than inventing one', () => {
+    const stored = toStoredModels([{ id: 'pi/x', supportsImages: false }])[0] as unknown as Record<string, unknown>
+    expect(stored).not.toHaveProperty('contextWindow')
+    expect(stored.supportsImages).toBe(false)
+  })
+
+  it('strips the pi/ prefix for the display name only', () => {
+    const stored = toStoredModels([{ id: 'pi/vendor/model', contextWindow: 8192 }])[0] as unknown as Record<string, unknown>
+    expect(stored.id).toBe('pi/vendor/model')
+    expect(stored.name).toBe('vendor/model')
+  })
 })

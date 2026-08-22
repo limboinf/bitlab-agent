@@ -46,6 +46,7 @@ import {
 } from '@bitlab/shared/agent'
 import {
   ConfigWatcher,
+  getLlmConnection,
   getLlmConnections,
   getMiniModel,
   getMcpServers,
@@ -53,6 +54,7 @@ import {
   getActiveWorkspace,
   getWorkspaces,
   modelSupportsImages,
+  resolveModelContextWindow,
   resolveTitleLanguageName,
   type ConfigWatcherCallbacks,
   type McpApprovalDecision,
@@ -105,6 +107,7 @@ import {
 } from './model-selection'
 import { rollbackFailedBranchCreation, sanitizeForTitle } from '@bitlab/server-core/domain'
 import { applyTranscriptEvent } from './persist-transcript'
+import { resolveContextUsage } from './context-usage'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -501,6 +504,23 @@ export class SessionManager implements ISessionManager {
     return this.toSession(managed, true)
   }
 
+  /**
+   * Resolve the meter's reading, pairing any live agent reading with the
+   * durable halves. The window is re-resolved from current config rather than
+   * replayed, so a model swapped while the app was closed is reflected.
+   */
+  private resolveContextUsage(managed: ManagedSession): ContextUsageReading | undefined {
+    const connection = managed.llmConnection
+      ? getLlmConnection(managed.llmConnection) ?? undefined
+      : undefined
+    return resolveContextUsage({
+      live: managed.contextUsage,
+      contextTokens: managed.tokenUsage.contextTokens,
+      contextWindow: resolveModelContextWindow(connection, managed.model)
+        ?? managed.tokenUsage.contextWindow,
+    })
+  }
+
   private toSession(managed: ManagedSession, includeMessages: boolean): Session {
     const messages = includeMessages ? managed.messages : []
     return {
@@ -528,7 +548,7 @@ export class SessionManager implements ISessionManager {
       createdAt: managed.createdAt,
       messageCount: managed.messageCount ?? managed.messages.length,
       tokenUsage: managed.tokenUsage,
-      contextUsage: managed.contextUsage,
+      contextUsage: this.resolveContextUsage(managed),
       hidden: managed.hidden,
       isArchived: managed.isArchived,
       archivedAt: managed.archivedAt,
@@ -999,6 +1019,13 @@ export class SessionManager implements ISessionManager {
         break
       case 'context_usage':
         managed.contextUsage = event.contextUsage
+        // Occupancy is a measurement of history that outlives this runtime;
+        // write it through so a reopened session can meter itself before an
+        // agent exists. Composition stays in memory — it describes a live
+        // prompt, and a persisted copy would only ever be wrong.
+        if (event.contextUsage.tokens !== null) {
+          managed.tokenUsage.contextTokens = event.contextUsage.tokens
+        }
         this.emit(managed.workspace.id, { type: 'context_usage', sessionId, contextUsage: event.contextUsage })
         break
       case 'task_backgrounded':

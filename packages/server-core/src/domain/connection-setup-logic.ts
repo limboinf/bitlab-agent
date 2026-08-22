@@ -6,6 +6,7 @@
  */
 
 import type { ModelDefinition } from '@bitlab/shared/config/models'
+import type { LlmSetupModel } from '@bitlab/shared/protocol'
 import {
   type LlmConnection,
   type CustomEndpointApi,
@@ -267,4 +268,43 @@ export function validateModelList(
   }
 
   return { valid: true }
+}
+
+/**
+ * Widen a setup payload's model list into stored model entries.
+ *
+ * A bare ID stays a bare string — the provider catalog is a better source for
+ * anything it already knows. An entry carrying capability hints becomes an
+ * object instead, because those hints are the only way a model gets a correct
+ * context window or image support once the connection runs through a custom
+ * endpoint: `buildCustomEndpointModelDef` otherwise assumes 131k and text-only.
+ *
+ * The result is deliberately a partial `ModelDefinition`. `contextWindow` is
+ * required by the type but inventing a number here would be worse than leaving
+ * it absent — downstream reads it as "unknown, use the default" — so entries
+ * carry only what the caller actually established. This mirrors how
+ * `setModelSupportsImages` already stores capability-only entries.
+ */
+export function toStoredModels(
+  models: Array<string | LlmSetupModel>
+): Array<ModelDefinition | string> {
+  return models.map(model => {
+    if (typeof model === 'string') return model
+
+    const hasHints = model.contextWindow !== undefined
+      || model.supportsImages !== undefined
+      || model.supportsThinking !== undefined
+    if (!hasHints) return model.id
+
+    const displayName = model.id.startsWith('pi/') ? model.id.slice(3) : model.id
+    return {
+      id: model.id,
+      name: displayName,
+      shortName: displayName,
+      description: '',
+      ...(model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {}),
+      ...(model.supportsImages !== undefined ? { supportsImages: model.supportsImages } : {}),
+      ...(model.supportsThinking !== undefined ? { supportsThinking: model.supportsThinking } : {}),
+    } as ModelDefinition
+  })
 }

@@ -71,6 +71,7 @@
   "chat.contextBadge": "Context badge",
   "chat.contextCompact": "Compact now",
   "chat.contextCompactBusy": "Wait for the current turn",
+  "chat.contextCompositionPending": "Composition needs a running agent",
   "chat.contextMessages": "Messages",
   "chat.contextPending": "Unknown until the next response",
   "chat.contextSkills": "Skills catalog",

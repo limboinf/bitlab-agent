@@ -52,7 +52,7 @@ export type {
 import type { StoredWorkspace, Workspace } from '@bitlab/core/types';
 
 // Import LLM connection types and constants
-import type { LlmConnection } from './llm-connections.ts';
+import type { LlmConnection, CustomEndpointConfig } from './llm-connections.ts';
 import { isValidProviderAuthCombination, getDefaultModelsForConnection, getDefaultModelForConnection, isPiProvider, type LlmProviderType } from './llm-connections.ts';
 import {
   getModelProvider,
@@ -1794,7 +1794,16 @@ export function addLlmConnection(connection: LlmConnection): boolean {
  * @param updates - Partial updates to apply (slug is ignored)
  * @returns true if updated, false if not found
  */
-export function updateLlmConnection(slug: string, updates: Partial<Omit<LlmConnection, 'slug'>>): boolean {
+export function updateLlmConnection(
+  slug: string,
+  // `customEndpoint: null` clears the protocol override. `undefined` keeps the
+  // stored value, so a plain Partial can't express "this is no longer a custom
+  // endpoint" — which a connection needs when its models return to the
+  // provider catalog.
+  updates: Partial<Omit<LlmConnection, 'slug' | 'customEndpoint'>> & {
+    customEndpoint?: CustomEndpointConfig | null
+  }
+): boolean {
   const config = loadStoredConfig();
   if (!config) return false;
 
@@ -1826,7 +1835,9 @@ export function updateLlmConnection(slug: string, updates: Partial<Omit<LlmConne
     // Pi auth provider
     piAuthProvider: updates.piAuthProvider !== undefined ? updates.piAuthProvider : existing.piAuthProvider,
     // Custom endpoint protocol (Anthropic/OpenAI compatible)
-    customEndpoint: updates.customEndpoint !== undefined ? updates.customEndpoint : existing.customEndpoint,
+    customEndpoint: updates.customEndpoint === null
+      ? undefined
+      : updates.customEndpoint !== undefined ? updates.customEndpoint : existing.customEndpoint,
     // Mid-stream send behavior (steer vs queue) — read via resolveMidStreamBehavior()
     midStreamBehavior: updates.midStreamBehavior !== undefined ? updates.midStreamBehavior : existing.midStreamBehavior,
     // Timestamps

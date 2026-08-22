@@ -22,12 +22,14 @@ import {
   StyledDropdownMenuItem,
 } from "@/components/ui/styled-dropdown"
 import { cn } from "@/lib/utils"
-import { Check, ChevronDown, Eye, EyeOff, Loader2 } from "lucide-react"
+import { Check, ChevronDown, Eye, EyeOff, Image as ImageIcon, Loader2 } from "lucide-react"
 import { pickTierDefaults, resolveTierModels, type PiModelInfo } from "./tier-models"
 import {
   resolveCustomEndpointPayload,
   resolvePiAuthProviderForSubmit,
   resolvePresetStateForBaseUrlChange,
+  resolveTierCustomEndpoint,
+  buildTierSetupModels,
   type PresetKey,
 } from "./submit-helpers"
 
@@ -41,7 +43,7 @@ export interface ApiKeySubmitData {
   apiKey: string
   baseUrl?: string
   connectionDefaultModel?: string
-  models?: string[]
+  models?: Array<string | { id: string; contextWindow?: number; supportsImages?: boolean; supportsThinking?: boolean }>
   piAuthProvider?: string
   modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier'
   /** Custom endpoint protocol — set when user configures an arbitrary API endpoint */
@@ -166,6 +168,10 @@ export function ApiKeyInput({
   const [openTier, setOpenTier] = useState<string | null>(null)
   const [tierFilter, setTierFilter] = useState('')
   const [tierDropdownPosition, setTierDropdownPosition] = useState<{ top: number; left: number; width: number } | null>(null)
+  // Capabilities for model IDs the catalog doesn't list, keyed by model ID.
+  // Seeded from the endpoint's own /models, then editable by hand.
+  const [customModelMeta, setCustomModelMeta] = useState<Record<string, { contextWindow?: number; supportsImages?: boolean }>>({})
+  const [probingModelIds, setProbingModelIds] = useState<string[]>([])
   const tierFilterInputRef = useRef<HTMLInputElement>(null)
   const hydratedTierProviderRef = useRef<string | null>(null)
 
@@ -192,7 +198,11 @@ export function ApiKeyInput({
       setPiModels(result.models)
 
       if (hydratedTierProviderRef.current !== provider) {
-        const tiers = resolveTierModels(result.models, provider === initialPreset ? initialValues?.models : undefined)
+        const tiers = resolveTierModels(
+          result.models,
+          provider === initialPreset ? initialValues?.models : undefined,
+          { allowUnknownIds: !!initialValues?.customApi },
+        )
         setBestModel(tiers.best)
         setDefaultModel(tiers.default_)
         setCheapModel(tiers.cheap)
@@ -204,11 +214,45 @@ export function ApiKeyInput({
     } finally {
       setPiModelsLoading(false)
     }
-  }, [initialPreset, initialValues?.models])
+  }, [initialPreset, initialValues?.models, initialValues?.customApi])
 
   useEffect(() => {
     loadPiModels(activePreset)
   }, [activePreset, loadPiModels])
+
+  // Tier IDs the provider catalog doesn't list. Recomputed from the catalog so
+  // a model stops counting as custom the moment the catalog does list it.
+  const customTierIds = [bestModel, defaultModel, cheapModel]
+    .filter(Boolean)
+    .filter((id, i, all) => all.indexOf(id) === i)
+    .filter(id => !piModels.some(m => m.id === id))
+  const customTierKey = customTierIds.join('|')
+
+  // Ask the endpoint what a hand-typed model can do. Most OpenAI-compatible
+  // catalogs answer /models with a context window and input modalities, which
+  // beats making the user look the numbers up. Failures stay silent — the
+  // fields below are editable either way.
+  useEffect(() => {
+    const unknown = customTierIds.filter(id => !(id in customModelMeta))
+    if (unknown.length === 0 || !baseUrl.trim() || !window.electronAPI?.getEndpointModelMeta) return
+
+    let cancelled = false
+    setProbingModelIds(prev => [...new Set([...prev, ...unknown])])
+    void Promise.all(unknown.map(async id => {
+      const meta = await window.electronAPI
+        .getEndpointModelMeta({ baseUrl: baseUrl.trim(), modelId: id, apiKey: apiKey.trim() || undefined })
+        .catch(() => null)
+      return [id, meta ?? {}] as const
+    })).then(entries => {
+      if (cancelled) return
+      setCustomModelMeta(prev => ({ ...Object.fromEntries(entries), ...prev }))
+      setProbingModelIds(prev => prev.filter(id => !unknown.includes(id)))
+    })
+    return () => { cancelled = true }
+    // apiKey is read but deliberately not a dependency: retyping a key should
+    // not re-probe on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customTierKey, baseUrl])
 
   // Whether to show 3 tier dropdowns instead of text input
   const hasPiModels = piModels.length > 0 && !isDefaultProviderPreset && activePreset !== 'custom'
@@ -284,14 +328,23 @@ export function ApiKeyInput({
       }
       // Tiers may resolve to the same model when a provider exposes few models
       // (e.g. DeepSeek has 2). Dedupe so the model picker doesn't show duplicates.
-      const models: string[] = [...new Set([bestModel, defaultModel, cheapModel])]
+      const tierModelIds: string[] = [...new Set([bestModel, defaultModel, cheapModel])]
+      // A hand-typed model ID isn't in the Pi catalog, so the subprocess can
+      // only resolve it via the custom-endpoint provider.
+      const tierCustom = resolveTierCustomEndpoint(tierModelIds, piModels)
       onSubmit({
         apiKey: apiKey.trim(),
         baseUrl: baseUrl.trim() || undefined,
         connectionDefaultModel: bestModel,
-        models,
-        piAuthProvider: effectivePiAuthProvider,
+        models: buildTierSetupModels({
+          tierModelIds,
+          catalog: piModels,
+          customMeta: customModelMeta,
+          isCustomEndpoint: !!tierCustom,
+        }),
+        piAuthProvider: tierCustom?.piAuthProvider ?? effectivePiAuthProvider,
         modelSelectionMode: 'userDefined3Tier',
+        customEndpoint: tierCustom?.customEndpoint,
       })
       return
     }
@@ -335,6 +388,19 @@ export function ApiKeyInput({
     { label: 'Fast', desc: 'summarization & utility', value: cheapModel, onChange: setCheapModel },
   ]
   const activeTierConfig = openTier ? tierConfigs.find(t => t.label === openTier) : null
+
+  // Escape hatch for models the provider catalog doesn't list yet (new
+  // releases, stealth models, private deployments). Needs a base URL because
+  // an unknown ID can only be reached through the custom-endpoint provider.
+  const tierFilterTrimmed = tierFilter.trim()
+  const canUseCustomModelId =
+    tierFilterTrimmed.length > 0 &&
+    baseUrl.trim().length > 0 &&
+    !piModels.some(m => m.id === tierFilterTrimmed)
+  const tierCustomEndpoint = resolveTierCustomEndpoint(
+    [bestModel, defaultModel, cheapModel].filter(Boolean),
+    piModels
+  )
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="space-y-6">
@@ -494,7 +560,7 @@ export function ApiKeyInput({
                     )}
                   >
                     <span className="truncate text-foreground">
-                      {piModels.find(m => m.id === value)?.name ?? 'Select model...'}
+                      {piModels.find(m => m.id === value)?.name || value || 'Select model...'}
                     </span>
                     <ChevronDown className="size-3 opacity-50 shrink-0" />
                   </button>
@@ -529,8 +595,30 @@ export function ApiKeyInput({
                         />
                       </div>
                       <CommandPrimitive.List className="max-h-[240px] overflow-y-auto p-1">
+                        {canUseCustomModelId && (
+                          <CommandPrimitive.Item
+                            value={`custom:${tierFilterTrimmed}`}
+                            onSelect={() => {
+                              activeTierConfig.onChange(tierFilterTrimmed)
+                              setOpenTier(null)
+                              setTierFilter('')
+                            }}
+                            className={cn(
+                              "flex cursor-pointer select-none items-center gap-2 rounded-[6px] px-3 py-2 text-[13px]",
+                              "outline-none data-[selected=true]:bg-foreground/5"
+                            )}
+                          >
+                            <span className="text-foreground/50 shrink-0">Use</span>
+                            <span className="truncate font-mono text-[12px]">{tierFilterTrimmed}</span>
+                          </CommandPrimitive.Item>
+                        )}
                         {piModels
-                          .filter(m => m.name.toLowerCase().includes(tierFilter.toLowerCase()))
+                          .filter(m => {
+                            // Match IDs too — users paste model IDs at least as
+                            // often as they type display names.
+                            const q = tierFilter.toLowerCase()
+                            return m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)
+                          })
                           .map((model) => (
                             <CommandPrimitive.Item
                               key={model.id}
@@ -558,6 +646,70 @@ export function ApiKeyInput({
                     </CommandPrimitive>
                   </div>
                 </>
+              )}
+              {customTierIds.map(id => {
+                const meta = customModelMeta[id] ?? {}
+                const probing = probingModelIds.includes(id)
+                return (
+                  <div key={id} className="space-y-2 rounded-md bg-foreground-2 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate font-mono text-[12px] text-foreground/70">{id}</span>
+                      {probing && <Loader2 className="size-3 shrink-0 animate-spin text-foreground/30" />}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor={`ctx-${id}`} className="text-xs font-normal text-muted-foreground">
+                        Context
+                      </Label>
+                      <Input
+                        id={`ctx-${id}`}
+                        type="number"
+                        min={1}
+                        value={meta.contextWindow ?? ''}
+                        onChange={e => {
+                          const parsed = Number.parseInt(e.target.value, 10)
+                          setCustomModelMeta(prev => ({
+                            ...prev,
+                            [id]: {
+                              ...prev[id],
+                              contextWindow: Number.isFinite(parsed) && parsed > 0 ? parsed : undefined,
+                            },
+                          }))
+                        }}
+                        placeholder="131072"
+                        className="h-7 flex-1 border-0 bg-background shadow-none text-[12px]"
+                        disabled={isDisabled}
+                      />
+                      <button
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={() => setCustomModelMeta(prev => ({
+                          ...prev,
+                          [id]: { ...prev[id], supportsImages: !prev[id]?.supportsImages },
+                        }))}
+                        aria-pressed={!!meta.supportsImages}
+                        className={cn(
+                          "inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[12px] transition-colors",
+                          meta.supportsImages
+                            ? "bg-background text-foreground shadow-minimal"
+                            : "text-foreground/40 hover:text-foreground/70"
+                        )}
+                      >
+                        <ImageIcon className="size-3.5" />
+                        Images
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+              {tierCustomEndpoint && (
+                <p className="text-xs text-foreground/30">
+                  A custom model ID isn't in this provider's catalog, so the connection
+                  talks to the endpoint directly over{' '}
+                  {tierCustomEndpoint.customEndpoint.api === 'anthropic-messages'
+                    ? 'Anthropic Compatible'
+                    : 'OpenAI Compatible'}. Leave the context window blank to accept the
+                  {' '}131,072-token default.
+                </p>
               )}
               {modelError && (
                 <p className="text-xs text-destructive">{modelError}</p>
