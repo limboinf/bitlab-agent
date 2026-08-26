@@ -325,11 +325,20 @@ function extractTodosFromActivities(activities: ActivityItem[]): TodoItem[] | un
  * from, so the moment they send a new message the strip goes quiet and stays
  * quiet until the agent writes a fresh plan. A finished turn keeps its list
  * visible — that is the completed checklist, and it is worth reading.
+ *
+ * The walk back skips system turns — an error, a warning, an interruption
+ * notice. Those land after the assistant turn they describe, and reading only
+ * the last turn made the checklist vanish exactly when it matters most: the
+ * turn that failed is the one where "how far did it get" is the question. A
+ * user turn still stops the walk, because that is the user moving on.
  */
 export function getCurrentTaskList(turns: Turn[]): TodoItem[] | undefined {
-  const last = turns[turns.length - 1]
-  if (last?.type !== 'assistant') return undefined
-  return last.todos?.length ? last.todos : undefined
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i]
+    if (turn?.type === 'user') return undefined
+    if (turn?.type === 'assistant') return turn.todos?.length ? turn.todos : undefined
+  }
+  return undefined
 }
 
 // ============================================================================

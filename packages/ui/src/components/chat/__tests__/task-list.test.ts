@@ -21,8 +21,7 @@ beforeAll(async () => {
           'taskList.progressDone_other': '{{count}} done',
           'taskList.progressActive_one': '{{count}} in progress',
           'taskList.progressActive_other': '{{count}} in progress',
-          'taskList.progressUnfinished_one': '{{count}} unfinished',
-          'taskList.progressUnfinished_other': '{{count}} unfinished',
+          'taskList.progressStopped': 'Stopped · {{done}}/{{total}}',
           'taskList.progressPending_one': '{{count}} pending',
           'taskList.progressPending_other': '{{count}} pending',
         },
@@ -57,6 +56,10 @@ function todoWrite(
 
 function assistantMessage(content: string): Message {
   return { id: `a-${seq}`, role: 'assistant', content, timestamp: at() }
+}
+
+function errorMessage(content: string): Message {
+  return { id: `e-${seq}`, role: 'error', content, timestamp: at() } as Message
 }
 
 describe('getCurrentTaskList', () => {
@@ -139,6 +142,35 @@ describe('getCurrentTaskList', () => {
     expect(getCurrentTaskList(turns)).toEqual([{ content: 'Main plan', status: 'in_progress' }])
   })
 
+  it('survives the error that ended the turn', () => {
+    // The empty-completion guard files an error message after the assistant
+    // turn. That error is exactly when "how far did it get" matters.
+    const turns = groupMessagesByTurn([
+      userMessage('go'),
+      todoWrite([
+        { content: 'Set up', status: 'in_progress' },
+        { content: 'Ship it', status: 'pending' },
+      ]),
+      errorMessage('Empty Response: the model returned nothing.'),
+    ])
+
+    expect(getCurrentTaskList(turns)).toEqual([
+      { content: 'Set up', status: 'in_progress' },
+      { content: 'Ship it', status: 'pending' },
+    ])
+  })
+
+  it('still goes quiet when the user speaks after an error', () => {
+    const turns = groupMessagesByTurn([
+      userMessage('go'),
+      todoWrite([{ content: 'Set up', status: 'in_progress' }]),
+      errorMessage('Empty Response: the model returned nothing.'),
+      userMessage('never mind'),
+    ])
+
+    expect(getCurrentTaskList(turns)).toBeUndefined()
+  })
+
   it('has nothing to show before the agent plans anything', () => {
     expect(getCurrentTaskList(groupMessagesByTurn([userMessage('hi')]))).toBeUndefined()
   })
@@ -166,14 +198,35 @@ describe('task list formatting', () => {
     expect(formatTaskListSummary([{ content: 'a', status: 'completed' }])).toBe('1/1')
   })
 
-  it('calls a stopped turn\'s leftover task unfinished, not in progress', () => {
+  it('tallies each status while the agent is working', () => {
     const todos = [
       { content: 'a', status: 'completed' as const },
       { content: 'b', status: 'in_progress' as const },
+      { content: 'c', status: 'pending' as const },
     ]
 
-    expect(formatTaskListProgress(todos, { live: true })).toContain('in progress')
-    expect(formatTaskListProgress(todos, { live: false })).toContain('unfinished')
+    expect(formatTaskListProgress(todos, { live: true })).toBe('1 done · 1 in progress · 1 pending')
+  })
+
+  it('reports how far a stopped turn got instead of what is running', () => {
+    const todos = [
+      { content: 'a', status: 'completed' as const },
+      { content: 'b', status: 'in_progress' as const },
+      { content: 'c', status: 'pending' as const },
+    ]
+
+    const stopped = formatTaskListProgress(todos, { live: false })
+    expect(stopped).toBe('Stopped · 1/3')
+    expect(stopped).not.toContain('in progress')
+  })
+
+  it('calls a finished checklist done, not stopped', () => {
+    const todos = [
+      { content: 'a', status: 'completed' as const },
+      { content: 'b', status: 'completed' as const },
+    ]
+
+    expect(formatTaskListProgress(todos, { live: false })).toBe('2 done')
   })
 
   it('falls back to nothing for input it cannot read', () => {

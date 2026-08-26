@@ -7,7 +7,7 @@
  */
 
 import { motion } from 'motion/react'
-import { Ban, Circle, CircleCheck, CircleDashed } from 'lucide-react'
+import { Ban, Circle, CircleCheck, CirclePause } from 'lucide-react'
 import { Spinner } from '../ui/LoadingIndicator'
 import { cn } from '../../lib/utils'
 import { SIZE_CONFIG, type TodoItem, type TodoStatus } from './TurnCard'
@@ -18,7 +18,9 @@ import { SIZE_CONFIG, type TodoItem, type TodoStatus } from './TurnCard'
  * `live` is what keeps the list honest once the agent stops. A task is only
  * spinning if something is actually working on it — after the turn ends, a
  * task still marked `in_progress` means the agent finished without ticking it
- * off, so it renders as unfinished rather than perpetually in flight.
+ * off. It gets a paused glyph, not a ring: a ring is what a spinner looks like
+ * with the animation stripped out, and the whole point is that this task is
+ * not running.
  */
 export function TaskStatusIcon({ status, live = true }: { status: TodoStatus; live?: boolean }) {
   switch (status) {
@@ -26,7 +28,7 @@ export function TaskStatusIcon({ status, live = true }: { status: TodoStatus; li
       return <Circle className={cn(SIZE_CONFIG.iconSize, 'shrink-0 text-muted-foreground/50')} />
     case 'in_progress':
       if (!live) {
-        return <CircleDashed className={cn(SIZE_CONFIG.iconSize, 'shrink-0 text-muted-foreground/50')} />
+        return <CirclePause className={cn(SIZE_CONFIG.iconSize, 'shrink-0 text-muted-foreground/50')} />
       }
       return (
         <div className={cn(SIZE_CONFIG.iconSize, 'flex items-center justify-center shrink-0')}>

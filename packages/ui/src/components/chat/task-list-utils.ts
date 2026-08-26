@@ -26,22 +26,31 @@ export function countTaskList(todos: readonly TodoItem[]): TaskListCounts {
 }
 
 /**
- * Header line: only the statuses that actually have tasks, so a fresh list
- * reads "5 待处理" instead of "0 已完成 · 0 进行中 · 5 待处理".
+ * Header line.
  *
- * Once the agent stops (`live: false`), a task still marked in_progress is not
- * in progress any more — nothing is running. It reads as unfinished, which is
- * what actually happened: the agent ended its turn without ticking it off.
+ * While the agent works, it tallies the statuses that actually have tasks, so a
+ * fresh list reads "5 待处理" instead of "0 已完成 · 0 进行中 · 5 待处理".
+ *
+ * Once the turn ends (`live: false`) nothing is running any more, and a
+ * status-by-status tally still invites the eye to read leftover work as work in
+ * flight. So it collapses to the outcome — "已停止 · 0/5" — or to the plain done
+ * count when the agent got through everything.
  */
 export function formatTaskListProgress(
   todos: readonly TodoItem[],
   options: { live?: boolean } = {},
 ): string {
-  const { pending, inProgress, completed } = countTaskList(todos)
-  const activeKey = options.live === false ? 'taskList.progressUnfinished' : 'taskList.progressActive'
+  const { pending, inProgress, completed, total } = countTaskList(todos)
+
+  if (options.live === false) {
+    return completed === total
+      ? i18n.t('taskList.progressDone', { count: completed })
+      : i18n.t('taskList.progressStopped', { done: completed, total })
+  }
+
   return [
     ...completed > 0 ? [i18n.t('taskList.progressDone', { count: completed })] : [],
-    ...inProgress > 0 ? [i18n.t(activeKey, { count: inProgress })] : [],
+    ...inProgress > 0 ? [i18n.t('taskList.progressActive', { count: inProgress })] : [],
     ...pending > 0 ? [i18n.t('taskList.progressPending', { count: pending })] : [],
   ].join(' · ')
 }

@@ -6,9 +6,12 @@
  * why it can never disagree with the transcript: there is one list, written by
  * one tool call, read in two places.
  *
- * Open by default — watching the checklist advance is the point. Long lists
- * scroll inside the strip rather than pushing the conversation off screen, and
- * the header alone still answers "how far along is it" once collapsed.
+ * Open while the agent works — watching the checklist advance is the point.
+ * The moment the turn ends it folds back to its header: nothing is running any
+ * more, and a checklist parked above the composer reads as work still in
+ * flight. The header alone still answers "how far did it get", and one click
+ * brings the rows back. Long lists scroll inside the strip rather than pushing
+ * the conversation off screen.
  */
 
 import * as React from 'react'
@@ -27,7 +30,11 @@ export interface TaskListStripProps {
 
 export function TaskListStrip({ todos, live = false, className }: TaskListStripProps) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = React.useState(true)
+  const [expanded, setExpanded] = React.useState(live)
+
+  // Follows the turn, not the click: open when the agent starts working, folded
+  // once it stops. A manual toggle holds until the next turn flips it back.
+  React.useEffect(() => { setExpanded(live) }, [live])
 
   if (!todos || todos.length === 0) return null
 
