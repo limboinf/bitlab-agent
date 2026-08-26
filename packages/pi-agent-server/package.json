@@ -14,11 +14,12 @@
     "validate": "bun run typecheck && bun run build"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.6",
     "@earendil-works/pi-agent-core": "0.80.6",
     "@earendil-works/pi-ai": "0.80.6",
-    "duck-duck-scrape": "^2.2.7",
+    "@earendil-works/pi-coding-agent": "0.80.6",
     "@sinclair/typebox": "^0.34.0",
+    "@tintinweb/pi-subagents": "0.17.1",
+    "duck-duck-scrape": "^2.2.7",
     "node-html-parser": "^6.1.0",
     "pdfjs-dist": "^5.4.0",
     "pi-mcp-adapter": "^2.25.0",

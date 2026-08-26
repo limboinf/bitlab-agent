@@ -857,6 +857,30 @@ export class PiAgent extends BaseAgent {
         });
         break;
 
+      case 'subagent_settled':
+        // A background sub-agent finished. Nothing else reports this: the
+        // extension announces completions through TUI surfaces this host never
+        // renders, so without this the launcher never learns the work is done.
+        // Routed like any other task event — mid-turn it updates the chip, and
+        // between turns the background sink wakes the session to present it.
+        {
+          const taskId = msg.agentId as string;
+          const status = msg.status as 'completed' | 'failed' | 'stopped';
+          this.debug(`Subagent settled: ${taskId} -> ${status}`);
+          const event = {
+            type: 'task_completed' as const,
+            taskId,
+            status,
+            ...(typeof msg.summary === 'string' && msg.summary ? { summary: msg.summary } : {}),
+          };
+          if (!this._isProcessing && this.backgroundEventSink) {
+            this.backgroundEventSink(event);
+          } else {
+            this.eventQueue.enqueue(event);
+          }
+        }
+        break;
+
       case 'mcp_status':
         // MCP server status snapshot from the pi-mcp-adapter extension
         {

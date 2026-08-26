@@ -75,11 +75,10 @@ describe('MCP subprocess integration', () => {
         cwd,
         agentDir,
         settingsManager: PiSettingsManager.create(cwd, agentDir),
-        adapterExtension: buildAdapterExtension(),
-        hostExtension: createMcpHostExtension({
+        inlineExtensions: [buildAdapterExtension(), createMcpHostExtension({
           onStatusSnapshot: snapshot => { statuses.push(snapshot); },
           onApprovalRequest: () => {},
-        }),
+        })],
       });
       await loader.reload();
 
@@ -129,11 +128,10 @@ describe('MCP subprocess integration', () => {
         cwd,
         agentDir,
         settingsManager: PiSettingsManager.create(cwd, agentDir),
-        adapterExtension: buildAdapterExtension(),
-        hostExtension: createMcpHostExtension({
+        inlineExtensions: [buildAdapterExtension(), createMcpHostExtension({
           onStatusSnapshot: snapshot => { statuses.push(snapshot); },
           onApprovalRequest: () => {},
-        }),
+        })],
       });
       await loader.reload();
 
@@ -179,11 +177,10 @@ describe('MCP subprocess integration', () => {
         cwd,
         agentDir,
         settingsManager: PiSettingsManager.create(cwd, agentDir),
-        adapterExtension: buildAdapterExtension(),
-        hostExtension: createMcpHostExtension({
+        inlineExtensions: [buildAdapterExtension(), createMcpHostExtension({
           onStatusSnapshot: () => {},
           onApprovalRequest: () => {},
-        }),
+        })],
       });
       await loader.reload();
 

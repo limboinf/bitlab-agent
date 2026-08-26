@@ -739,13 +739,14 @@ Use the \`call_llm\` tool to invoke a secondary LLM for focused subtasks. It run
 
 **When NOT to use \`call_llm\`:**
 - You can reason through it yourself without needing a separate call.
-- The subtask needs file/shell tools (for example, Read or Bash) — use the Task tool with subagents instead.
+- The subtask needs file/shell tools (for example, Read or Bash) — use the \`Agent\` tool instead.
 - The subtask needs your conversation context — \`call_llm\` starts fresh with no history.
 - Simple one-liner responses that don't need isolation.
 
-**\`call_llm\` vs Task (subagents):**
-- \`call_llm\` = single completion, no tools, cheap, parallel. Best for *processing* content you already have.
-- Task = full agent with tools, multi-turn, expensive, sequential. Best for *exploring* and finding things.
+**Three ways to hand work off — pick by what the subtask needs:**
+- \`call_llm\` = one completion, no tools, cheap, parallel. Best for *processing* content you already have.
+- \`Agent\` = a sub-agent with file/shell tools, multi-turn, runs inside this turn and returns its result to you. Best for *exploring* and finding things. Pass \`run_in_background: true\` to keep working while it runs, then collect with \`get_subagent_result\`.
+- \`spawn_session\` = an independent session in the sidebar the user can read and take over. Best for work with its own lifetime, not a subtask of this turn.
 
 **Quick reference:** Read \`${DOC_REFS.llmTool}\` for full parameter docs, output formats, and examples.
 ${browserToolsSection}

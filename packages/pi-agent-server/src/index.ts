@@ -42,6 +42,7 @@ import type {
   AuthCredential,
   AuthStorageBackend,
   CreateAgentSessionOptions,
+  InlineExtension,
   ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 
@@ -102,6 +103,12 @@ import {
   type McpProxyToolResult,
 } from './mcp/mcp-extension.ts';
 import { BitlabResourceLoader } from './resource-loader.ts';
+import {
+  buildSubagentsExtension,
+  createSubagentsHostExtension,
+  subagentsEnabled,
+  type SubagentSettledPayload,
+} from './subagents-extension.ts';
 import { PiSkillBridge } from './skill-bridge.ts';
 import { SkillCatalog } from '@bitlab/shared/skills';
 
@@ -292,6 +299,14 @@ interface OutboundMcpStatus { type: 'mcp_status'; snapshot: McpStatusSnapshot }
 interface OutboundMcpApprovalRequest extends McpApprovalRequestPayload {
   type: 'mcp_approval_request';
 }
+/**
+ * A background sub-agent reached a terminal state. Forwarded from the
+ * extension's event bus so the main process can close out its task chip and,
+ * when the session is idle, wake the agent that launched it.
+ */
+interface OutboundSubagentSettled extends SubagentSettledPayload {
+  type: 'subagent_settled';
+}
 /** Adapter ui.notify forwarded from the UI bridge (auth progress, notices). */
 interface OutboundMcpNotify {
   type: 'mcp_notify';
@@ -318,6 +333,7 @@ interface OutboundError { type: 'error'; message: string; code?: string }
 
 type OutboundMessage =
   | OutboundReady
+  | OutboundSubagentSettled
   | OutboundEvent
   | OutboundContextUsage
   | OutboundPreToolUseReq
@@ -822,8 +838,12 @@ async function ensureSession(): Promise<AgentSession> {
     authStorage,
     modelRegistry,
     customTools: wrappedAll,
-    // See the MCP EXCEPTION note above — omitted when MCP is enabled.
-    ...(mcpEnabled ? {} : { tools: toolAllowlist }),
+    // See the MCP EXCEPTION note above — omitted when MCP is enabled, and for
+    // the same reason when the sub-agent extension is on: `Agent` /
+    // `get_subagent_result` / `steer_subagent` are registered by an extension
+    // AFTER the session is built, so a static allowlist silently filters them
+    // out (verified: with the allowlist the tool list stays read/bash/edit/write).
+    ...(mcpEnabled || subagentsEnabled() ? {} : { tools: toolAllowlist }),
   };
 
   // Extension isolation: set agentDir to a temp directory under session path
@@ -911,28 +931,44 @@ async function ensureSession(): Promise<AgentSession> {
   // The adapter's factory snapshots `currentMcpConfig` at invocation time, so
   // session.reload() (hot config update) rebuilds the MCP surface from the
   // latest config.
+  const inlineExtensions: InlineExtension[] = [];
+  if (mcpEnabled) {
+    inlineExtensions.push(
+      buildAdapterExtension(undefined, debugLog),
+      createMcpHostExtension({
+        onStatusSnapshot: (snapshot) => {
+          send({ type: 'mcp_status', snapshot });
+          // The MCP tool surface changes as servers connect/disconnect — keep
+          // the context meter's composition inputs current.
+          refreshActiveToolWireShapesFromSession();
+        },
+        onApprovalRequest: (payload) => {
+          send({ type: 'mcp_approval_request', ...payload });
+        },
+        onDebug: debugLog,
+      }),
+    );
+  }
+  // Sub-agent tools (Agent / get_subagent_result / steer_subagent). Registered
+  // by an extension, so unlike the session proxy tools they never reach the
+  // `tools` allowlist below — see the note there.
+  if (subagentsEnabled()) {
+    inlineExtensions.push(
+      buildSubagentsExtension(debugLog),
+      // Completion bridge — see createSubagentsHostExtension. Registered after
+      // the extension itself so it subscribes to the same loader-owned bus.
+      createSubagentsHostExtension(payload => {
+        debugLog(`Subagents: ${payload.agentId} settled as ${payload.status}`);
+        send({ type: 'subagent_settled', ...payload });
+      }),
+    );
+  }
   const loader = new BitlabResourceLoader({
     cwd,
     agentDir: loaderAgentDir,
     settingsManager: loaderSettingsManager,
     skillSeams: skillBridge.seams(),
-    ...(mcpEnabled
-      ? {
-          adapterExtension: buildAdapterExtension(undefined, debugLog),
-          hostExtension: createMcpHostExtension({
-            onStatusSnapshot: (snapshot) => {
-              send({ type: 'mcp_status', snapshot });
-              // The MCP tool surface changes as servers connect/disconnect — keep
-              // the context meter's composition inputs current.
-              refreshActiveToolWireShapesFromSession();
-            },
-            onApprovalRequest: (payload) => {
-              send({ type: 'mcp_approval_request', ...payload });
-            },
-            onDebug: debugLog,
-          }),
-        }
-      : {}),
+    inlineExtensions,
   });
   // SDK contract: when a resourceLoader is passed, createAgentSession does
   // NOT reload it — the caller must do that first.

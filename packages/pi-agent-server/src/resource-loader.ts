@@ -12,14 +12,14 @@
  * `systemPromptOverride`, and Pi consults it on every system-prompt rebuild —
  * which is why the session always gets one, with or without MCP.
  *
- * When MCP is on, two inline extension factories — the pi-mcp-adapter and the
- * Bitlab host bridge — are appended to the discovered extension set.
- * `getExtensions()` then returns `[...delegated extensions, adapterExtension,
- * hostExtension]` with the loader's errors/diagnostics and shared `runtime`
- * preserved: DefaultResourceLoader appends inline factories during `reload()`
- * (loadFinalExtensionSet), merging their loaded `Extension` objects and any
- * load errors into the same result. Both inline extensions share the
- * loader-owned event bus (`pi.events`), which is how the adapter's broker
+ * Bitlab's own extensions (the pi-mcp-adapter and its host bridge when MCP is
+ * on, the sub-agent extension) are passed in as inline factories and appended
+ * to the discovered set. `getExtensions()` then returns `[...delegated
+ * extensions, ...inlineExtensions]` with the loader's errors/diagnostics and
+ * shared `runtime` preserved: DefaultResourceLoader appends inline factories
+ * during `reload()` (loadFinalExtensionSet), merging their loaded `Extension`
+ * objects and any load errors into the same result. Inline extensions share
+ * the loader-owned event bus (`pi.events`), which is how the adapter's broker
  * events reach the host bridge.
  */
 
@@ -53,10 +53,13 @@ export interface BitlabResourceLoaderOptions {
   settingsManager?: SettingsManager;
   /** Skill catalog wiring. Omitted only where no catalog applies. */
   skillSeams?: SkillLoaderSeams;
-  /** pi-mcp-adapter inline extension (see mcp/mcp-extension.ts). MCP only. */
-  adapterExtension?: InlineExtension;
-  /** Host bridge inline extension forwarding broker events to stdout. MCP only. */
-  hostExtension?: InlineExtension;
+  /**
+   * Inline Pi extensions to install in this session, in load order — the MCP
+   * adapter and its host bridge (mcp/mcp-extension.ts) when MCP is configured,
+   * and the sub-agent extension (subagents-extension.ts). The caller decides
+   * which apply; the loader just forwards them.
+   */
+  inlineExtensions?: InlineExtension[];
 }
 
 export class BitlabResourceLoader implements ResourceLoader {
@@ -64,9 +67,7 @@ export class BitlabResourceLoader implements ResourceLoader {
   private readonly skillSeams?: SkillLoaderSeams;
 
   constructor(options: BitlabResourceLoaderOptions) {
-    const extensionFactories = [options.adapterExtension, options.hostExtension].filter(
-      (extension): extension is InlineExtension => extension !== undefined
-    );
+    const extensionFactories = options.inlineExtensions ?? [];
     this.delegate = new DefaultResourceLoader({
       cwd: options.cwd,
       agentDir: options.agentDir,

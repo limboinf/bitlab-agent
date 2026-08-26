@@ -139,8 +139,10 @@ describe('acceptance 3: identical catalog with MCP on and off', () => {
       cwd: projectRoot,
       agentDir,
       skillSeams: makeBridge().seams(),
-      adapterExtension: { name: 'noop-adapter', factory: () => ({}) } as never,
-      hostExtension: { name: 'noop-host', factory: () => ({}) } as never,
+      inlineExtensions: [
+        { name: 'noop-adapter', factory: () => ({}) } as never,
+        { name: 'noop-host', factory: () => ({}) } as never,
+      ],
     });
     await withMcp.reload();
 
