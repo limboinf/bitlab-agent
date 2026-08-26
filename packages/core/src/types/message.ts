@@ -56,8 +56,13 @@ export interface MessageAttachment {
  * Badges are self-contained with all display data (label, icon)
  */
 export interface ContentBadge {
-  /** Badge type - used for fallback icon if iconBase64 not available */
-  type: 'skill' | 'context' | 'command' | 'file' | 'folder' | 'mcp' | 'browser';
+  /**
+   * Badge type - used for fallback icon if iconBase64 not available.
+   * 'agent' marks the header of a message another session sent to this one:
+   * the range is collapsed into a "from <session>" chip above the bubble, so
+   * inter-session plumbing does not read as something the user typed.
+   */
+  type: 'skill' | 'context' | 'command' | 'file' | 'folder' | 'mcp' | 'browser' | 'agent';
   /** Display label (e.g., "Linear", "Commit") */
   label: string;
   /** Original text pattern (e.g., "@linear", "@commit") */

@@ -73,6 +73,7 @@
   "browser.urlPlaceholder": "输入网址或搜索…",
   "browser.windowOptions": "浏览器窗口选项",
   "chat.adminApprovalRequired": "需要管理员审批",
+  "chat.agentMessageFrom": "来自 {{name}}",
   "chat.annotationPlaceholder": "添加备注供智能体在下一轮参考…",
   "chat.attach": "附加",
   "chat.attachFiles": "附加文件",

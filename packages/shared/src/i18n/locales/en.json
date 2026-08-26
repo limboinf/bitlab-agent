@@ -73,6 +73,7 @@
   "browser.urlPlaceholder": "Enter URL or search…",
   "browser.windowOptions": "Browser window options",
   "chat.adminApprovalRequired": "Admin approval required",
+  "chat.agentMessageFrom": "From {{name}}",
   "chat.annotationPlaceholder": "Add comments the agent should consider in the next turn…",
   "chat.attach": "Attach",
   "chat.attachFiles": "Attach Files",

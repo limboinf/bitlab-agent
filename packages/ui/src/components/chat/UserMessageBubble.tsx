@@ -9,10 +9,11 @@
  * - Optional file attachments with thumbnails
  * - Content badges for @mentions (sources, skills)
  * - Pending/queued states (Electron only)
+ * - Messages from another session: outlined bubble + sender chip, envelope hidden
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Clock } from 'lucide-react'
+import { Clock, MessagesSquare } from 'lucide-react'
 import type { StoredAttachment, ContentBadge } from '@bitlab/core'
 import { normalizePath } from '@bitlab/core/utils'
 import { cn } from '../../lib/utils'
@@ -22,6 +23,7 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../too
 import { CopyButton } from '../overlay/CopyButton'
 import { useTranslation } from 'react-i18next'
 import { formatMessageTimestamp } from './message-timestamp'
+import { isAgentBadge, splitUserMessageBadges } from './user-message-badges'
 
 // Fallback text icons for badges without iconDataUrl
 // Using simple characters since SVG rendering may not work in all contexts
@@ -31,10 +33,21 @@ const CONTEXT_ICON_TEXT = '⚙'
 const COMMAND_ICON_TEXT = '/'
 
 /**
- * Check if a badge is an edit_request badge (identified by XML tag in rawText)
+ * AgentSenderBadge - marks a message that arrived from another session, so it
+ * does not read as something the user typed. Sits where the collapsed envelope
+ * header would have been.
  */
-function isEditRequestBadge(badge: ContentBadge): boolean {
-  return badge.type === 'context' && !!badge.rawText?.includes('<edit_request>')
+function AgentSenderBadge({ badge }: { badge: ContentBadge }) {
+  const { t } = useTranslation()
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 h-[28px] px-2.5 rounded-[8px] bg-background border border-foreground/10 shadow-minimal text-[13px] text-muted-foreground"
+      title={badge.rawText}
+    >
+      <MessagesSquare className="h-3.5 w-3.5 shrink-0 text-foreground/40" aria-hidden="true" />
+      <span className="truncate max-w-[220px]">{t('chat.agentMessageFrom', { name: badge.label })}</span>
+    </span>
+  )
 }
 
 /**
@@ -395,24 +408,16 @@ export function UserMessageBubble({
     }, remaining)
   }, [isQueued])
 
-  // Separate edit_request badges (rendered above bubble) from other badges (rendered inline)
-  const editRequestBadges = badges?.filter(isEditRequestBadge) ?? []
-  const inlineBadges = badges?.filter(b => !isEditRequestBadge(b)) ?? []
-  const hasEditRequestBadges = editRequestBadges.length > 0
+  // Detached badges render above the bubble and their range is cut from the text;
+  // everything else renders inline where it sits.
+  const {
+    detached: detachedBadges,
+    inline: inlineBadges,
+    displayContent,
+    isFromAgent,
+  } = splitUserMessageBadges(content, badges)
+  const hasDetachedBadges = detachedBadges.length > 0
   const hasInlineBadges = inlineBadges.length > 0
-
-  // Strip edit_request content from the displayed text
-  // Each badge has start/end positions marking where to remove content
-  let displayContent = content
-  if (hasEditRequestBadges) {
-    // Sort badges by start position descending so we can remove from end to start
-    // (this preserves positions for earlier removals)
-    const sortedBadges = [...editRequestBadges].sort((a, b) => b.start - a.start)
-    for (const badge of sortedBadges) {
-      displayContent = displayContent.slice(0, badge.start) + displayContent.slice(badge.end)
-    }
-    displayContent = displayContent.trim()
-  }
 
   return (
     <div className={cn("flex flex-col items-end gap-3 w-full", className)}>
@@ -475,11 +480,13 @@ export function UserMessageBubble({
         </div>
       )}
 
-      {/* Badges row - edit request badges above text bubble */}
-      {hasEditRequestBadges && (
+      {/* Badges row - detached badges above text bubble */}
+      {hasDetachedBadges && (
         <div className="flex gap-2 justify-end max-w-[80%] flex-wrap">
-          {editRequestBadges.map((badge, i) => (
-            <EditRequestBadge key={`edit-badge-${i}`} badge={badge} />
+          {detachedBadges.map((badge, i) => (
+            isAgentBadge(badge)
+              ? <AgentSenderBadge key={`detached-badge-${i}`} badge={badge} />
+              : <EditRequestBadge key={`detached-badge-${i}`} badge={badge} />
           ))}
         </div>
       )}
@@ -492,7 +499,10 @@ export function UserMessageBubble({
       <div className="group flex max-w-[80%] flex-col items-end gap-1">
         <div
           className={cn(
-            "w-full break-words min-w-0 select-text bg-user-message-bubble rounded-[14px] [&_p]:m-0",
+            "w-full break-words min-w-0 select-text rounded-[14px] [&_p]:m-0",
+            // Not the user's own words — drop the filled bubble for an outlined
+            // one so it reads as inbound at a glance, without a new theme token.
+            isFromAgent ? "bg-background border border-foreground/10" : "bg-user-message-bubble",
             compactMode ? "px-3.5 py-2" : "px-4 py-2.5"
           )}
         >
@@ -529,7 +539,7 @@ export function UserMessageBubble({
               {formatMessageTimestamp(timestamp)}
             </time>
           )}
-          <CopyButton content={content} />
+          <CopyButton content={displayContent} />
         </div>
       </div>
     </div>
