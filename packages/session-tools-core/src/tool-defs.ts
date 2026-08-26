@@ -133,7 +133,17 @@ export const TOOL_DESCRIPTIONS = {
   script_sandbox: 'Execute a short script with filesystem and network isolation.',
   send_developer_feedback: 'Send detailed Markdown feedback to the Bitlab development team.',
   call_llm: 'Invoke the configured mini model for a focused subtask.',
-  spawn_session: 'Create an independent local session using an available Pi connection and model.',
+  spawn_session: `Create a new session that runs independently with its own prompt, connection, and model.
+
+Use this to delegate tasks to parallel sessions — research, analysis, drafts, or any work that benefits from separate context.
+
+Call with help=true first to discover available connections and models. When spawning, 'prompt' is required.
+
+The spawned session is told which session spawned it and is asked to report back with send_agent_message, so wait for that message instead of polling for output files. It appears in the session list and runs fire-and-forget.
+
+Optional overrides: model, llmConnection, permissionMode, thinkingLevel. The spawned session always uses the current workspace folder. thinkingLevel is silently ignored on non-reasoning models (e.g. gpt-4o, gemini-2.5-flash) — the SDK drops the reasoning param rather than erroring.
+
+Only use 'attachments' for existing file paths on disk — the tool reads them automatically.`,
   browser_tool: 'Control the built-in browser with a CLI-like command.',
   get_session_info: 'Get metadata for the current session or a session by ID.',
   list_sessions: 'Search and list active or archived sessions in the current workspace.',
