@@ -14,6 +14,7 @@
 | 代码签名与公证 | [code-signing.md](./code-signing.md) |
 | 与 Craft Agents 的当前差异对比（含安装包体积） | [comparison-with-craft.md](./comparison-with-craft.md) |
 | 数据目录 | [data-directory.md](./data-directory.md) |
+| 子 Agent 与多 Agent（spawn_session、pi-subagents、后台任务闭环） | [sub-agents.md](./sub-agents.md) |
 | 开发环境 | [development.md](./development.md) |
 | 文档工具 | [document-tools.md](./document-tools.md) |
 | 功能矩阵 | [featues.md](./featues.md) |
