@@ -23,6 +23,7 @@ import {
 import { SquarePenRounded } from "../icons/SquarePenRounded"
 import { useEffect, useRef, useState } from "react"
 import { BrowserDockToggle } from "../browser/BrowserDockToggle"
+import { RightDockToggle } from "../right-dock/RightDockToggle"
 
 interface TopBarProps {
   activeSessionId?: string | null
@@ -116,10 +117,11 @@ export function TopBar({
         </div>
       </div>
 
-      {/* === RIGHT: Browser strip + add panel === */}
+      {/* === RIGHT: Dock entries + add panel === */}
       {!isCompact && (
       <div className="flex min-w-0 shrink-0 items-center justify-end gap-1" style={{ paddingRight: 12 }}>
         <BrowserDockToggle />
+        <RightDockToggle />
         {showAddPanelMenu && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

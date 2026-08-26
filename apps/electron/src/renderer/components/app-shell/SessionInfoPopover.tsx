@@ -5,7 +5,10 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from 
 import { Input } from '@/components/ui/input'
 import { useAppShellContext, useSession } from '@/context/AppShellContext'
 import { cn } from '@/lib/utils'
-import { SessionFilesSection } from '../right-sidebar/SessionFilesSection'
+import { useSetAtom } from 'jotai'
+import { Folder } from 'lucide-react'
+import { openRightDockSectionAtom } from '@/atoms/right-dock'
+import { getFileManagerName } from '@/lib/platform'
 
 interface SessionInfoPopoverProps {
   sessionId: string
@@ -18,7 +21,7 @@ interface SessionInfoPopoverProps {
   presentation?: 'popover' | 'drawer'
 }
 
-const DEFAULT_POPOVER_CONTENT_CLASS = 'w-[360px] h-[460px] min-w-[200px] max-w-[420px] overflow-hidden rounded-[8px] bg-background text-foreground shadow-modal-small p-0'
+const DEFAULT_POPOVER_CONTENT_CLASS = 'w-[360px] min-w-[200px] max-w-[420px] overflow-hidden rounded-[8px] bg-background text-foreground shadow-modal-small p-0'
 const DEFAULT_DRAWER_CONTENT_CLASS = [
   'data-[vaul-drawer-direction=bottom]:inset-x-2',
   'data-[vaul-drawer-direction=bottom]:bottom-2',
@@ -102,6 +105,7 @@ function SessionInfoPopoverContent({ sessionId, sessionFolderPath }: { sessionId
   const { t } = useTranslation()
   const session = useSession(sessionId)
   const { onRenameSession } = useAppShellContext()
+  const openDockSection = useSetAtom(openRightDockSectionAtom)
   const [name, setName] = React.useState('')
   const renameTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -134,7 +138,7 @@ function SessionInfoPopoverContent({ sessionId, sessionFolderPath }: { sessionId
   }, [onRenameSession, sessionId])
 
   return (
-    <div className="h-full min-h-0 flex flex-col">
+    <div className="flex min-h-0 flex-col">
       <div className="shrink-0 p-3 border-b border-border/50">
         <label className="text-xs font-medium text-muted-foreground block mb-1.5 select-none">
           {t("chat.title")}
@@ -148,13 +152,33 @@ function SessionInfoPopoverContent({ sessionId, sessionFolderPath }: { sessionId
           />
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <SessionFilesSection
-          sessionId={sessionId}
-          sessionFolderPath={sessionFolderPath}
-          hideHeader={false}
-          className="h-full min-h-0"
-        />
+
+      {/*
+        The file tree itself lives in the right dock's files section — one
+        place, one expansion state. A second copy here drifted from it every
+        time the dock was open beside it.
+      */}
+      <div className="flex shrink-0 flex-col gap-0.5 p-2">
+        <button
+          type="button"
+          onClick={() => openDockSection('files')}
+          className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-foreground/90 transition-colors hover:bg-foreground/[0.04]"
+        >
+          <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+          <span className="truncate">{t('chat.sessionFiles')}</span>
+        </button>
+        {sessionFolderPath && (
+          <button
+            type="button"
+            onClick={() => window.electronAPI.showInFolder(sessionFolderPath)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-foreground/70 transition-colors hover:bg-foreground/[0.04]"
+          >
+            <span className="w-3.5 shrink-0" />
+            <span className="truncate">
+              {t('chat.viewInFileManager', { fileManager: getFileManagerName() })}
+            </span>
+          </button>
+        )}
       </div>
     </div>
   )

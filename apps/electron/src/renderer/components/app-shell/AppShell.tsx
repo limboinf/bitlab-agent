@@ -25,14 +25,16 @@ import { EMPTY_SNAPSHOT, skillsSnapshotAtom } from "@/atoms/skills"
 import { panelStackAtom, panelCountAtom, focusedPanelIdAtom, focusedSessionIdAtom, focusNextPanelAtom, focusPrevPanelAtom, parseSessionIdFromRoute } from "@/atoms/panel-stack"
 import { useContainerWidth } from "@/hooks/useContainerWidth"
 import * as storage from "@/lib/local-storage"
-import { BrowserDock } from "../browser/BrowserDock"
+import { RightDock } from "../right-dock/RightDock"
+import { RightDockSheet } from "../right-dock/RightDockSheet"
+import { resolveRightDockWidth } from "../right-dock/dock-width"
 import { useBrowserInstanceSync } from "../browser/useBrowserInstanceSync"
 import {
-  browserDockOpenAtom,
-  browserDockWidthAtom,
+  rightDockOpenAtom,
+  rightDockWidthAtom,
   DOCK_MAX_WIDTH,
   DOCK_MIN_WIDTH,
-} from "@/atoms/browser-dock"
+} from "@/atoms/right-dock"
 import { toast } from "sonner"
 import { navigate, routes, type Route } from "@/lib/navigate"
 import {
@@ -147,12 +149,13 @@ function AppShellContent({
     )
   })
 
-  // Browser dock — one per window, sitting to the right of the panel stack.
-  // Instance state syncs here, not in the dock: the dock unmounts when closed.
+  // Right dock — one per window, sitting to the right of the panel stack.
+  // Browser instance state syncs here, not in the dock: the dock unmounts when
+  // closed, and a closed dock still has to learn that an agent opened a tab.
   useBrowserInstanceSync()
-  const isBrowserDockOpen = useAtomValue(browserDockOpenAtom)
-  const [browserDockWidth, setBrowserDockWidth] = useAtom(browserDockWidthAtom)
-  const [isResizingBrowserDock, setIsResizingBrowserDock] = React.useState(false)
+  const isRightDockOpen = useAtomValue(rightDockOpenAtom)
+  const [storedRightDockWidth, setRightDockWidth] = useAtom(rightDockWidthAtom)
+  const [isResizingRightDock, setIsResizingRightDock] = React.useState(false)
 
   // Hides both sidebar and navigator (CMD+. toggle)
   // Seed from either focused window param or persisted preference, then keep it toggleable.
@@ -170,6 +173,15 @@ function AppShellContent({
 
   const isNavigationPanelHidden = isSidebarAndNavigatorHidden || !isNavigationPanelVisible
   const effectiveSidebarAndNavigatorHidden = isNavigationPanelHidden || isAutoCompact
+
+  // The dock is a permanent column now, so its stored width has to survive a
+  // window too narrow for it. Capped for display only — the stored width is
+  // untouched, so widening the window restores the size the user picked.
+  const rightDockWidth = resolveRightDockWidth({
+    storedWidth: storedRightDockWidth,
+    shellWidth,
+    navigationWidth: effectiveSidebarAndNavigatorHidden ? 0 : navigationPanelWidth,
+  })
 
   const [isResizingNavigation, setIsResizingNavigation] = React.useState(false)
   const [navigationHandleY, setNavigationHandleY] = React.useState<number | null>(null)
@@ -487,18 +499,19 @@ function AppShellContent({
     return () => document.removeEventListener('paste', handleGlobalPaste)
   }, [focusedSessionId, session.selected])
 
-  // Resize the browser dock. Mirrors the navigation sash, but measured from the
-  // right edge — the dock is anchored there.
+  // Resize the right dock. Mirrors the navigation sash, but measured from the
+  // right edge — the dock is anchored there. One width for every panel: the tabs
+  // switch content, never geometry.
   React.useEffect(() => {
-    if (!isResizingBrowserDock) return
+    if (!isResizingRightDock) return
 
     const widthFromPointer = (clientX: number) =>
       Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, window.innerWidth - clientX))
 
-    const handleMouseMove = (e: MouseEvent) => setBrowserDockWidth(widthFromPointer(e.clientX))
+    const handleMouseMove = (e: MouseEvent) => setRightDockWidth(widthFromPointer(e.clientX))
     const handleMouseUp = (e: MouseEvent) => {
-      setBrowserDockWidth(widthFromPointer(e.clientX))
-      setIsResizingBrowserDock(false)
+      setRightDockWidth(widthFromPointer(e.clientX))
+      setIsResizingRightDock(false)
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -508,7 +521,7 @@ function AppShellContent({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizingBrowserDock, setBrowserDockWidth])
+  }, [isResizingRightDock, setRightDockWidth])
 
   // Resize the single navigation domain.
   React.useEffect(() => {
@@ -1057,7 +1070,7 @@ function AppShellContent({
                 hidden: isNavigationPanelHidden,
               })}
           isSidebarAndNavigatorHidden={effectiveSidebarAndNavigatorHidden}
-          isRightSidebarVisible={isBrowserDockOpen}
+          isRightSidebarVisible={isRightDockOpen}
           isCompact={isAutoCompact}
           isResizing={isResizingNavigation}
         />
@@ -1101,22 +1114,23 @@ function AppShellContent({
         </div>
         )}
 
-        {/* Browser dock — global to the window, always the rightmost column. */}
-        {isBrowserDockOpen && !isAutoCompact && (
+        {/* Right dock — global to the window, always the rightmost column. */}
+        {isRightDockOpen && !isAutoCompact && (
           <div
             onMouseDown={(event) => {
               event.preventDefault()
-              setIsResizingBrowserDock(true)
+              setIsResizingRightDock(true)
             }}
-            aria-label={t('browser.resizeDock')}
+            aria-label={t('artifacts.resizeDock')}
             className="absolute inset-y-0 z-panel cursor-col-resize"
             style={{
               width: PANEL_SASH_HIT_WIDTH,
-              right: browserDockWidth - PANEL_SASH_HALF_HIT_WIDTH,
+              right: rightDockWidth - PANEL_SASH_HALF_HIT_WIDTH,
             }}
           />
         )}
-        {!isAutoCompact && <BrowserDock activeSessionId={effectiveSessionId} />}
+        {!isAutoCompact && <RightDock activeSessionId={effectiveSessionId} width={rightDockWidth} />}
+        {isAutoCompact && <RightDockSheet activeSessionId={effectiveSessionId} />}
 
       </div>
 
@@ -1126,7 +1140,7 @@ function AppShellContent({
         and a native view would paint over anything we drew across it anyway.
       */}
       <TopBar
-        rightInset={isBrowserDockOpen && !isAutoCompact ? browserDockWidth : 0}
+        rightInset={isRightDockOpen && !isAutoCompact ? rightDockWidth : 0}
         activeSessionId={effectiveSessionId}
         onBack={goBack}
         onForward={goForward}

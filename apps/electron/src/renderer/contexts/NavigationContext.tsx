@@ -44,7 +44,6 @@ import {
   parseRoute,
   parseRouteToNavigationState,
   buildRouteFromNavigationState,
-  buildRightSidebarParam,
   type ParsedRoute,
 } from '../../shared/route-parser'
 import { routes, type Route, type ViewRoute } from '../../shared/routes'
@@ -59,7 +58,6 @@ import type {
   Session,
   NavigationState,
   SessionFilter,
-  RightSidebarPanel,
   ContentBadge,
 } from '../../shared/types'
 import {
@@ -109,9 +107,7 @@ interface NavigationContextValue {
   /** Go forward in history */
   goForward: () => void
   /** Update right sidebar panel */
-  updateRightSidebar: (panel: RightSidebarPanel | undefined) => void
   /** Toggle right sidebar (with optional panel) */
-  toggleRightSidebar: (panel?: RightSidebarPanel) => void
   /** Navigate to a session, preserving the current filter type */
   navigateToSession: (sessionId: string) => void
 }
@@ -164,23 +160,17 @@ export function NavigationProvider({
   const store = useStore()
 
   // =========================================================================
-  // DERIVED NAVIGATION STATE (from focused panel + right sidebar)
+  // DERIVED NAVIGATION STATE (from focused panel)
   // =========================================================================
 
   const focusedRoute = useAtomValue(focusedPanelRouteAtom)
 
-  // Right sidebar is independent of panels (not per-panel state)
-  const [rightSidebar, setRightSidebar] = useState<RightSidebarPanel | undefined>()
-  const rightSidebarRef = useRef<RightSidebarPanel | undefined>(rightSidebar)
-  useEffect(() => { rightSidebarRef.current = rightSidebar }, [rightSidebar])
-
   // NavigationState derived from the focused panel's route
-  const navigationState: NavigationState = useMemo(() => {
-    const base = focusedRoute
+  const navigationState: NavigationState = useMemo(() => (
+    focusedRoute
       ? parseRouteToNavigationState(focusedRoute) ?? DEFAULT_NAVIGATION_STATE
       : DEFAULT_NAVIGATION_STATE
-    return rightSidebar ? { ...base, rightSidebar } : base
-  }, [focusedRoute, rightSidebar])
+  ), [focusedRoute])
 
   // =========================================================================
   // BROWSER HISTORY TRACKING
@@ -225,12 +215,10 @@ export function NavigationProvider({
   const getSemanticHistoryKey = useCallback(() => {
     const panels = store.get(panelStackAtom)
     const focusedIdx = store.get(focusedPanelIndexAtom)
-    const sidebarKey = buildRightSidebarParam(rightSidebarRef.current) ?? ''
     return buildSemanticHistoryKey({
       workspaceSlug,
       panelRoutes: panels.map(p => p.route),
       focusedPanelIndex: focusedIdx,
-      sidebarParam: sidebarKey,
     })
   }, [store, workspaceSlug])
 
@@ -277,13 +265,9 @@ export function NavigationProvider({
       url.searchParams.delete('fi')
     }
 
-    // ?sidebar=
-    const sidebarParam = buildRightSidebarParam(rightSidebarRef.current)
-    if (sidebarParam) {
-      url.searchParams.set('sidebar', sidebarParam)
-    } else {
-      url.searchParams.delete('sidebar')
-    }
+    // The right dock is window-local state, not a route: it never reaches the
+    // URL. Drop any ?sidebar= a restored URL still carries.
+    url.searchParams.delete('sidebar')
 
     const urlStr = url.toString()
 
@@ -314,13 +298,13 @@ export function NavigationProvider({
     lastSemanticHistoryKeyRef.current = currentSemanticKey
   }, [getSemanticHistoryKey])
 
-  // replaceState sync when panel stack, focus, or sidebar changes (catches resize, etc.)
+  // replaceState sync when panel stack or focus changes (catches resize, etc.)
   const panelStack = useAtomValue(panelStackAtom)
   const focusedPanelId = useAtomValue(focusedPanelIdAtom)
   useEffect(() => {
     if (!initialRouteRestoredRef.current) return
     syncUrlRef.current(false)
-  }, [panelStack, focusedPanelId, rightSidebar])
+  }, [panelStack, focusedPanelId])
 
   // =========================================================================
   // ATOM SUBSCRIPTIONS FOR pushState (meaningful navigation)
@@ -360,42 +344,19 @@ export function NavigationProvider({
     return unsub
   }, [store, maybePushHistoryForSemanticChange])
 
-  // Right sidebar changes: push history
-  const prevSidebarTypeRef = useRef(rightSidebar?.type)
-  useEffect(() => {
-    if (rightSidebar?.type === prevSidebarTypeRef.current) return
-    prevSidebarTypeRef.current = rightSidebar?.type
-    if (suppressPushRef.current) return
-    if (!initialRouteRestoredRef.current) return
-    maybePushHistoryForSemanticChange()
-  }, [rightSidebar, maybePushHistoryForSemanticChange])
-
   // =========================================================================
   // RECONCILE PANELS FROM URL PARAMS
   // =========================================================================
 
   /**
-   * Parse URL search params and reconcile the panel stack + sidebar.
+   * Parse URL search params and reconcile the panel stack.
    * Uses reconcilePanelStackAtom for smart matching (preserves React keys).
    */
   const reconcileFromUrlParams = useCallback(
     (params: URLSearchParams) => {
       const initialRoute = params.get('route')
-      const sidebarParam = params.get('sidebar') || undefined
       const panelsParam = params.get('panels')
       const focusedIndexParam = params.get('fi')
-
-      // Restore right sidebar
-      if (sidebarParam) {
-        const parsed = parseRouteToNavigationState('allSessions', sidebarParam)
-        if (parsed?.rightSidebar) {
-          setRightSidebar(parsed.rightSidebar)
-        } else {
-          setRightSidebar(undefined)
-        }
-      } else {
-        setRightSidebar(undefined)
-      }
 
       // Parse panel entries from URL
       let entries: { route: ViewRoute; proportion: number }[] = []
@@ -1096,19 +1057,6 @@ export function NavigationProvider({
   // SIDEBAR HELPERS
   // =========================================================================
 
-  const updateRightSidebar = useCallback((panel: RightSidebarPanel | undefined) => {
-    setRightSidebar(panel)
-    // pushState handled by the rightSidebar change effect
-  }, [])
-
-  const toggleRightSidebar = useCallback((panel?: RightSidebarPanel) => {
-    const currentSidebar = rightSidebarRef.current
-    const newPanel = panel || (currentSidebar && currentSidebar.type !== 'none'
-      ? { type: 'none' as const }
-      : { type: 'none' as const })
-    updateRightSidebar(newPanel)
-  }, [updateRightSidebar])
-
   // =========================================================================
   // PRESERVE-FILTER NAVIGATION HELPERS
   // =========================================================================
@@ -1177,8 +1125,6 @@ export function NavigationProvider({
         canGoForward,
         goBack,
         goForward,
-        updateRightSidebar,
-        toggleRightSidebar,
         navigateToSession,
       }}
     >

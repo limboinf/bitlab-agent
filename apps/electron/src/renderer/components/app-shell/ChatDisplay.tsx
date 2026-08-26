@@ -41,7 +41,10 @@ import {
   type DiffViewerSettings,
 } from "@bitlab/ui"
 import { useFocusZone } from "@/hooks/keyboard"
+import { useSetAtom } from "jotai"
 import { useTheme } from "@/hooks/useTheme"
+import { useSessionArtifacts } from "@/hooks/useSessionArtifacts"
+import { openRightDockSectionAtom } from "@/atoms/right-dock"
 import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest, LoadedSkill } from "../../../shared/types"
 import type { PermissionMode } from "@bitlab/shared/agent/modes"
 import type { ThinkingLevel } from "@bitlab/shared/agent/thinking-levels"
@@ -59,6 +62,7 @@ import {
   extractAnnotationSelectedText,
   normalizeFollowUpText,
   isExternalMcpToolName,
+  selectTurnProducedFiles,
   type Turn,
   type AssistantTurn,
   type UserTurn,
@@ -462,6 +466,11 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   const appShellContext = useAppShellContext()
   const isFocusedPanel = appShellContext?.isFocusedPanel ?? true
   const activeWorkspace = useActiveWorkspace()
+
+  // Artifacts for this panel's session, so every finished turn can show what it
+  // produced. The store behind this hook is shared with the right dock.
+  const { artifacts } = useSessionArtifacts(session?.id)
+  const openDockSection = useSetAtom(openRightDockSectionAtom)
 
   // Input is only disabled when explicitly disabled (e.g., agent needs activation)
   // User can type during streaming - submitting will stop the stream and send
@@ -1729,6 +1738,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                         onExpandedActivityGroupsChange={setExpandedActivityGroups}
                         onOpenFile={onOpenFile}
                         onOpenUrl={onOpenUrl}
+                        producedFiles={selectTurnProducedFiles(artifacts, turn.activities)}
+                        onViewAllArtifacts={() => openDockSection('artifacts')}
                         isLastResponse={isLastResponse}
                         compactMode={compactMode}
                         sendMessageKey={sendMessageKey}

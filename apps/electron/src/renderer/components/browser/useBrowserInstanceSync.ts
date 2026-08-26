@@ -15,7 +15,7 @@ import {
   setBrowserInstancesAtom,
   updateBrowserInstanceAtom,
 } from '@/atoms/browser-pane'
-import { browserDockOpenAtom } from '@/atoms/browser-dock'
+import { openRightDockBrowserAtom } from '@/atoms/right-dock'
 import type { BrowserInstanceInfo, BrowserShowRequest } from '../../../shared/types'
 
 export function useBrowserInstanceSync(): void {
@@ -23,7 +23,7 @@ export function useBrowserInstanceSync(): void {
   const updateInstance = useSetAtom(updateBrowserInstanceAtom)
   const removeInstance = useSetAtom(removeBrowserInstanceAtom)
   const setActiveInstanceId = useSetAtom(activeBrowserInstanceIdAtom)
-  const setDockOpen = useSetAtom(browserDockOpenAtom)
+  const showBrowserInDock = useSetAtom(openRightDockBrowserAtom)
 
   const instanceIdsRef = useRef<string[]>([])
 
@@ -68,9 +68,11 @@ export function useBrowserInstanceSync(): void {
 
     // Main can't mount the dock itself, so anything that used to show a window
     // (agent tool call, empty-state launch, window.open) arrives here instead.
+    // It has to switch the dock into browser mode, not just open the dock: the
+    // user may have left it on the artifact sections.
     const cleanupShowRequest = api.onShowRequest?.((payload: BrowserShowRequest) => {
       setActiveInstanceId(payload.instanceId)
-      setDockOpen(true)
+      showBrowserInDock()
     })
 
     return () => {
@@ -79,5 +81,5 @@ export function useBrowserInstanceSync(): void {
       cleanupRemoved?.()
       cleanupShowRequest?.()
     }
-  }, [setInstances, updateInstance, removeInstance, setActiveInstanceId, setDockOpen])
+  }, [setInstances, updateInstance, removeInstance, setActiveInstanceId, showBrowserInDock])
 }

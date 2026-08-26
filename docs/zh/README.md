@@ -7,6 +7,7 @@
 | 主题 | 文档 |
 | --- | --- |
 | 整体架构 | [architecture.md](./architecture.md) |
+| 产物中心技术设计（侧边栏、产物识别与预览复用） | [artifact-center-design.md](./artifact-center-design.md) |
 | 附件 | [attachments.md](./attachments.md) |
 | Browser 面板 | [browser.md](./browser.md) |
 | 连接与模型 | [connections.md](./connections.md) |

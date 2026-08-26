@@ -1,13 +1,19 @@
 /**
- * Browser Dock Atoms
+ * Right Dock Atoms
  *
- * The dock is the right-hand browser column. It is global to the window — one
- * dock, N tabs — not per chat panel, so its state lives here rather than in the
- * panel stack.
+ * One dock owns the window's right-hand column. It is a permanent fixture, not
+ * a drawer you summon: artifacts, changes and session files stack in it as
+ * collapsible sections you can have open at once, because "what did it make"
+ * and "what did it touch" are usually the same question.
+ *
+ * The browser is the one thing that cannot be a section. It is a native
+ * WebContentsView pinned to a rect the main process paints over the renderer;
+ * a box whose height changes as siblings expand would drag it around and could
+ * not be positioned at all with two sections open. So it takes over the dock as
+ * a mode instead.
  *
  * The renderer owns dock geometry outright: it measures a placeholder div and
- * pushes bounds/visibility to the main process, which parks the native
- * WebContentsView on that rect. Nothing in main guesses layout.
+ * pushes bounds/visibility to the main process. Nothing in main guesses layout.
  */
 
 import { atom } from 'jotai'
@@ -17,24 +23,88 @@ export const DOCK_MIN_WIDTH = 360
 export const DOCK_MAX_WIDTH = 1100
 export const DOCK_DEFAULT_WIDTH = 480
 
+/** Stacked, independently collapsible content. Order matches the rendered column. */
+export const RIGHT_DOCK_SECTIONS = ['artifacts', 'changes', 'files'] as const
+export type RightDockSection = (typeof RIGHT_DOCK_SECTIONS)[number]
+
+/** Sections, or the browser taking over the whole column. */
+export type RightDockMode = 'sections' | 'browser'
+
+type SectionExpansion = Record<RightDockSection, boolean>
+
+/** Artifacts lead — the deliverables are what a finished task is judged by. */
+const DEFAULT_EXPANSION: SectionExpansion = { artifacts: true, changes: false, files: false }
+
 function clampDockWidth(width: number): number {
   return Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, Math.round(width)))
 }
 
-/** Dock column mounted and on screen. */
-export const browserDockOpenAtom = atom(false)
+function readStoredExpansion(): SectionExpansion {
+  const stored = storage.get<Partial<SectionExpansion>>(storage.KEYS.rightDockSections, {})
+  return { ...DEFAULT_EXPANSION, ...stored }
+}
 
-const dockWidthBaseAtom = atom<number>(
-  clampDockWidth(Number(storage.get(storage.KEYS.browserDockWidth, DOCK_DEFAULT_WIDTH))),
+const rightDockOpenBaseAtom = atom(storage.get(storage.KEYS.rightDockOpen, true))
+
+/** Dock column mounted and on screen. Open by default, and the choice sticks. */
+export const rightDockOpenAtom = atom(
+  (get) => get(rightDockOpenBaseAtom),
+  (_get, set, open: boolean) => {
+    set(rightDockOpenBaseAtom, open)
+    storage.set(storage.KEYS.rightDockOpen, open)
+  },
 )
 
-/** Persisted dock width; clamped on both read and write. */
-export const browserDockWidthAtom = atom(
+const rightDockModeBaseAtom = atom<RightDockMode>(
+  storage.get<RightDockMode>(storage.KEYS.rightDockMode, 'sections') === 'browser'
+    ? 'browser'
+    : 'sections',
+)
+
+export const rightDockModeAtom = atom(
+  (get) => get(rightDockModeBaseAtom),
+  (_get, set, mode: RightDockMode) => {
+    set(rightDockModeBaseAtom, mode)
+    storage.set(storage.KEYS.rightDockMode, mode)
+  },
+)
+
+const rightDockSectionsBaseAtom = atom<SectionExpansion>(readStoredExpansion())
+
+export const rightDockSectionsAtom = atom(
+  (get) => get(rightDockSectionsBaseAtom),
+  (get, set, section: RightDockSection, expanded?: boolean) => {
+    const current = get(rightDockSectionsBaseAtom)
+    const next = { ...current, [section]: expanded ?? !current[section] }
+    set(rightDockSectionsBaseAtom, next)
+    storage.set(storage.KEYS.rightDockSections, next)
+  },
+)
+
+/** Show one section: open the dock, leave the browser, expand that section. */
+export const openRightDockSectionAtom = atom(null, (_get, set, section: RightDockSection) => {
+  set(rightDockOpenAtom, true)
+  set(rightDockModeAtom, 'sections')
+  set(rightDockSectionsAtom, section, true)
+})
+
+/** Hand the column to the browser. */
+export const openRightDockBrowserAtom = atom(null, (_get, set) => {
+  set(rightDockOpenAtom, true)
+  set(rightDockModeAtom, 'browser')
+})
+
+const dockWidthBaseAtom = atom<number>(
+  clampDockWidth(Number(storage.get(storage.KEYS.rightDockWidth, DOCK_DEFAULT_WIDTH))),
+)
+
+/** Persisted dock width; clamped on both read and write. Shared by every mode. */
+export const rightDockWidthAtom = atom(
   (get) => get(dockWidthBaseAtom),
   (_get, set, width: number) => {
     const next = clampDockWidth(width)
     set(dockWidthBaseAtom, next)
-    storage.set(storage.KEYS.browserDockWidth, next)
+    storage.set(storage.KEYS.rightDockWidth, next)
   },
 )
 

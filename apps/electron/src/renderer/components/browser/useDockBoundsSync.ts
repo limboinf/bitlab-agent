@@ -13,6 +13,15 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import type { BrowserDockStatePayload } from '../../../shared/types'
 
+/**
+ * Geometry is advisory: a host that cannot park a native view (a remote WebUI)
+ * or one tearing the window down simply has nowhere to put it. Swallow the
+ * failure rather than letting every frame raise an unhandled rejection.
+ */
+function pushDockState(payload: BrowserDockStatePayload): void {
+  void window.electronAPI?.browserPane?.setDockState?.(payload)?.catch(() => {})
+}
+
 interface DockSyncInput {
   visible: boolean
   suppressed: boolean
@@ -74,7 +83,7 @@ export function useDockBoundsSync(
       }
 
       lastSentRef.current = next
-      void api.setDockState(next)
+      pushDockState(next)
     }
 
     const schedule = () => {
@@ -116,7 +125,7 @@ export function useDockBoundsSync(
 
       const next: BrowserDockStatePayload = { visible, suppressed, activeInstanceId, bounds }
       lastSentRef.current = next
-      void api.setDockState(next)
+      pushDockState(next)
     })
 
     return () => cancelAnimationFrame(frame)
@@ -125,7 +134,7 @@ export function useDockBoundsSync(
   // Detach on unmount so a closed dock never leaves an orphaned native view.
   useEffect(() => {
     return () => {
-      void window.electronAPI?.browserPane?.setDockState?.({
+      pushDockState({
         visible: false,
         suppressed: false,
         activeInstanceId: null,

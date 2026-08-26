@@ -25,6 +25,7 @@ export const CHANNEL_MAP = {
   getSessionPermissionModeState: invoke(RPC_CHANNELS.sessions.GET_PERMISSION_MODE_STATE),
   searchSessionContent: invoke(RPC_CHANNELS.sessions.SEARCH_CONTENT),
   getSessionFiles: invoke(RPC_CHANNELS.sessions.GET_FILES),
+  getSessionArtifacts: invoke(RPC_CHANNELS.sessions.GET_ARTIFACTS),
   getSessionNotes: invoke(RPC_CHANNELS.sessions.GET_NOTES),
   setSessionNotes: invoke(RPC_CHANNELS.sessions.SET_NOTES),
   watchSessionFiles: invoke(RPC_CHANNELS.sessions.WATCH_FILES),

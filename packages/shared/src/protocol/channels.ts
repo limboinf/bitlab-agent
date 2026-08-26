@@ -32,6 +32,7 @@ export const RPC_CHANNELS = {
     GET_MODEL: 'session:getModel',
     SET_MODEL: 'session:setModel',
     GET_FILES: 'sessions:getFiles',
+    GET_ARTIFACTS: 'sessions:getArtifacts',
     GET_NOTES: 'sessions:getNotes',
     SET_NOTES: 'sessions:setNotes',
     WATCH_FILES: 'sessions:watchFiles',

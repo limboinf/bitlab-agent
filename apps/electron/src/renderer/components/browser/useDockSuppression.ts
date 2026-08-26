@@ -13,7 +13,7 @@
 import { useEffect } from 'react'
 import { useSetAtom } from 'jotai'
 import { subscribeNativeViewOcclusion } from '@bitlab/ui'
-import { acquireDockSuppressionAtom, releaseDockSuppressionAtom } from '@/atoms/browser-dock'
+import { acquireDockSuppressionAtom, releaseDockSuppressionAtom } from '@/atoms/right-dock'
 
 export function useDockSuppression(active = true): void {
   const acquire = useSetAtom(acquireDockSuppressionAtom)

@@ -45,6 +45,10 @@ export {
   mapToolEventToActivity,
   SIZE_CONFIG,
   ActivityStatusIcon,
+  // Produced files (turn artifacts)
+  ProducedFilesRow,
+  MAX_PRODUCED_CHIPS,
+  selectTurnProducedFiles,
   // Task list (todo_write)
   TaskList,
   TaskRow,
@@ -54,6 +58,10 @@ export {
   formatTaskListSummary,
   type TaskListProps,
   type TaskListCounts,
+  type ProducedFile,
+  type ProducedFilesRowProps,
+  type TurnArtifactSource,
+  type TurnActivitySource,
   type TurnCardProps,
   type TurnCardActionsMenuProps,
   type ResponseCardProps,

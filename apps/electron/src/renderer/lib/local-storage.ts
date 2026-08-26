@@ -16,8 +16,11 @@ export const KEYS = {
   collapsedSessionGroups: 'collapsed-session-groups',
   sidebarExtensionsOpen: 'sidebar-extensions-open',
 
-  // Browser dock (right-hand browser column)
-  browserDockWidth: 'browser-dock-width',
+  // Right dock (artifacts / changes / files sections, or the browser)
+  rightDockWidth: 'right-dock-width',
+  rightDockOpen: 'right-dock-open',
+  rightDockMode: 'right-dock-mode',
+  rightDockSections: 'right-dock-sections',
 
   // Focus mode
   focusModeEnabled: 'focus-mode-enabled',

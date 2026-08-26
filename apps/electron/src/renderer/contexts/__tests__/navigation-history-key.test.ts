@@ -9,14 +9,12 @@ describe('buildSemanticHistoryKey', () => {
       workspaceSlug: 'ws',
       panelRoutes,
       focusedPanelIndex: 0,
-      sidebarParam: '',
     })
 
     const keyB = buildSemanticHistoryKey({
       workspaceSlug: 'ws',
       panelRoutes,
       focusedPanelIndex: 1,
-      sidebarParam: '',
     })
 
     expect(keyA).not.toBe(keyB)
@@ -27,7 +25,6 @@ describe('buildSemanticHistoryKey', () => {
       workspaceSlug: 'ws',
       panelRoutes: ['allSessions/session/s1', 'sources/source/github'],
       focusedPanelIndex: 1,
-      sidebarParam: 'files',
     }
 
     const keyA = buildSemanticHistoryKey(input)

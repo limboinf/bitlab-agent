@@ -46,8 +46,6 @@ export interface DeepLinkTarget {
   actionParams?: Record<string, string>
   /** Window mode - if set, opens in a new window instead of navigating in existing */
   windowMode?: 'focused' | 'full'
-  /** Right sidebar param (e.g., 'files/path/to/file', 'history') */
-  rightSidebar?: string
 }
 
 export interface DeepLinkResult {
@@ -79,13 +77,6 @@ function parseWindowMode(parsed: URL): 'focused' | 'full' | undefined {
 }
 
 /**
- * Parse right sidebar param from URL search params
- */
-function parseRightSidebar(parsed: URL): string | undefined {
-  return parsed.searchParams.get('sidebar') || undefined
-}
-
-/**
  * Parse a deep link URL into structured target
  */
 export function parseDeepLink(url: string): DeepLinkTarget | null {
@@ -102,7 +93,6 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
     const host = parsed.hostname
     const pathParts = parsed.pathname.split('/').filter(Boolean)
     const windowMode = parseWindowMode(parsed)
-    const rightSidebar = parseRightSidebar(parsed)
 
     // Compound route prefixes
     const COMPOUND_ROUTE_PREFIXES = [
@@ -117,7 +107,6 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
         workspaceId: undefined,
         view: viewRoute,
         windowMode,
-        rightSidebar,
       }
     }
 
@@ -126,7 +115,7 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
       const workspaceId = pathParts[0]
       if (!workspaceId) return null
 
-      const result: DeepLinkTarget = { workspaceId, windowMode, rightSidebar }
+      const result: DeepLinkTarget = { workspaceId, windowMode }
 
       // Check what type of route follows the workspace ID
       const routeType = pathParts[1]
@@ -148,8 +137,8 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
           result.actionParams.id = pathParts[3]
         }
         parsed.searchParams.forEach((value, key) => {
-          // Skip the window and sidebar params - they're handled separately
-          if (key !== 'window' && key !== 'sidebar') {
+          // Skip the window param - it's handled separately
+          if (key !== 'window') {
             result.actionParams![key] = value
           }
         })
@@ -166,7 +155,6 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
         action: pathParts[0],
         actionParams: {},
         windowMode,
-        rightSidebar,
       }
 
       if (pathParts[1]) {
@@ -174,8 +162,8 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
       }
 
       parsed.searchParams.forEach((value, key) => {
-        // Skip the window and sidebar params - they're handled separately
-        if (key !== 'window' && key !== 'sidebar') {
+        // Skip the window param - it's handled separately
+        if (key !== 'window') {
           result.actionParams![key] = value
         }
       })

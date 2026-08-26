@@ -9,6 +9,7 @@ import { isValidThinkingLevel, THINKING_LEVEL_IDS } from '@bitlab/shared/agent/t
 const VALID_THINKING_LEVELS_LIST = THINKING_LEVEL_IDS.map(id => `'${id}'`).join(', ')
 import { pushTyped, type RpcServer } from '@bitlab/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
+import { buildSessionArtifactsSnapshot } from '../../sessions/artifacts'
 
 interface ClientSessionWatchState {
   watcher: import('fs').FSWatcher
@@ -56,8 +57,16 @@ export function cleanupSessionFileWatchForClient(clientId: string): void {
   clientSessionWatches.delete(clientId)
 }
 
+/**
+ * Runtime bookkeeping that lives in the session directory but means nothing to
+ * the user: the transcript itself, the interceptor's captured API error and its
+ * tool-metadata cache. Left in, they were the *only* entries most sessions had,
+ * which made the files panel look like it was showing the wrong thing.
+ */
+const INTERNAL_SESSION_FILES = new Set(['session.jsonl', 'api-error.json', 'tool-metadata.json'])
+
 // Recursive directory scanner for session files
-// Filters out internal files (session.jsonl) and hidden files (. prefix)
+// Filters out runtime bookkeeping and hidden files (. prefix)
 // Returns only non-empty directories
 async function scanSessionDirectory(dirPath: string): Promise<import('@bitlab/shared/protocol').SessionFile[]> {
   const { readdir, stat } = await import('fs/promises')
@@ -66,7 +75,7 @@ async function scanSessionDirectory(dirPath: string): Promise<import('@bitlab/sh
 
   for (const entry of entries) {
     // Skip internal and hidden files
-    if (entry.name === 'session.jsonl' || entry.name.startsWith('.')) continue
+    if (INTERNAL_SESSION_FILES.has(entry.name) || entry.name.startsWith('.')) continue
 
     const fullPath = join(dirPath, entry.name)
 
@@ -116,6 +125,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.sessions.GET_PERMISSION_MODE_STATE,
   RPC_CHANNELS.sessions.SEARCH_CONTENT,
   RPC_CHANNELS.sessions.GET_FILES,
+  RPC_CHANNELS.sessions.GET_ARTIFACTS,
   RPC_CHANNELS.sessions.GET_NOTES,
   RPC_CHANNELS.sessions.SET_NOTES,
   RPC_CHANNELS.sessions.WATCH_FILES,
@@ -423,6 +433,25 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
       log.error('Failed to get session files:', error)
       return []
     }
+  })
+
+  // Artifacts are derived on demand from the transcript plus the session's
+  // output folders — there is no artifact store to read or invalidate.
+  server.handle(RPC_CHANNELS.sessions.GET_ARTIFACTS, async (_ctx, sessionId: string) => {
+    const sessionPath = sessionManager.getSessionPath(sessionId)
+    const session = await sessionManager.getSession(sessionId)
+    if (!sessionPath || !session) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+
+    return buildSessionArtifactsSnapshot({
+      sessionId,
+      messages: session.messages,
+      context: {
+        sessionFolderPath: sessionPath,
+        cwd: session.workingDirectory,
+      },
+    })
   })
 
   // Start watching a session directory for file changes (per client)

@@ -41,6 +41,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '../tooltip'
 import { parseDiffFromFile, type FileContents } from '@pierre/diffs'
 import { getDiffStats, getUnifiedDiffStats } from '../code-viewer'
 import { TurnCardActionsMenu } from './TurnCardActionsMenu'
+import { ProducedFilesRow, type ProducedFile } from './ProducedFilesRow'
 import { computeLastChildSet, groupActivitiesByParent, isActivityGroup, formatDuration, formatTokens, deriveTurnPhase, shouldShowThinkingIndicator, type ActivityGroup, type AssistantTurn } from './turn-utils'
 import { getInlineToolDetail, INLINE_DETAIL_MAX_LINES, type InlineToolDetail } from './tool-detail'
 import { getMcpActivityPresentation } from './mcp-activity'
@@ -413,6 +414,14 @@ export interface TurnCardProps {
   openAnnotationRequest?: OpenAnnotationRequest | null
   /** Annotation interaction mode (viewer uses tooltip-only to suppress the island) */
   annotationInteractionMode?: AnnotationInteractionMode
+  /**
+   * Artifacts this turn produced, matched to its own tool calls. Rendered under
+   * the final response once the turn is complete — a still-running turn would
+   * flash failed writes as finished deliverables.
+   */
+  producedFiles?: ProducedFile[]
+  /** Opens the artifacts panel from the produced-files row. */
+  onViewAllArtifacts?: () => void
 }
 
 /**
@@ -1580,6 +1589,8 @@ export interface ResponseCardProps {
   openAnnotationRequest?: OpenAnnotationRequest | null
   /** Annotation interaction mode (viewer uses tooltip-only to suppress the island) */
   annotationInteractionMode?: AnnotationInteractionMode
+  /** Rendered between the response body and its action row. */
+  producedFilesSlot?: React.ReactNode
 }
 
 interface BranchDropdownProps {
@@ -1815,6 +1826,7 @@ export function ResponseCard({
   hasActiveFollowUpAnnotations = false,
   openAnnotationRequest,
   annotationInteractionMode = 'interactive',
+  producedFilesSlot,
 }: ResponseCardProps) {
   const { t } = useTranslation()
   const displayedText = useThrottledStreamText(text, isStreaming)
@@ -2612,6 +2624,8 @@ export function ResponseCard({
             </div>
           </div>
 
+          {producedFilesSlot}
+
           {/* Desktop actions (Copy / Markdown / Accept Plan / Branch).
               Compact mode falls through to the slim Accept-Plan-only row below. */}
           {!compactMode && (
@@ -2807,6 +2821,8 @@ export const TurnCard = React.memo(function TurnCard({
   hasActiveFollowUpAnnotations = false,
   openAnnotationRequest,
   annotationInteractionMode = 'interactive',
+  producedFiles,
+  onViewAllArtifacts,
 }: TurnCardProps) {
   // Derive the turn phase from props using the state machine.
   // This provides a single source of truth for lifecycle state,
@@ -2984,6 +3000,24 @@ export const TurnCard = React.memo(function TurnCard({
   // This properly handles the "gap" state (awaiting) between tool completion and next action,
   // which was previously causing the turn card to "disappear".
   const isThinking = shouldShowThinkingIndicator(turnPhase)
+
+  // Only a finished turn gets a produced-files row. Mid-turn it would show
+  // writes that a later step still overwrites or that the run never completes.
+  const producedFilesRow = isComplete && !isStreaming && producedFiles && producedFiles.length > 0
+    ? (
+      <ProducedFilesRow
+        files={producedFiles}
+        onOpenFile={onOpenFile}
+        onViewAll={onViewAllArtifacts}
+      />
+    )
+    : null
+
+  // The row belongs under the answer, so the response card takes it and places
+  // it above its action bar. A card that wrote files but ends without a final
+  // response — the work half of a turn split around a submitted plan — still
+  // has to show them, so it falls back to the card's own footer.
+  const standaloneProducedFilesRow = response ? null : producedFilesRow
 
   return (
     <div className="space-y-1">
@@ -3215,6 +3249,7 @@ export const TurnCard = React.memo(function TurnCard({
                 onOpenFile={onOpenFile}
                 onOpenUrl={onOpenUrl}
                 onPopOut={onPopOut ? () => onPopOut(response.text) : undefined}
+                producedFilesSlot={producedFilesRow}
                 variant={response.isPlan ? 'plan' : 'response'}
                 messageId={response.messageId}
                 annotations={response.annotations}
@@ -3246,6 +3281,7 @@ export const TurnCard = React.memo(function TurnCard({
             onOpenFile={onOpenFile}
             onOpenUrl={onOpenUrl}
             onPopOut={onPopOut ? () => onPopOut(response.text) : undefined}
+            producedFilesSlot={producedFilesRow}
             variant={response.isPlan ? 'plan' : 'response'}
             messageId={response.messageId}
             annotations={response.annotations}
@@ -3264,6 +3300,10 @@ export const TurnCard = React.memo(function TurnCard({
             annotationInteractionMode={annotationInteractionMode}
           />
         </div>
+      )}
+
+      {standaloneProducedFilesRow && (
+        <div className="px-3">{standaloneProducedFilesRow}</div>
       )}
     </div>
   )
@@ -3301,6 +3341,9 @@ export const TurnCard = React.memo(function TurnCard({
 
   // Re-render when external annotation-open requests change
   if (prev.openAnnotationRequest !== next.openAnnotationRequest) return false
+
+  // Re-render when the turn's artifacts change (a late write, a deleted file)
+  if (prev.producedFiles !== next.producedFiles) return false
 
   // Re-render when active follow-up annotation state changes (plan CTA label)
   if (prev.hasActiveFollowUpAnnotations !== next.hasActiveFollowUpAnnotations) return false

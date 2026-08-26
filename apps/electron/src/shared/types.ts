@@ -228,6 +228,7 @@ import type {
   TestLlmConnectionResult,
   SkillFile,
   SessionFile,
+  SessionArtifactsSnapshot,
   GitBashStatus,
   UpdateInfo,
   WorkspaceSettings,
@@ -415,6 +416,7 @@ export interface ElectronAPI {
 
   // Session Info Panel
   getSessionFiles(sessionId: string): Promise<SessionFile[]>
+  getSessionArtifacts(sessionId: string): Promise<SessionArtifactsSnapshot>
   getSessionNotes(sessionId: string): Promise<string>
   setSessionNotes(sessionId: string, content: string): Promise<void>
   watchSessionFiles(sessionId: string): Promise<void>
@@ -633,11 +635,6 @@ export interface ElectronAPI {
 // Navigation types (renderer-only)
 // =============================================================================
 
-export type RightSidebarPanel =
-  | { type: 'files'; path?: string }
-  | { type: 'history' }
-  | { type: 'none' }
-
 export type SessionFilter =
   | { kind: 'allSessions' }
   | { kind: 'flagged' }
@@ -652,19 +649,16 @@ export interface SessionsNavigationState {
   details: { type: 'session'; sessionId: string } | null
   /** True only for the explicit empty Chat surface opened by “New task”. */
   isNewSessionDraft?: true
-  rightSidebar?: RightSidebarPanel
 }
 
 export interface SettingsNavigationState {
   navigator: 'settings'
   subpage: SettingsSubpage | null
-  rightSidebar?: RightSidebarPanel
 }
 
 export interface SkillsNavigationState {
   navigator: 'skills'
   details: { type: 'skill'; skillSlug: string } | null
-  rightSidebar?: RightSidebarPanel
 }
 
 export type NavigationState =

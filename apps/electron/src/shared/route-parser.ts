@@ -5,7 +5,7 @@
  * sessions, Skills, and settings still share the same URL-driven panel model.
  */
 
-import type { NavigationState, SessionFilter, RightSidebarPanel } from './types'
+import type { NavigationState, SessionFilter } from './types'
 import { isValidSettingsSubpage } from './settings-registry'
 
 export type RouteType = 'action' | 'view'
@@ -155,13 +155,11 @@ function compoundToNavigationState(compound: ParsedCompoundRoute): NavigationSta
   }
 }
 
-export function parseRouteToNavigationState(route: string, sidebarParam?: string): NavigationState | null {
+export function parseRouteToNavigationState(route: string): NavigationState | null {
   if (!isCompoundRoute(route)) return null
   const compound = parseCompoundRoute(route)
   if (!compound) return null
-  const state = compoundToNavigationState(compound)
-  const rightSidebar = parseRightSidebarParam(sidebarParam)
-  return rightSidebar ? { ...state, rightSidebar } : state
+  return compoundToNavigationState(compound)
 }
 
 export function buildRouteFromNavigationState(state: NavigationState): string {
@@ -174,19 +172,4 @@ export function buildRouteFromNavigationState(state: NavigationState): string {
   const base = state.filter.kind
   if (state.isNewSessionDraft) return `${base}/new`
   return state.details ? `${base}/session/${state.details.sessionId}` : base
-}
-
-export function parseRightSidebarParam(sidebarStr?: string): RightSidebarPanel | undefined {
-  if (!sidebarStr) return undefined
-  if (sidebarStr === 'history') return { type: 'history' }
-  if (sidebarStr === 'files') return { type: 'files' }
-  if (sidebarStr.startsWith('files/')) return { type: 'files', path: sidebarStr.slice(6) || undefined }
-  if (sidebarStr === 'none') return { type: 'none' }
-  return undefined
-}
-
-export function buildRightSidebarParam(panel?: RightSidebarPanel): string | undefined {
-  if (!panel || panel.type === 'none') return undefined
-  if (panel.type === 'history') return 'history'
-  return panel.path ? `files/${panel.path}` : 'files'
 }

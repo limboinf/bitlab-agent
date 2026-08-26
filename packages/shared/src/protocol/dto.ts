@@ -246,6 +246,63 @@ export interface FileAttachment {
 export interface SessionFile { name: string; path: string; type: 'file' | 'directory'; size?: number; children?: SessionFile[] }
 export interface FileSearchResult { name: string; path: string; type: 'file' | 'directory'; relativePath: string }
 
+// ---------------------------------------------------------------------------
+// Session artifacts
+//
+// An artifact is a *projection* over facts the session already persists: the
+// successful file-writing tool messages, plus whatever really landed in the
+// session's declared output folders (plans/, data/). There is no artifact
+// store — nothing here is written anywhere.
+// ---------------------------------------------------------------------------
+
+export type ArtifactKind =
+  | 'html'
+  | 'markdown'
+  | 'pdf'
+  | 'image'
+  | 'json'
+  | 'code'
+  | 'text'
+  | 'office'
+  | 'other'
+
+/** One successful write, traced back to the tool message that caused it. */
+export interface ArtifactRevision {
+  /** Persisted tool Message id that produced this revision. */
+  messageId: string
+  toolUseId: string
+  toolName: string
+  turnId?: string
+  timestamp: number
+}
+
+export interface SessionArtifact {
+  /** Normalized absolute host path. Also the aggregation key. */
+  path: string
+  /**
+   * Display path, relative to the session folder or the session cwd — whichever
+   * contains it. Falls back to the absolute path. Computed host-side so the
+   * renderer never does path math of its own.
+   */
+  relativePath: string
+  name: string
+  kind: ArtifactKind
+  scope: 'session' | 'workspace'
+  classification: 'artifact' | 'change'
+  exists: boolean
+  size?: number
+  modifiedAt?: number
+  /** `tool` = traceable write; `session-output` = found by scanning plans/ or data/. */
+  sources: Array<'tool' | 'session-output'>
+  revisions: ArtifactRevision[]
+}
+
+export interface SessionArtifactsSnapshot {
+  sessionId: string
+  artifacts: SessionArtifact[]
+  changes: SessionArtifact[]
+}
+
 /**
  * One model in a setup payload. A bare string carries no capability hints and
  * lets the provider catalog fill them in; the object form pins what the catalog

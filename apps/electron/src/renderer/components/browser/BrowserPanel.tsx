@@ -1,8 +1,9 @@
 /**
- * BrowserDock
+ * BrowserPanel
  *
- * The right-hand browser column. One dock per window, N tabs inside it —
- * browser instances are never separate native windows.
+ * The browser panel of the RightDock. One panel per window, N tabs inside it —
+ * browser instances are never separate native windows. The dock owns the
+ * column, its width and its close button; this owns everything below that.
  *
  * Everything above the page (tab strip, toolbar, empty/crash states, the
  * agent-control ring) is ordinary React. Only the page itself is a native
@@ -13,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { useAtom, useAtomValue } from 'jotai'
 import * as Icons from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { BrowserControls, Spinner } from '@bitlab/ui'
@@ -22,11 +23,7 @@ import {
   browserInstancesAtom,
   filterInstancesForWorkspace,
 } from '@/atoms/browser-pane'
-import {
-  browserDockOpenAtom,
-  browserDockSuppressedAtom,
-  browserDockWidthAtom,
-} from '@/atoms/browser-dock'
+import { browserDockSuppressedAtom, rightDockModeAtom } from '@/atoms/right-dock'
 import { useAppShellContext } from '@/context/AppShellContext'
 import type { BrowserInstanceInfo } from '../../../shared/types'
 import { getHostname } from './utils'
@@ -35,8 +32,8 @@ import { useOverlayOcclusionSuppression } from './useDockSuppression'
 import { buildBrowserMentionToken, useBrowserMentionPage } from './useBrowserMentionPage'
 import { useAnnotationPicks } from './useAnnotationPicks'
 
-/** Height of the tab strip; mirrors --topbar-height so the dock lines up with the app chrome. */
-const TAB_STRIP_HEIGHT = 'var(--topbar-height)'
+/** Height of the browser's own tab strip, below the dock's panel tabs. */
+const TAB_STRIP_HEIGHT = 32
 
 interface DockTabProps {
   instance: BrowserInstanceInfo
@@ -67,7 +64,7 @@ function DockTab({
     <div
       className={`
         group flex h-[26px] min-w-0 max-w-[180px] flex-1 items-center gap-1.5 rounded-lg pl-2 pr-1
-        text-[11px] leading-tight transition-colors titlebar-no-drag
+        text-[11px] leading-tight transition-colors
         ${isActive ? 'bg-background shadow-minimal text-foreground' : 'text-foreground/60 hover:bg-foreground/[0.04]'}
         ${instance.agentControlActive ? 'ring-1 ring-accent' : ''}
       `}
@@ -137,12 +134,12 @@ function DockPlaceholderState({
   )
 }
 
-interface BrowserDockProps {
+interface BrowserPanelProps {
   /** Chat session currently in focus, used to flag tabs owned by another session. */
   activeSessionId?: string | null
 }
 
-export function BrowserDock({ activeSessionId }: BrowserDockProps) {
+export function BrowserPanel({ activeSessionId }: BrowserPanelProps) {
   const { t } = useTranslation()
   const { activeWorkspaceId } = useAppShellContext()
 
@@ -153,9 +150,8 @@ export function BrowserDock({ activeSessionId }: BrowserDockProps) {
   )
 
   const [activeInstanceId, setActiveInstanceId] = useAtom(activeBrowserInstanceIdAtom)
-  const [isOpen, setIsOpen] = useAtom(browserDockOpenAtom)
+  const dockMode = useAtomValue(rightDockModeAtom)
   const suppressed = useAtomValue(browserDockSuppressedAtom)
-  const dockWidth = useAtomValue(browserDockWidthAtom)
 
   const placeholderRef = useRef<HTMLDivElement>(null)
   const mentionPage = useBrowserMentionPage()
@@ -178,10 +174,6 @@ export function BrowserDock({ activeSessionId }: BrowserDockProps) {
     if (fallback) setActiveInstanceId(fallback.id)
   }, [activeInstance, instances, setActiveInstanceId])
 
-  // An empty dock has nothing to show; close it rather than leaving a blank column.
-  useEffect(() => {
-    if (isOpen && instances.length === 0) setIsOpen(false)
-  }, [isOpen, instances.length, setIsOpen])
 
   const hasLiveView = !!activeInstance && !activeInstance.crashed
 
@@ -189,8 +181,10 @@ export function BrowserDock({ activeSessionId }: BrowserDockProps) {
   // native view, so they detach it instead.
   useOverlayOcclusionSuppression()
 
+  // The native view follows the mode, not just the dock: switching back to the
+  // sections has to detach it, since no z-index can cover it.
   useDockBoundsSync(placeholderRef, {
-    visible: isOpen && hasLiveView,
+    visible: dockMode === 'browser' && hasLiveView,
     suppressed,
     activeInstanceId: activeInstance?.id ?? null,
   })
@@ -238,17 +232,11 @@ export function BrowserDock({ activeSessionId }: BrowserDockProps) {
     if (id) setActiveInstanceId(id)
   }, [api, setActiveInstanceId])
 
-  if (!isOpen) return null
-
   return (
-    <aside
-      data-panel-role="browser-dock"
-      className="relative flex h-full shrink-0 flex-col border-l border-border/40 bg-foreground-2"
-      style={{ width: dockWidth }}
-    >
-      {/* Tab strip — also the drag region, since the dock reaches the window top. */}
+    <div data-panel-role="browser-panel" className="flex h-full min-h-0 flex-col">
+      {/* Browser tab strip. */}
       <div
-        className="flex shrink-0 items-center gap-1 px-2 titlebar-drag-region"
+        className="flex shrink-0 items-center gap-1 px-2"
         style={{ height: TAB_STRIP_HEIGHT }}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -271,7 +259,7 @@ export function BrowserDock({ activeSessionId }: BrowserDockProps) {
             type="button"
             onClick={() => { void handleNewTab() }}
             aria-label={t('browser.newTab')}
-            className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.06] titlebar-no-drag"
+            className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.06]"
           >
             <Icons.Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
           </button>
@@ -284,7 +272,7 @@ export function BrowserDock({ activeSessionId }: BrowserDockProps) {
             aria-label={t('browser.annotate')}
             aria-pressed={isAnnotating}
             title={t('browser.annotate')}
-            className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md transition-colors titlebar-no-drag ${
+            className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md transition-colors ${
               isAnnotating ? 'bg-accent text-white' : 'text-foreground/50 hover:bg-foreground/[0.06]'
             }`}
           >
@@ -298,20 +286,12 @@ export function BrowserDock({ activeSessionId }: BrowserDockProps) {
             onClick={handleSendToChat}
             aria-label={t('browser.sendToChat')}
             title={t('browser.sendToChat')}
-            className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.06] titlebar-no-drag"
+            className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.06]"
           >
             <Icons.MessageSquarePlus className="h-3.5 w-3.5" strokeWidth={1.5} />
           </button>
         )}
 
-        <button
-          type="button"
-          onClick={() => setIsOpen(false)}
-          aria-label={t('browser.closeDock')}
-          className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.06] titlebar-no-drag"
-        >
-          <Icons.X className="h-3.5 w-3.5" strokeWidth={1.5} />
-        </button>
       </div>
 
       {/*
@@ -393,6 +373,6 @@ export function BrowserDock({ activeSessionId }: BrowserDockProps) {
           )}
         </div>
       </div>
-    </aside>
+    </div>
   )
 }
