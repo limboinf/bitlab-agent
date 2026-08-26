@@ -192,6 +192,18 @@ const ERROR_DEFINITIONS: Record<ErrorCode, Omit<AgentError, 'code' | 'originalEr
     canRetry: true,
     retryDelayMs: 5000,
   },
+  // Detected structurally, not parsed from provider text: the model closed the
+  // turn with a completion carrying no content at all. See the empty-response
+  // guard in `backend/pi/event-adapter.ts`.
+  empty_response: {
+    title: 'Empty Response',
+    message: 'The model ended the turn without returning anything — no answer, no tool call. Work already done this turn is kept; send again to continue from there.',
+    actions: [
+      { key: 'r', label: 'Retry', action: 'retry' },
+    ],
+    canRetry: true,
+    retryDelayMs: 2000,
+  },
   queued_message_replay_failed: {
     title: 'Queued message could not be sent',
     message: 'A message you sent while the agent was running could not be re-sent automatically. Tap retry to send it now.',
@@ -473,6 +485,20 @@ export function isBillingError(error: AgentError): boolean {
  */
 export function canAutoRetry(error: AgentError): boolean {
   return error.canRetry && error.retryDelayMs !== undefined;
+}
+
+/**
+ * Build the canonical error for a code detected structurally rather than read
+ * out of provider text. `parseError` guesses from a message string; some
+ * failures have no message to guess from — an empty completion is the shape of
+ * the response, not something the provider says.
+ */
+export function buildAgentError(code: ErrorCode, originalError?: string): AgentError {
+  return {
+    code,
+    ...ERROR_DEFINITIONS[code]!,
+    ...(originalError ? { originalError } : {}),
+  };
 }
 
 /**

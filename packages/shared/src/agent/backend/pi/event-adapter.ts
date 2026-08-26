@@ -21,7 +21,7 @@ import { isContextOverflow } from '@earendil-works/pi-ai';
 import { BaseEventAdapter } from '../base-event-adapter.ts';
 import { PI_TOOL_NAME_MAP } from './constants.ts';
 import { toolMetadataStore } from '../../../interceptor-common.ts';
-import { parseError } from '../../errors.ts';
+import { buildAgentError, parseError } from '../../errors.ts';
 
 /**
  * Pi SDK auto-compaction race signature — the AbortController crash described
@@ -398,6 +398,22 @@ export class PiEventAdapter extends BaseEventAdapter {
           } else {
             yield { type: 'error', message: msg.errorMessage };
           }
+          break;
+        }
+
+        // A completion with no content at all — no text, no reasoning, no tool
+        // call — is the provider handing back nothing. It still arrives stamped
+        // `stopReason: 'stop'`, so every layer above reads it as a finished
+        // turn: the agent loop stops, the UI draws a complete-looking response,
+        // and a turn that did nothing looks exactly like one that succeeded.
+        // Name it instead. Whatever the turn already did (tool calls, files
+        // written) stands; only the model's next move went missing.
+        //
+        // Guarded on `hasStreamedDeltas` because a message whose text arrived
+        // as deltas has already reached the user, whatever the final payload
+        // carries — that is not an empty answer.
+        if (!this.hasStreamedDeltas && this.isEmptyAssistantMessage(event.message)) {
+          yield { type: 'typed_error', error: buildAgentError('empty_response') };
           break;
         }
 
@@ -824,6 +840,23 @@ export class PiEventAdapter extends BaseEventAdapter {
     }
 
     return null;
+  }
+
+  /**
+   * Whether an assistant message carries no content whatsoever.
+   *
+   * Deliberately strict: only a literally empty payload counts. A message
+   * holding just tool calls, or just reasoning, is a normal step in a turn —
+   * the failure being caught here is the provider returning `content: []`. An
+   * unreadable shape reads as "not empty" so a parsing gap can never
+   * manufacture an error.
+   */
+  private isEmptyAssistantMessage(message: unknown): boolean {
+    if (!message || typeof message !== 'object') return false;
+
+    const content = (message as { content?: unknown }).content;
+    if (typeof content === 'string') return content.trim().length === 0;
+    return Array.isArray(content) && content.length === 0;
   }
 
   /**

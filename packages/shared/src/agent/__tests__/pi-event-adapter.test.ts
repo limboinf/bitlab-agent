@@ -259,6 +259,83 @@ describe('PiEventAdapter', () => {
   });
 
   // ============================================================
+  // Empty completions
+  // ============================================================
+
+  describe('empty completions', () => {
+    it('should report a completion with no content at all', () => {
+      collect(adapter.adaptEvent({ type: 'turn_start' } as any));
+      const events = collect(adapter.adaptEvent({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          stopReason: 'stop',
+          content: [],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { total: 0 } },
+        },
+      } as any));
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'typed_error',
+        error: { code: 'empty_response', canRetry: true },
+      });
+    });
+
+    it('should report an empty string completion', () => {
+      collect(adapter.adaptEvent({ type: 'turn_start' } as any));
+      const events = collect(adapter.adaptEvent({
+        type: 'message_end',
+        message: { role: 'assistant', stopReason: 'stop', content: '   ' },
+      } as any));
+
+      expect(events).toHaveLength(1);
+      expect(events[0].error.code).toBe('empty_response');
+    });
+
+    it('should stay quiet when the text already streamed as deltas', () => {
+      collect(adapter.adaptEvent({ type: 'turn_start' } as any));
+      collect(adapter.adaptEvent({
+        type: 'message_update',
+        assistantMessageEvent: { type: 'text_delta', delta: 'Already said this' },
+      } as any));
+
+      const events = collect(adapter.adaptEvent({
+        type: 'message_end',
+        message: { role: 'assistant', stopReason: 'stop', content: [] },
+      } as any));
+
+      expect(events).toHaveLength(0);
+    });
+
+    it('should leave a real provider error to the error branch', () => {
+      collect(adapter.adaptEvent({ type: 'turn_start' } as any));
+      const events = collect(adapter.adaptEvent({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          stopReason: 'error',
+          errorMessage: '401 Unauthorized',
+          content: [],
+        },
+      } as any));
+
+      expect(events).toHaveLength(1);
+      expect(events[0].error?.code ?? events[0].type).not.toBe('empty_response');
+    });
+
+    it('should not fire on a message whose shape it cannot read', () => {
+      collect(adapter.adaptEvent({ type: 'turn_start' } as any));
+      const events = collect(adapter.adaptEvent({
+        type: 'message_end',
+        message: { role: 'assistant', stopReason: 'stop' },
+      } as any));
+
+      expect(events).toHaveLength(0);
+    });
+  });
+
+  // ============================================================
   // Intermediate vs final text classification
   // ============================================================
 
