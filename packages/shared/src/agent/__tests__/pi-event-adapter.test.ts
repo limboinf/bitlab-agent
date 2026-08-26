@@ -1072,7 +1072,42 @@ describe('PiEventAdapter', () => {
       });
     });
 
-    it('should accumulate partial output from tool_execution_update', () => {
+    // Pi's streaming updates carry the tool's output IN FULL each time (its own
+    // bash tool sends output.snapshot()), and the tool's return value is the
+    // authoritative result. Getting either wrong is what made a streaming
+    // sub-agent render "N tool uses..." repeated hundreds of times instead of
+    // what it actually found.
+    it('should use the tool return value, not the streamed snapshots', () => {
+      collect(adapter.adaptEvent({ type: 'turn_start' } as any));
+      collect(adapter.adaptEvent({
+        type: 'tool_execution_start',
+        toolCallId: 'call_1',
+        toolName: 'Agent',
+        args: {},
+      } as any));
+
+      collect(adapter.adaptEvent({
+        type: 'tool_execution_update',
+        toolCallId: 'call_1',
+        partialResult: { content: [{ type: 'text', text: '1 tool uses...' }] },
+      } as any));
+      collect(adapter.adaptEvent({
+        type: 'tool_execution_update',
+        toolCallId: 'call_1',
+        partialResult: { content: [{ type: 'text', text: '2 tool uses...' }] },
+      } as any));
+
+      const events = collect(adapter.adaptEvent({
+        type: 'tool_execution_end',
+        toolCallId: 'call_1',
+        result: 'Found 3 registration sites.',
+        isError: false,
+      } as any));
+
+      expect(events[0].result).toBe('Found 3 registration sites.');
+    });
+
+    it('should fall back to the last snapshot when the tool returns nothing', () => {
       collect(adapter.adaptEvent({ type: 'turn_start' } as any));
       collect(adapter.adaptEvent({
         type: 'tool_execution_start',
@@ -1081,7 +1116,6 @@ describe('PiEventAdapter', () => {
         args: {},
       } as any));
 
-      // Partial updates
       collect(adapter.adaptEvent({
         type: 'tool_execution_update',
         toolCallId: 'call_1',
@@ -1090,14 +1124,14 @@ describe('PiEventAdapter', () => {
       collect(adapter.adaptEvent({
         type: 'tool_execution_update',
         toolCallId: 'call_1',
-        partialResult: { content: [{ type: 'text', text: 'line 2\n' }] },
+        // A snapshot, not a delta — it already contains line 1.
+        partialResult: { content: [{ type: 'text', text: 'line 1\nline 2\n' }] },
       } as any));
 
-      // End — should use accumulated output
       const events = collect(adapter.adaptEvent({
         type: 'tool_execution_end',
         toolCallId: 'call_1',
-        result: 'ignored because accumulated',
+        result: undefined,
         isError: false,
       } as any));
 

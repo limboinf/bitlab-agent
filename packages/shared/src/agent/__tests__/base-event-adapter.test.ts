@@ -99,7 +99,7 @@ describe('BaseEventAdapter', () => {
     it('should clear state on startTurn', () => {
       // Set up some state
       adapter.setBlockReason('tool-1', 'blocked');
-      adapter.accumulateOutput('tool-1', 'output');
+      adapter.recordPartialOutput('tool-1', 'output');
 
       // Start new turn — should clear everything
       adapter.startTurn();
@@ -166,22 +166,24 @@ describe('BaseEventAdapter', () => {
     });
   });
 
-  describe('Command Output Accumulation', () => {
-    it('should accumulate streaming output', () => {
-      adapter.accumulateOutput('t1', 'Hello');
-      adapter.accumulateOutput('t1', ' World');
+  describe('Streaming Output Snapshots', () => {
+    // Pi hands a whole AgentToolResult to every update, so each one supersedes
+    // the last. Appending them repeated the same output once per tick.
+    it('should keep only the latest snapshot', () => {
+      adapter.recordPartialOutput('t1', 'Hello');
+      adapter.recordPartialOutput('t1', 'Hello World');
       expect(adapter.testConsumeOutput('t1')).toBe('Hello World');
     });
 
     it('should delete output after consume', () => {
-      adapter.accumulateOutput('t1', 'data');
+      adapter.recordPartialOutput('t1', 'data');
       adapter.testConsumeOutput('t1');
       expect(adapter.testConsumeOutput('t1')).toBeUndefined();
     });
 
     it('should track output per tool ID independently', () => {
-      adapter.accumulateOutput('t1', 'output-1');
-      adapter.accumulateOutput('t2', 'output-2');
+      adapter.recordPartialOutput('t1', 'output-1');
+      adapter.recordPartialOutput('t2', 'output-2');
       expect(adapter.testConsumeOutput('t1')).toBe('output-1');
       expect(adapter.testConsumeOutput('t2')).toBe('output-2');
     });

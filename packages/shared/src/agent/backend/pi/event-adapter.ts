@@ -553,16 +553,18 @@ export class PiEventAdapter extends BaseEventAdapter {
       }
 
       case 'tool_execution_update': {
-        // Accumulate partial output for streaming tool results
+        // Each update carries the tool's CURRENT output in full, not a delta —
+        // see recordPartialOutput. The parts of one update are segments of that
+        // one snapshot, so they are joined and stored as a whole.
         const partialResult = event.partialResult;
         if (partialResult && typeof partialResult === 'object') {
           const content = (partialResult as { content?: Array<{ type: string; text?: string }> }).content;
           if (Array.isArray(content)) {
-            for (const part of content) {
-              if (part.type === 'text' && part.text) {
-                this.accumulateOutput(event.toolCallId, part.text);
-              }
-            }
+            const snapshot = content
+              .filter(part => part.type === 'text' && part.text)
+              .map(part => part.text)
+              .join('');
+            if (snapshot) this.recordPartialOutput(event.toolCallId, snapshot);
           }
         }
         break;
@@ -576,18 +578,23 @@ export class PiEventAdapter extends BaseEventAdapter {
         // Check for block reason
         const blockReason = this.consumeBlockReason(toolCallId, resolvedToolName);
 
-        // Use accumulated output from partial results if available
-        const accumulatedOutput = this.consumeOutput(toolCallId);
+        // Last streaming snapshot, kept only as a fallback: `event.result` is
+        // the tool's real return value and wins. Preferring the snapshot used to
+        // discard actual results whose tool also streamed progress — a sub-agent
+        // reported "N tool uses..." instead of what it found.
+        const lastSnapshot = this.consumeOutput(toolCallId);
 
         const isError = event.isError;
         let result: string;
 
-        if (accumulatedOutput) {
-          result = accumulatedOutput;
+        if (event.result) {
+          result = this.extractToolResult(event.result, isError);
         } else if (blockReason) {
           result = blockReason;
         } else {
-          result = this.extractToolResult(event.result, isError);
+          // Nothing returned (aborted mid-stream, or a tool that only streams):
+          // the last snapshot beats the generic placeholder.
+          result = lastSnapshot || this.extractToolResult(event.result, isError);
         }
 
         // After tool completion, the assistant may generate new text

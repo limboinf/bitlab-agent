@@ -129,16 +129,20 @@ export abstract class BaseEventAdapter {
   // ============================================================
 
   /**
-   * Accumulate streaming command output for a tool call.
-   * Called from output delta handlers (not emitted as an event).
+   * Record the latest streaming output snapshot for a tool call.
+   *
+   * Pi's `AgentToolUpdateCallback` hands over a whole `AgentToolResult` each
+   * time, not a delta — the SDK's own bash tool sends `output.snapshot()` on
+   * every tick. Appending them concatenates the same output over and over
+   * (a long-running tool that ticks 40 times used to render 40 copies), so
+   * each snapshot REPLACES the previous one.
    */
-  accumulateOutput(id: string, delta: string): void {
-    const current = this.commandOutput.get(id) || '';
-    this.commandOutput.set(id, current + delta);
+  recordPartialOutput(id: string, snapshot: string): void {
+    this.commandOutput.set(id, snapshot);
   }
 
   /**
-   * Consume and delete accumulated command output for a tool call.
+   * Consume and delete the recorded output snapshot for a tool call.
    */
   protected consumeOutput(id: string): string | undefined {
     const output = this.commandOutput.get(id);
