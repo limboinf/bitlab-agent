@@ -13,6 +13,45 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.8.0] - 2026-08-26
+
+### Added
+
+- **The agent can hand work to sub-agents.** When a task breaks into pieces —
+  search this, check that, read those — the agent now sends a sub-agent after
+  each one and gets the answer back inside the same reply. Run one in the
+  foreground when you need its result before anything else can happen, or send
+  several to the background and let them work at once. Each shows up as its own
+  row, marked so you can tell it from an ordinary tool call, and expands to the
+  full answer it came back with. Define your own sub-agent types in
+  `<workspace>/.pi/agents/*.md` to limit which tools one may touch;
+  `BITLAB_SUBAGENTS=0` turns the whole thing off.
+- **A session the agent starts now reports back to it.** Sessions the agent
+  spawned used to be handed a task and forgotten — nothing told them who had
+  asked, so the only way to collect a result was to keep checking the
+  filesystem. They now know which session sent them and answer it directly, and
+  the answer arrives as a message in the conversation it belongs to.
+- **Messages between sessions read as messages.** One arriving from another
+  session now carries the sender's name above an outlined bubble, with the
+  routing preamble folded away — you see what was said, not the plumbing that
+  carried it.
+
+### Fixed
+
+- **A long-running tool no longer repeats its own output.** Tools that report
+  progress while they work send a fresh copy of everything so far on each tick,
+  and Bitlab was appending those instead of replacing — so a command that ticked
+  forty times rendered forty copies of itself. Worse, that pile-up could stand
+  in for the real result: a sub-agent that ran for two minutes showed a wall of
+  its own progress counter instead of what it found, and the agent reading that
+  reply saw the same thing you did.
+- **Background work is visible again while it runs.** A sub-agent sent to the
+  background never appeared in the task list, never reported progress, and never
+  announced that it had finished — so an agent that started work and then ended
+  its turn simply never came back to it. Background tasks are now tracked from
+  launch to completion, and a session that has gone quiet wakes up to present
+  the result when the work lands.
+
 ## [0.7.0] - 2026-08-26
 
 ### Added
@@ -349,6 +388,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.8.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.8.0
 [0.7.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.7.0
 [0.6.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.6.0
 [0.5.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.5.0
