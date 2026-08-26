@@ -30,18 +30,10 @@ export async function handleSendAgentMessage(
   }
 
   try {
-    // Build sender envelope so the target session knows who sent the message
-    const senderName = ctx.getSessionInfo?.()?.name ?? ctx.sessionId;
-    const wrappedMessage = [
-      `[Message from session "${ctx.sessionId}" (${senderName})]`,
-      `Use send_agent_message with sessionId "${ctx.sessionId}" to reply.`,
-      '',
-      '---',
-      '',
-      args.message,
-    ].join('\n');
-
-    const result = await ctx.sendAgentMessage(args.sessionId, wrappedMessage, args.attachments);
+    // The sender envelope (who is talking, how to reply) is added by the backend
+    // that delivers the message — it owns the matching display metadata that
+    // collapses the header in the transcript.
+    const result = await ctx.sendAgentMessage(args.sessionId, args.message, args.attachments);
 
     // Report the real delivery status instead of an unconditional "sent". A busy
     // target queues the message behind its current turn; an idle target starts

@@ -36,12 +36,14 @@ describe('handleSendAgentMessage delivery ack', () => {
     expect(text.toLowerCase()).toContain('do not assume it was read');
   });
 
-  it('wraps the message with a sender envelope', async () => {
+  // The sender envelope now lives with the backend that delivers the message,
+  // next to the display metadata that collapses it (see agent-envelope.ts).
+  // The handler must pass the message through untouched.
+  it('passes the message through for the backend to wrap', async () => {
     const { ctx, calls } = createCtx({ delivery: 'delivered', targetBusy: false }, { name: 'Monitor' });
     await handleSendAgentMessage(ctx, { sessionId: 'target-9', message: 'ping' });
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.message).toContain('sender-1');
-    expect(calls[0]!.message).toContain('ping');
+    expect(calls[0]!.message).toBe('ping');
   });
 
   it('rejects a self-send', async () => {

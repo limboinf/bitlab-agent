@@ -107,6 +107,7 @@ import {
 } from './model-selection'
 import { rollbackFailedBranchCreation, sanitizeForTitle } from '@bitlab/server-core/domain'
 import { applyTranscriptEvent } from './persist-transcript'
+import { buildInboundAgentMessage, buildSpawnedSessionPrompt } from './agent-envelope'
 import { resolveContextUsage } from './context-usage'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -791,6 +792,13 @@ export class SessionManager implements ISessionManager {
       if (isFirstUserMessage && !managed.name && !options?.hidden) {
         let titleSource = message
         for (const badge of options?.badges ?? []) {
+          // An agent envelope is boilerplate sitting at the head of the message;
+          // naming a spawned session after it would title every one of them
+          // "[Spawned by session …]". Drop the header and title from the body.
+          if (badge.type === 'agent') {
+            titleSource = titleSource.slice(badge.end)
+            continue
+          }
           if (badge.rawText && badge.label) titleSource = titleSource.replace(badge.rawText, badge.label)
         }
         const initialTitle = createFallbackTitle(titleSource)
@@ -1292,7 +1300,15 @@ export class SessionManager implements ISessionManager {
         }
         if (attachments.length) fileAttachments = attachments
       }
-      void this.sendMessage(session.id, request.prompt, fileAttachments)
+      // Hand the spawned session its supervisor's address. Nothing else links the
+      // two — without this the child cannot report back and the supervisor is
+      // reduced to polling the filesystem for output files.
+      const envelope = buildSpawnedSessionPrompt(
+        { sessionId: managed.id, name: managed.name },
+        request.prompt,
+        { canReply: (session.permissionMode ?? 'ask') !== 'safe' },
+      )
+      void this.sendMessage(session.id, envelope.content, fileAttachments, undefined, { badges: [envelope.badge] })
         .catch(error => log.error('Failed to start spawned session', session.id, error))
       return {
         sessionId: session.id,
@@ -1374,7 +1390,11 @@ export class SessionManager implements ISessionManager {
           if (resolved.length) fileAttachments = resolved
         }
         const targetBusy = this.sessions.get(sessionId)?.isProcessing === true
-        await this.sendMessage(sessionId, message, fileAttachments)
+        // Wrap here rather than in the tool handler: the envelope and the badge
+        // that collapses it must stay in one place, and this is the only side
+        // that can attach display metadata to the delivered message.
+        const envelope = buildInboundAgentMessage({ sessionId: managed.id, name: managed.name }, message)
+        await this.sendMessage(sessionId, envelope.content, fileAttachments, undefined, { badges: [envelope.badge] })
         return { delivery: targetBusy ? 'queued' : 'delivered', targetBusy }
       },
     })
