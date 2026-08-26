@@ -26,6 +26,7 @@ import {
   GitBranch,
   Brain,
   Plug,
+  Bot,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Markdown } from '../markdown'
@@ -1410,6 +1411,15 @@ function ActivityGroupRow({ group, expandedGroups: externalExpandedGroups, onExp
   const isComplete = group.parent.status === 'completed' || group.parent.status === 'error'
   const hasError = group.parent.status === 'error'
 
+  // A sub-agent's answer IS its tool result. Nesting only materialises when the
+  // backend reports child tool calls with a parent id (Claude-style Task); Pi
+  // runs the sub-agent in its own session and reports none, which left expanding
+  // this row doing nothing at all. Fall back to the same in-place result view
+  // every other tool row uses.
+  const inlineDetail = isComplete && group.children.length === 0
+    ? getInlineToolDetail(group.parent)
+    : null
+
   return (
     <motion.div
       initial={{ opacity: 0, x: -8 }}
@@ -1439,8 +1449,12 @@ function ActivityGroupRow({ group, expandedGroups: externalExpandedGroups, onExp
         {/* Status icon - aligned with tool call icons */}
         <ActivityStatusIcon status={group.parent.status} toolName={group.parent.toolName} />
 
-        {/* Subagent type badge */}
-        <span className="shrink-0 px-1.5 py-0.5 rounded-[4px] bg-background shadow-minimal text-[10px] font-medium">
+        {/* Sub-agent badge — a delegated agent, not a tool call. It gets the
+            accent treatment (icon + tinted chip) because the row otherwise
+            reads like any other tool line, and what runs behind it is a whole
+            separate agent with its own tools and turns. */}
+        <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] bg-accent/10 text-accent border border-accent/25 text-[10px] font-medium">
+          <Bot className="h-3 w-3 shrink-0" aria-hidden="true" />
           {subagentType || 'Task'}
         </span>
 
@@ -1497,6 +1511,27 @@ function ActivityGroupRow({ group, expandedGroups: externalExpandedGroups, onExp
           </div>
         )}
       </div>
+
+      {/* Result, when the sub-agent reported no child activities */}
+      <AnimatePresence initial={false}>
+        {isExpanded && inlineDetail && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              height: { duration: 0.2, ease: [0.4, 0, 0.2, 1] },
+              opacity: { duration: 0.15 },
+            }}
+            className="overflow-hidden"
+          >
+            <InlineToolDetail
+              detail={inlineDetail}
+              onOpenDetails={onOpenActivityDetails ? () => onOpenActivityDetails(group.parent) : undefined}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Children with indentation */}
       <AnimatePresence initial={false}>

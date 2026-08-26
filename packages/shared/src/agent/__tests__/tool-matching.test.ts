@@ -799,6 +799,99 @@ describe('extractToolResults', () => {
     expect(parseWorkflowIdFromTranscriptPath(undefined)).toBeNull()
   })
 
+  // Real pi-subagents output. Bitlab's detector was written against the
+  // Claude-era Task tool (`agentId:` / `output_file:`) and silently matched
+  // nothing here: no chip, nothing in list_background_tasks, no turn-end nudge.
+  it('detects a backgrounded sub-agent from pi-subagents output', () => {
+    toolIndex.register('toolu_bg', 'Agent', {
+      subagent_type: 'Explore',
+      description: '调研LangGraph多agent实现',
+      run_in_background: true,
+    })
+
+    const launchResult = [
+      'Agent started in background.',
+      'Agent ID: 06e85280-e641-412',
+      'Type: Explore',
+      'Description: 调研LangGraph多agent实现',
+      'Output file: /var/folders/lg/T/pi-subagents-501/tasks/06e85280-e641-412.output',
+      'You will be notified when this agent completes.',
+      'Use get_subagent_result to retrieve full results, or steer_subagent to send it messages.',
+    ].join('\n')
+
+    const events = extractToolResults([makeToolResultBlock('toolu_bg', launchResult)], null, undefined, toolIndex)
+
+    expect(events[1]).toMatchObject({
+      type: 'task_backgrounded',
+      toolUseId: 'toolu_bg',
+      taskId: '06e85280-e641-412',
+      intent: '调研LangGraph多agent实现',
+    })
+  })
+
+  it('still detects the Claude-era agentId spelling', () => {
+    toolIndex.register('toolu_legacy', 'Task', { description: 'Legacy launch' })
+    const legacy = 'agentId: abc123\nThe agent is working in the background.'
+
+    const events = extractToolResults([makeToolResultBlock('toolu_legacy', legacy)], null, undefined, toolIndex)
+
+    expect(events[1]).toMatchObject({ type: 'task_backgrounded', taskId: 'abc123' })
+  })
+
+  it('does not background a foreground agent that merely quotes an id', () => {
+    toolIndex.register('toolu_fg', 'Agent', { description: 'Foreground' })
+    const events = extractToolResults(
+      [makeToolResultBlock('toolu_fg', 'I found the string "Agent ID: xyz789" in the logs.')],
+      null,
+      undefined,
+      toolIndex,
+    )
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: 'tool_result' })
+  })
+
+  // Nothing else emits task_completed — the extension reports completion through
+  // TUI surfaces this host never renders, so without this the chip spins forever.
+  it('completes a background sub-agent from get_subagent_result', () => {
+    toolIndex.register('toolu_res', 'get_subagent_result', { agent_id: '741c2af3-adc3-449', wait: true })
+
+    const result = [
+      'Agent: 741c2af3-adc3-449',
+      'Type: Explore | Status: completed | Tool uses: 10 | 21.4k token | Context: 3% | Duration: 35.4s',
+      'Description: 调研Pi多agent实现',
+      '',
+      '调研完成。以下为报告。',
+    ].join('\n')
+
+    const events = extractToolResults([makeToolResultBlock('toolu_res', result)], null, undefined, toolIndex)
+
+    expect(events[1]).toMatchObject({
+      type: 'task_completed',
+      taskId: '741c2af3-adc3-449',
+      status: 'completed',
+    })
+  })
+
+  it('maps a failed sub-agent to status failed', () => {
+    toolIndex.register('toolu_err', 'get_subagent_result', {})
+    const result = 'Agent: deadbeef-1\nType: Explore | Status: error | Duration: 2s\n\nError: boom'
+
+    const events = extractToolResults([makeToolResultBlock('toolu_err', result)], null, undefined, toolIndex)
+
+    expect(events[1]).toMatchObject({ type: 'task_completed', taskId: 'deadbeef-1', status: 'failed' })
+  })
+
+  it('leaves a still-running sub-agent alone', () => {
+    toolIndex.register('toolu_run', 'get_subagent_result', {})
+    const result = 'Agent: still-going-1\nType: Explore | Status: running | Duration: 5s\n\nAgent is still running.'
+
+    const events = extractToolResults([makeToolResultBlock('toolu_run', result)], null, undefined, toolIndex)
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: 'tool_result' })
+  })
+
   it('detects a backgrounded Workflow launch and marks it kind=workflow', () => {
     toolIndex.register('toolu_wf', 'Workflow', {})
 

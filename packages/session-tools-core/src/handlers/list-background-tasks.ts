@@ -10,14 +10,12 @@ export interface ListBackgroundTasksArgs {
  * list_background_tasks — enumerate the background agents/tasks tracked for a
  * session by the MAIN PROCESS registry.
  *
- * Why this exists (and why the SDK's own task tools are not enough): the SDK's
- * in-subprocess task tools only know about tasks launched inside the CURRENT
- * subprocess. Each turn runs in its own subprocess, so a background agent from a
- * previous turn is invisible to them once that subprocess is torn down. This
- * tool reads the cross-subprocess registry instead, so a "status?" query returns
- * a truthful answer — including tasks that were `orphaned` when their owning turn
- * ended. Never guess or claim "the app restarted"; report exactly what the
- * registry says.
+ * Why this exists: a session's own tools only know about work launched from
+ * inside the agent process, and their view resets with it. This tool reads the
+ * main-process registry instead, so a "status?" query returns a truthful answer
+ * across turns — including tasks left `orphaned` when their owning turn ended.
+ * Never guess or claim "the app restarted"; report exactly what the registry
+ * says.
  */
 export async function handleListBackgroundTasks(
   ctx: SessionToolContext,

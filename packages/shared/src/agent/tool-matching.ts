@@ -32,6 +32,20 @@ export { PARENT_TASK_TOOLS, isParentTaskTool } from '../utils/toolNames.ts';
  * a SubagentStop's transcript path to the owning workflow. Returns null for
  * non-workflow paths (ordinary sub-agents live under `.../subagents/agent-*`).
  */
+/**
+ * Agent id in a background-launch acknowledgement.
+ *
+ * Two emitters, two spellings: the Claude-era Task tool wrote `agentId: <id>`,
+ * while pi-subagents writes `Agent ID: <id>` (see its dist/index.js). Matching
+ * only the first spelling is why background sub-agents never registered — the
+ * chip never lit, `list_background_tasks` stayed empty, and the turn-end
+ * completion nudge never fired.
+ */
+const AGENT_ID_PATTERN = /agent[ _]?id:\s*([A-Za-z0-9_-]+)/i;
+
+/** Same story for the output-file line: `output_file:` vs `Output file:`. */
+const OUTPUT_FILE_PATTERN = /output[ _]file:/i;
+
 export function parseWorkflowIdFromTranscriptPath(path: string | undefined): string | null {
   if (!path) return null;
   // The id charset [A-Za-z0-9_-] naturally bounds the match (it stops at `/`,
@@ -434,12 +448,13 @@ function detectBackgroundEvents(
   // cover the case where it does not.
   const wasRunInBackground = entry.input?.run_in_background === true;
   const looksAsyncLaunched =
-    /agentId:\s*[a-zA-Z0-9_-]+/.test(resultStr) &&
+    AGENT_ID_PATTERN.test(resultStr) &&
     (/working in the background/i.test(resultStr) ||
-      /output_file:/i.test(resultStr) ||
+      /started in background/i.test(resultStr) ||
+      OUTPUT_FILE_PATTERN.test(resultStr) ||
       /async agent launched/i.test(resultStr));
   if (isParentTaskTool(entry.name) && (wasRunInBackground || looksAsyncLaunched) && !isError && resultStr) {
-    const agentIdMatch = resultStr.match(/agentId:\s*([a-zA-Z0-9_-]+)/);
+    const agentIdMatch = resultStr.match(AGENT_ID_PATTERN);
     if (agentIdMatch?.[1]) {
       // Prefer explicit `_intent` metadata; the built-in Agent/Task tool doesn't
       // set it, so fall back to its concise `description` param (the "3-5 word
@@ -503,6 +518,37 @@ function detectBackgroundEvents(
         kind: 'workflow',
         ...(intentValue && { intent: intentValue }),
         ...(workflowId && { workflowId }),
+      });
+    }
+  }
+
+  // Background sub-agent completion — `get_subagent_result`.
+  //
+  // This is the ONLY way a sub-agent's terminal state reaches Bitlab. The
+  // extension announces completion through its own TUI surfaces, which this host
+  // never renders, so nothing else emits `task_completed` — without this the chip
+  // opened above would spin until the turn ends and orphans it.
+  //
+  // Its result starts with `Agent: <id>` and a `Status: <state>` field
+  // (pi-subagents dist/index.js). `running`/`queued` are not terminal, so they
+  // are left alone and the caller polls again.
+  if (entry.name === 'get_subagent_result' && !isError && resultStr) {
+    const idMatch = resultStr.match(/^Agent:\s*([A-Za-z0-9_-]+)/m);
+    const statusMatch = resultStr.match(/\bStatus:\s*([A-Za-z]+)/);
+    const status = statusMatch?.[1]?.toLowerCase();
+    const terminalStatus = status === 'completed'
+      ? 'completed' as const
+      : status === 'stopped'
+        ? 'stopped' as const
+        : status === 'error' || status === 'aborted'
+          ? 'failed' as const
+          : null;
+    if (idMatch?.[1] && terminalStatus) {
+      events.push({
+        type: 'task_completed',
+        taskId: idMatch[1],
+        status: terminalStatus,
+        turnId,
       });
     }
   }
