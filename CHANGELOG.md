@@ -13,6 +13,34 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.7.0] - 2026-08-26
+
+### Added
+
+- **You can see what the agent made for you.** Files the agent writes now
+  gather into an Artifacts list on the right side of the window, and the turn
+  that produced them ends with a compact row of those files — click one and it
+  opens in the preview you already use. The list is built from what actually
+  happened in the session, not from what the model said it did, so it never
+  claims a file that was never written.
+- **One panel on the right instead of a sidebar scramble.** The browser dock
+  grew up into a single right-hand panel holding Artifacts, Changes and Files
+  as sections you can fold away; the browser takes the panel over when you open
+  it, rather than fighting a second sidebar for width.
+
+### Fixed
+
+- **A turn that returns nothing now says so.** Some endpoints end a turn with an
+  empty answer while reporting success — the agent stopped, and the reply looked
+  finished but was blank. Bitlab now names it as an empty response you can
+  retry. Anything the turn already did, including files it wrote, is kept.
+- **The task list stays put when a turn goes wrong.** An error or an
+  interruption used to make the checklist disappear at the exact moment you
+  wanted it — the run that failed is the one where "how far did it get" matters.
+  It now stays on screen. Once the turn ends the strip folds back to its header,
+  which reads the outcome ("Stopped · 2/5"), and a step the agent never ticked
+  off no longer looks like it is still spinning.
+
 ## [0.6.0] - 2026-08-22
 
 ### Added
@@ -321,6 +349,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.7.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.7.0
 [0.6.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.6.0
 [0.5.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.5.0
 [0.4.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.4.1
