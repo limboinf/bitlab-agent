@@ -87,3 +87,46 @@ export function clearWindowState(): void {
     mainLog.error('[WindowState] Failed to clear window state:', error)
   }
 }
+
+/**
+ * Remember which workspace the user was last in, so the next launch reopens it
+ * instead of falling back to the first (default) workspace.
+ *
+ * Called on window creation, in-window workspace switches, and window focus —
+ * all low-frequency events. Writes are skipped when the value is unchanged.
+ */
+let lastRememberedWorkspaceId: string | null = null
+
+export function rememberLastWorkspaceId(workspaceId: string): void {
+  if (!workspaceId || workspaceId === lastRememberedWorkspaceId) return
+  lastRememberedWorkspaceId = workspaceId
+  try {
+    if (!existsSync(CONFIG_DIR)) {
+      mkdirSync(CONFIG_DIR, { recursive: true })
+    }
+    const existing = loadWindowState()
+    const next: WindowState = {
+      windows: existing?.windows ?? [],
+      lastFocusedWorkspaceId: workspaceId,
+    }
+    writeFileSync(WINDOW_STATE_FILE, JSON.stringify(next, null, 2), 'utf-8')
+  } catch (error) {
+    mainLog.error('[WindowState] Failed to remember last workspace:', error)
+  }
+}
+
+/**
+ * The workspace the user was last in, or null when nothing was recorded yet.
+ * Callers must verify the workspace still exists before using it.
+ */
+export function getLastWorkspaceId(): string | null {
+  try {
+    if (!existsSync(WINDOW_STATE_FILE)) return null
+    const raw = readJsonFileSync(WINDOW_STATE_FILE) as WindowState | null
+    const id = raw?.lastFocusedWorkspaceId
+    return typeof id === 'string' && id ? id : null
+  } catch (error) {
+    mainLog.error('[WindowState] Failed to read last workspace:', error)
+    return null
+  }
+}

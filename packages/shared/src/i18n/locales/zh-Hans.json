@@ -186,6 +186,7 @@
   "chat.processing.zooming": "疾驰中...",
   "chat.queuedBadge": "已排队",
   "chat.renameSession": "重命名会话",
+  "chat.scrollToLatest": "滚动到最新消息",
   "chat.scrollUpForEarlier": "向上滚动查看更早的消息 (还有 {{count}} 条)",
   "chat.selectedText": "选中文本",
   "chat.session": "会话",

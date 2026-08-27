@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url'
 import { getWorkspaceByNameOrId } from '@bitlab/shared/config'
 import { classifyExternalUrl, formatBlockedUrlError } from '@bitlab/shared/utils/url-safety'
 import { RPC_CHANNELS, type WindowCloseRequestSource } from '../shared/types'
+import { rememberLastWorkspaceId } from './window-state'
 import type { SavedWindow } from './window-state'
 
 // Vite dev server URL for hot reload
@@ -311,6 +312,7 @@ export class WindowManager {
     // __get-workspace-id (via sendSync) which reads this map during eval.
     const webContentsId = window.webContents.id
     this.windows.set(webContentsId, { window, workspaceId })
+    rememberLastWorkspaceId(workspaceId)
 
     // Apply window-title policy now that the map size reflects this window —
     // covers both the new window and any existing windows that should switch
@@ -416,6 +418,9 @@ export class WindowManager {
     // Handle focus/blur to broadcast window focus state
     window.on('focus', () => {
       this.pushToWindow(window, RPC_CHANNELS.window.FOCUS_STATE, true)
+      // The focused window's workspace is the one to restore on next launch
+      const current = this.windows.get(window.webContents.id)?.workspaceId
+      if (current) rememberLastWorkspaceId(current)
     })
     window.on('blur', () => {
       this.pushToWindow(window, RPC_CHANNELS.window.FOCUS_STATE, false)
@@ -633,6 +638,7 @@ export class WindowManager {
     if (managed) {
       const oldWorkspaceId = managed.workspaceId
       managed.workspaceId = workspaceId
+      rememberLastWorkspaceId(workspaceId)
       // Re-apply window-title policy so in-window workspace switches update
       // the titlebar immediately (relevant when ≥2 windows are open).
       this.refreshWindowTitles()
@@ -653,6 +659,7 @@ export class WindowManager {
   registerWindow(window: BrowserWindow, workspaceId: string): void {
     const webContentsId = window.webContents.id
     this.windows.set(webContentsId, { window, workspaceId })
+    rememberLastWorkspaceId(workspaceId)
     // Re-apply window-title policy after re-registration (e.g. post-refresh).
     this.refreshWindowTitles()
     windowLog.info(`Registered window ${webContentsId} for workspace ${workspaceId}`)

@@ -40,6 +40,7 @@ import { createApplicationMenu, rebuildMenu, setMenuEventSink } from './menu'
 import { registerThumbnailHandler, THUMBNAIL_PRIVILEGED_SCHEME } from './thumbnail-protocol'
 import { registerHtmlPreviewHandler, HTML_PREVIEW_PRIVILEGED_SCHEME } from './html-preview-protocol'
 import { applyConfiguredProxySettings } from './network-proxy'
+import { getLastWorkspaceId } from './window-state'
 
 setupI18n()
 const persistedUiLanguage = getPersistedUiLanguage()
@@ -113,6 +114,16 @@ function ensureLocalWorkspace() {
     folderPath: null,
     lastAccessedAt: Date.now(),
   })
+}
+
+/**
+ * The workspace to open on launch: whichever one the user was last in, falling
+ * back to the first workspace when it's gone (removed) or never recorded.
+ */
+function resolveStartupWorkspace() {
+  const workspaces = getWorkspaces()
+  const lastId = getLastWorkspaceId()
+  return workspaces.find(w => w.id === lastId) ?? workspaces[0]
 }
 
 async function start() {
@@ -204,7 +215,7 @@ async function start() {
   setAutoUpdateEventSink(sink)
 
   ipcMain.on('__get-web-contents-id', event => { event.returnValue = event.sender.id })
-  ipcMain.on('__get-workspace-id', event => { event.returnValue = windowManager!.getWorkspaceForWindow(event.sender.id) ?? getWorkspaces()[0]!.id })
+  ipcMain.on('__get-workspace-id', event => { event.returnValue = windowManager!.getWorkspaceForWindow(event.sender.id) ?? resolveStartupWorkspace()!.id })
   ipcMain.on('__get-ws-port', event => { event.returnValue = instance.port })
   ipcMain.on('__get-ws-token', event => { event.returnValue = instance.token })
   ipcMain.handle('__dialog:showMessageBox', (event, options) => dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender)!, options))
@@ -217,7 +228,7 @@ async function start() {
     }
   })
 
-  const workspace = getWorkspaces()[0]!
+  const workspace = resolveStartupWorkspace()!
   windowManager.createWindow({ workspaceId: workspace.id })
   if (pendingDeepLink) {
     const url = pendingDeepLink
@@ -249,7 +260,7 @@ else {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0 && windowManager) {
-    const workspace = getWorkspaces()[0]
+    const workspace = resolveStartupWorkspace()
     if (workspace) windowManager.createWindow({ workspaceId: workspace.id })
   }
 })

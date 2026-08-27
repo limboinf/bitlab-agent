@@ -385,6 +385,9 @@ function ProcessingIndicator({ startTime, statusMessage }: ProcessingIndicatorPr
   )
 }
 
+/** Distance from the bottom (px) beyond which the jump-to-latest button shows up. */
+const SCROLL_AFFORDANCE_THRESHOLD = 160
+
 /**
  * Scrolls to target element on mount, before browser paint.
  * Uses useLayoutEffect to ensure scroll happens before content is visible.
@@ -483,6 +486,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   const [visibleTurnCount, setVisibleTurnCount] = React.useState(TURNS_PER_PAGE)
   // Sticky-bottom: When true, auto-scroll on content changes. Toggled by user scroll behavior.
   const isStickToBottomRef = React.useRef(true)
+  // Show the "jump to latest" button once the user has scrolled away from the bottom
+  const [showScrollToBottom, setShowScrollToBottom] = React.useState(false)
   // Mirror isFocusedPanel into a ref so the ResizeObserver closure reads the latest value
   const isFocusedPanelRef = React.useRef(isFocusedPanel)
   isFocusedPanelRef.current = isFocusedPanel
@@ -1075,6 +1080,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight
     // 20px threshold for "at bottom" detection
     isStickToBottomRef.current = distanceFromBottom < 20
+    // Larger threshold for the jump-to-latest button so it doesn't flicker near the bottom
+    setShowScrollToBottom(distanceFromBottom > SCROLL_AFFORDANCE_THRESHOLD)
 
     // Load more turns when scrolling near top (within 100px)
     if (scrollTop < 100) {
@@ -1097,6 +1104,13 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
     }
   }, [])
 
+  // Jump back to the latest message and resume auto-scrolling
+  const handleScrollToBottom = React.useCallback(() => {
+    isStickToBottomRef.current = true
+    setShowScrollToBottom(false)
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
+
   // Set up scroll event listener
   React.useEffect(() => {
     const viewport = scrollViewportRef.current
@@ -1117,6 +1131,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
     // On session switch: reset UI state (scroll handled by ScrollOnMount)
     if (isSessionSwitch) {
       isStickToBottomRef.current = true
+      setShowScrollToBottom(false)
       setVisibleTurnCount(TURNS_PER_PAGE)
     }
 
@@ -1131,7 +1146,12 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
       }
 
       // Focused panel: respect sticky-bottom preference
-      if (!isStickToBottomRef.current) return
+      if (!isStickToBottomRef.current) {
+        // Content grew while the user is reading above - keep the affordance in sync
+        const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+        setShowScrollToBottom(distanceFromBottom > SCROLL_AFFORDANCE_THRESHOLD)
+        return
+      }
 
       // Clear pending scroll and wait for layout to settle
       if (debounceTimer) clearTimeout(debounceTimer)
@@ -1923,6 +1943,27 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                 <div ref={messagesEndRef} />
               </div>
               </ScrollArea>
+            </div>
+
+            {/* Jump to latest: appears once the user scrolls away from the bottom */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center">
+              <AnimatePresence>
+                {showScrollToBottom && (
+                  <motion.button
+                    type="button"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                    onClick={handleScrollToBottom}
+                    title={t('chat.scrollToLatest')}
+                    aria-label={t('chat.scrollToLatest')}
+                    className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-border bg-popover text-muted-foreground shadow-md transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </motion.button>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 

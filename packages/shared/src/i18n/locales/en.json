@@ -186,6 +186,7 @@
   "chat.processing.zooming": "Zooming...",
   "chat.queuedBadge": "Queued",
   "chat.renameSession": "Rename Session",
+  "chat.scrollToLatest": "Scroll to latest message",
   "chat.scrollUpForEarlier": "Scroll up for earlier messages ({{count}} more)",
   "chat.selectedText": "Selected text",
   "chat.session": "Session",
