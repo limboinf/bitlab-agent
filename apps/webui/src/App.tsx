@@ -89,8 +89,11 @@ export default function App() {
       const params = new URLSearchParams(window.location.search)
       let workspaceId = params.get('workspace') ?? undefined
 
-      // If no workspace in URL, fetch the default from the server
-      // so we can include it in the WebSocket handshake
+      // No workspace in the URL: ask the server which one is active. That is
+      // the workspace the user last switched to (see SWITCH_WORKSPACE), so a
+      // plain reload/relaunch lands where they left off rather than on the
+      // default workspace. The server falls back to the first workspace when
+      // the remembered one is gone.
       if (!workspaceId) {
         try {
           const wsRes = await fetch('/api/config/workspaces', { credentials: 'same-origin' })

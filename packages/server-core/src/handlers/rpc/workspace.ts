@@ -120,6 +120,10 @@ export function registerWorkspaceCoreHandlers(server: RpcServer, deps: HandlerDe
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (workspace) {
       sessionManager.setupConfigWatcher(workspace.dataRoot, workspaceId)
+      // Remember where the user is, so the next launch reopens this workspace
+      // instead of the default one. WebUI reads it back through
+      // /api/config/workspaces when the URL carries no ?workspace= param.
+      setActiveWorkspace(workspace.id)
     }
     end()
 
