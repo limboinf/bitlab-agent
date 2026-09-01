@@ -13,6 +13,37 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.9.0] - 2026-09-01
+
+### Added
+
+- **Models a provider released after this build now show up.** The model list
+  came only from what shipped inside the app, so a connection stayed blind to
+  anything newer — z.ai served GLM-5.3 while the picker insisted GLM-5.2 was
+  the newest thing available. Bitlab now also asks each provider what it
+  currently serves, and what it names appears in the model picker and the tier
+  dropdowns. What the app already knows wins, and a provider that cannot answer
+  leaves the list exactly as it was.
+- **Jump between your own messages from the right edge of the chat.** A long
+  session gets one tick per message you sent — hover to see which one it is,
+  click to land on it, including messages far enough back that the conversation
+  had stopped drawing them.
+
+### Fixed
+
+- **Switching to one of those newer models no longer wedges the session.**
+  Picking a model the app had not shipped with ended the turn with "Could not
+  resolve model", and every message after it repeated that same error even once
+  you switched to a different model — the session was stuck until you restarted
+  it. Both halves are fixed: the model is reachable now, and a route change that
+  does fail rebuilds the session instead of poisoning it.
+- **A newly discovered model no longer pretends to be small.** Providers list
+  their models without saying how large they are, so anything new fell back to a
+  131k context window and an 8k answer limit — on z.ai's GLM family that is off
+  by up to 8x, and long answers were being cut short with nothing on screen to
+  explain why. Bitlab now takes those limits from the rest of that provider's
+  own line-up instead.
+
 ## [0.8.0] - 2026-08-26
 
 ### Added
@@ -388,6 +419,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.9.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.9.0
 [0.8.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.8.0
 [0.7.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.7.0
 [0.6.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.6.0
