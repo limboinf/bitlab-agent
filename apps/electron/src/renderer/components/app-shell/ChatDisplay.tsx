@@ -17,6 +17,7 @@ import { toast } from "sonner"
 
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
+import { MessageTickNav, type MessageTickItem } from "./MessageTickNav"
 import { coerceInputText, appendRestoredInput } from "@/lib/input-text"
 import { Markdown, CollapsibleMarkdownProvider, StreamingMarkdown, type RenderMode } from "@/components/markdown"
 import { AnimatedCollapsibleContent } from "@/components/ui/collapsible"
@@ -1395,6 +1396,31 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
     return map
   }, [allTurns])
 
+  // Right-edge tick nav: one entry per user message in the full turn list
+  const userTickItems = useMemo(() => {
+    const items: MessageTickItem[] = []
+    allTurns.forEach((turn, index) => {
+      if (turn.type !== 'user') return
+      items.push({ turnKey: getTurnKey(turn), turnIndex: index, message: turn.message })
+    })
+    return items
+  }, [allTurns])
+
+  const handleTickJump = useCallback((item: MessageTickItem) => {
+    const scrollToTick = () => {
+      turnRefs.current.get(item.turnKey)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    // Expand reverse pagination first when the target turn is trimmed off the top
+    if (allTurns.length - item.turnIndex > visibleTurnCount) {
+      setVisibleTurnCount(allTurns.length - item.turnIndex)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(scrollToTick)
+      })
+      return
+    }
+    scrollToTick()
+  }, [allTurns, visibleTurnCount])
+
   const scrollToFollowUpTurn = useCallback((item: {
     messageId: string
     annotationId: string
@@ -1965,6 +1991,14 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                 )}
               </AnimatePresence>
             </div>
+
+            {/* Right-edge tick nav: one tick per user message, hover to preview, click to jump */}
+            <MessageTickNav
+              ticks={userTickItems}
+              viewportRef={scrollViewportRef}
+              turnRefs={turnRefs}
+              onJump={handleTickJump}
+            />
           </div>
 
           {/* === INPUT CONTAINER: FreeForm or Structured Input === */}
