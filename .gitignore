@@ -57,3 +57,8 @@ credentials.enc
 # Throwaway UI concept mockups
 design-previews/
 .claude/
+
+# Archify diagram exports (generated, regenerate on demand)
+bitlab-*.html
+bitlab-*.json
+bitlab-*.visual-check.*.png
