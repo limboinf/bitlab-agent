@@ -62,6 +62,7 @@ interface OnboardingWizardProps {
     activePreset?: string
     models?: string[]
     customApi?: CustomEndpointApi
+    connectionSlug?: string
   }
 
   className?: string

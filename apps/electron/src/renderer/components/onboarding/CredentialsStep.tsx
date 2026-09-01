@@ -22,6 +22,7 @@ interface CredentialsStepProps {
     activePreset?: string
     models?: string[]
     customApi?: CustomEndpointApi
+    connectionSlug?: string
   }
 }
 

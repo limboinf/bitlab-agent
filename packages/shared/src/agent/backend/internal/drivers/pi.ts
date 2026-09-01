@@ -1,6 +1,50 @@
 import type { ProviderDriver, DriverTestConnectionArgs } from '../driver-types.ts';
 import { getAllPiModels, getPiModelsForAuthProvider } from '../../../../config/models-pi.ts';
 import { getPiProviderBaseUrl } from '../../../../config/models-pi.ts';
+import {
+  fetchProviderModelListing,
+  mergeCatalogModelsWithListing,
+} from '../../../../config/provider-model-listing.ts';
+import type { ModelDefinition } from '../../../../config/models.ts';
+
+/** Minimal shape appendLiveListedModels needs from an LlmConnection. */
+interface LlmConnectionShape {
+  baseUrl?: string;
+  piAuthProvider?: string;
+}
+
+/**
+ * Augment the bundled Pi SDK catalog with the provider's live `GET /models`
+ * listing, so models released after this build reach existing connections on
+ * the next model refresh without an app update. Catalog entries always win;
+ * any failure keeps the catalog unchanged.
+ */
+async function appendLiveListedModels(
+  catalog: ModelDefinition[],
+  connection: LlmConnectionShape,
+  apiKey: string | undefined,
+  timeoutMs: number | undefined,
+): Promise<ModelDefinition[]> {
+  const baseUrl = connection.baseUrl?.trim()
+    || (connection.piAuthProvider ? getPiProviderBaseUrl(connection.piAuthProvider) : undefined);
+  if (!baseUrl) return catalog;
+
+  try {
+    let authStyle: 'bearer' | 'anthropic' = 'bearer';
+    if (connection.piAuthProvider) {
+      const { getModels } = await import('@earendil-works/pi-ai/compat');
+      const first = getModels(connection.piAuthProvider as Parameters<typeof getModels>[0])[0] as
+        | { api?: string }
+        | undefined;
+      if (first?.api === 'anthropic-messages') authStyle = 'anthropic';
+    }
+    const listing = await fetchProviderModelListing({ baseUrl, apiKey, authStyle, timeoutMs });
+    if (listing === null || listing.length === 0) return catalog;
+    return mergeCatalogModelsWithListing(catalog, listing);
+  } catch {
+    return catalog;
+  }
+}
 
 /**
  * Lightweight direct HTTP test for Pi providers that expose an Anthropic-compatible
@@ -89,7 +133,7 @@ export const piDriver: ProviderDriver = {
       );
     }
 
-    return { models };
+    return { models: await appendLiveListedModels(models, connection, credentials.apiKey, timeoutMs) };
   },
   testConnection: async (args: DriverTestConnectionArgs): Promise<{ success: boolean; error?: string } | null> => {
     const piAuthProvider = args.connection?.piAuthProvider;

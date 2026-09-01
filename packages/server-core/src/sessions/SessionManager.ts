@@ -1718,6 +1718,10 @@ export class SessionManager implements ISessionManager {
       return
     }
     const connection = context.connection
+    // A rejected in-place update is treated exactly like a refused one: drop
+    // the agent so the next turn rebuilds it. Letting the rejection escape
+    // would fail every following turn with the same error, since the session
+    // keeps its stale runtime signature and retries the same update.
     const updated = await agent.updateRuntimeConfig({
       model: context.resolvedModel,
       providerType: connection?.providerType,
@@ -1728,6 +1732,9 @@ export class SessionManager implements ISessionManager {
         customEndpoint: connection.customEndpoint,
         customModels: connection.models?.map(model => typeof model === 'string' ? model : ({ id: model.id, contextWindow: model.contextWindow, supportsImages: model.supportsImages })),
       } : {},
+    }).catch(error => {
+      platform?.logger.warn(`[session] runtime config update failed for ${managed.id.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`)
+      return false
     })
     if (!updated) {
       await agent.disposeForRestart?.()

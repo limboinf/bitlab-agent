@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   buildCustomEndpointModelDef,
+  isZaiEndpoint,
   normalizeCustomEndpointModelEntry,
   stripPiPrefix,
 } from './custom-endpoint-models.ts'
@@ -84,6 +85,28 @@ describe('buildCustomEndpointModelDef reasoning', () => {
   })
 })
 
+describe('z.ai endpoints', () => {
+  it('recognizes the z.ai family by host', () => {
+    expect(isZaiEndpoint('https://api.z.ai/api/coding/paas/v4')).toBe(true)
+    expect(isZaiEndpoint('https://open.bigmodel.cn/api/paas/v4')).toBe(true)
+    expect(isZaiEndpoint('https://api.deepseek.com')).toBe(false)
+    expect(isZaiEndpoint('https://gateway.example/relays/z.ai/models')).toBe(false)
+    expect(isZaiEndpoint('not a url')).toBe(false)
+  })
+
+  it('flips the reasoning default on z.ai endpoints', () => {
+    // z.ai models think BY DEFAULT when the request omits `thinking`, so an
+    // unflagged synthetic model could never be told to stop thinking.
+    expect(buildCustomEndpointModelDef('glm-5.5', undefined, undefined, { defaultReasoning: true }).reasoning).toBe(true)
+  })
+
+  it('still lets an explicit per-model override beat the z.ai default', () => {
+    expect(
+      buildCustomEndpointModelDef('plain', undefined, { supportsThinking: false }, { defaultReasoning: true }).reasoning
+    ).toBe(false)
+  })
+})
+
 describe('buildCustomEndpointModelDef', () => {
   it('defaults custom endpoint models to text-only input', () => {
     const model = buildCustomEndpointModelDef('my-model')
@@ -104,5 +127,30 @@ describe('buildCustomEndpointModelDef', () => {
     const model = buildCustomEndpointModelDef('vision-model', undefined, { supportsImages: true, contextWindow: 262_144 })
     expect(model.input).toEqual(['text', 'image'])
     expect(model.contextWindow).toBe(262_144)
+  })
+})
+
+describe('buildCustomEndpointModelDef limits', () => {
+  it('falls back to the nameless-endpoint floor without family defaults', () => {
+    const def = buildCustomEndpointModelDef('mystery-model')
+    expect(def.contextWindow).toBe(131_072)
+    expect(def.maxTokens).toBe(8_192)
+  })
+
+  it('takes the window and output cap the model family discloses', () => {
+    // A GLM release the catalog lacks: 8K output would silently truncate it.
+    const def = buildCustomEndpointModelDef('glm-5.3', {
+      contextWindow: 200_000,
+      maxTokens: 131_072,
+      supportsThinking: true,
+    })
+    expect(def.contextWindow).toBe(200_000)
+    expect(def.maxTokens).toBe(131_072)
+    expect(def.reasoning).toBe(true)
+  })
+
+  it('lets a per-model override beat the family window', () => {
+    const def = buildCustomEndpointModelDef('glm-5.3', { contextWindow: 200_000 }, { contextWindow: 65_536 })
+    expect(def.contextWindow).toBe(65_536)
   })
 })

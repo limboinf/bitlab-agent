@@ -138,17 +138,25 @@ export interface TierCatalogModel {
   contextWindow?: number
   supportsImages?: boolean
   reasoning?: boolean
+  /** Set when the provider's live listing contributed this entry. */
+  source?: 'listing'
 }
 
 /**
  * Build the models payload for the three tiers.
  *
- * On a plain provider connection the IDs travel as bare strings — the Pi
- * catalog is the authority and repeating it here would only let the two copies
- * drift. A custom endpoint has no catalog behind it, so every tier must carry
- * its own capabilities: the catalog models still know theirs, and the
- * hand-typed one uses whatever the endpoint reported or the user entered.
- * Without this, all three collapse to the 131k text-only default.
+ * A tier travels as a bare ID whenever the Pi catalog already owns the model:
+ * the catalog is the authority there, and repeating it here would only let the
+ * two copies drift. Everything else has to carry its own shape, or it collapses
+ * to the 131k text-only default at registration time:
+ *
+ *  - a custom endpoint has no catalog behind it at all;
+ *  - a listing-discovered model is one the catalog has never heard of, even on
+ *    a plain provider connection.
+ *
+ * The listing case saves what the tier dropdown showed — a real disclosure when
+ * the endpoint made one, the family estimate otherwise. Either way the pick and
+ * the run agree, and the catalog takes over the moment it ships the model.
  */
 export function buildTierSetupModels(params: {
   tierModelIds: string[]
@@ -157,10 +165,11 @@ export function buildTierSetupModels(params: {
   isCustomEndpoint: boolean
 }): Array<string | TierSetupModel> {
   const { tierModelIds, catalog, customMeta, isCustomEndpoint } = params
-  if (!isCustomEndpoint) return [...tierModelIds]
 
   return tierModelIds.map(id => {
     const known = catalog.find(m => m.id === id)
+    if (!isCustomEndpoint && known?.source !== 'listing') return id
+
     const meta = customMeta[id]
     const contextWindow = known?.contextWindow ?? meta?.contextWindow
     const supportsImages = known ? known.supportsImages : meta?.supportsImages

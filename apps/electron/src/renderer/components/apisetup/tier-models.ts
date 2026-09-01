@@ -9,6 +9,9 @@ export interface PiModelInfo {
   costOutput: number
   contextWindow: number
   reasoning: boolean
+  /** Set when the live provider listing contributed this entry (not the
+   *  bundled catalog) — such ids need custom-endpoint registration at runtime. */
+  source?: 'listing'
 }
 
 /** Pick smart defaults for 3 tiers from a cost-sorted model list (expensive-first). */

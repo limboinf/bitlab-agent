@@ -390,7 +390,9 @@ export interface ElectronAPI {
   // Pi provider discovery (main process only — Pi SDK can't run in renderer)
   getPiApiKeyProviders(): Promise<Array<{ key: string; label: string; placeholder: string }>>
   getPiProviderBaseUrl(provider: string): Promise<string | undefined>
-  getPiProviderModels(provider: string): Promise<{ models: Array<{ id: string; name: string; api?: string; supportsImages?: boolean; costInput: number; costOutput: number; contextWindow: number; reasoning: boolean }>; totalCount: number }>
+  /** Optional endpoint context so the server can merge the provider's live
+   *  `/models` listing over the static SDK catalog (new releases, no app update). */
+  getPiProviderModels(provider: string, opts?: { baseUrl?: string; apiKey?: string; connectionSlug?: string }): Promise<{ models: Array<{ id: string; name: string; api?: string; supportsImages?: boolean; costInput: number; costOutput: number; contextWindow: number; reasoning: boolean; source?: 'listing' }>; totalCount: number }>
   getEndpointModelMeta(args: { baseUrl: string; modelId: string; apiKey?: string }): Promise<{ contextWindow?: number; supportsImages?: boolean } | null>
 
   // Session-specific model (overrides global)
@@ -620,6 +622,7 @@ export interface ElectronAPI {
   getLlmConnectionApiKey(slug: string): Promise<string | null>
   saveLlmConnection(connection: LlmConnection): Promise<{ success: boolean; error?: string }>
   deleteLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
+  refreshLlmConnectionModels(slug: string): Promise<{ success: boolean; error?: string; modelCount?: number }>
   testLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
   setDefaultLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
   getDefaultThinkingLevel(): Promise<ThinkingLevel>

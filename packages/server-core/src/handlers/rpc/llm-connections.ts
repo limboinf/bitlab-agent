@@ -2,6 +2,8 @@ import { RPC_CHANNELS, type LlmConnectionSetup } from '@bitlab/shared/protocol'
 import {
   addLlmConnection,
   deleteLlmConnection,
+  fetchProviderModelListing,
+  inferFamilyModelDefaults,
   getDefaultLlmConnection,
   getDefaultModelForConnection,
   getDefaultModelsForConnection,
@@ -207,27 +209,85 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
 
   server.handle(RPC_CHANNELS.pi.GET_API_KEY_PROVIDERS, async () => getPiApiKeyProviders())
   server.handle(RPC_CHANNELS.pi.GET_PROVIDER_BASE_URL, async (_ctx, provider: string) => getPiProviderBaseUrl(provider))
-  server.handle(RPC_CHANNELS.pi.GET_PROVIDER_MODELS, async (_ctx, provider: string) => {
+  server.handle(RPC_CHANNELS.pi.GET_PROVIDER_MODELS, async (_ctx, provider: string, opts?: {
+    baseUrl?: string
+    apiKey?: string
+    /** Editing an existing connection: its stored key authenticates the
+     *  listing probe when the form holds none (the pre-filled one is masked). */
+    connectionSlug?: string
+  }) => {
     const { getModels } = await import('@earendil-works/pi-ai/compat')
     try {
       const models = getModels(provider as Parameters<typeof getModels>[0])
-      return {
-        models: [...models]
-          .sort((a, b) => b.cost.output - a.cost.output || b.cost.input - a.cost.input)
-          .map(model => ({
-            id: model.id.startsWith('pi/') ? model.id : `pi/${model.id}`,
-            name: model.name,
-            // Protocol the provider speaks — lets the setup UI pin a custom
-            // model ID to the right custom-endpoint API without guessing.
-            api: (model as { api?: string }).api,
-            supportsImages: (model.input ?? []).includes('image'),
-            costInput: model.cost.input,
-            costOutput: model.cost.output,
-            contextWindow: model.contextWindow,
-            reasoning: model.reasoning,
-          })),
-        totalCount: models.length,
+      const summaries = [...models]
+        .sort((a, b) => b.cost.output - a.cost.output || b.cost.input - a.cost.input)
+        .map(model => ({
+          id: model.id.startsWith('pi/') ? model.id : `pi/${model.id}`,
+          name: model.name,
+          // Protocol the provider speaks — lets the setup UI pin a custom
+          // model ID to the right custom-endpoint API without guessing.
+          api: (model as { api?: string }).api,
+          supportsImages: (model.input ?? []).includes('image'),
+          costInput: model.cost.input,
+          costOutput: model.cost.output,
+          contextWindow: model.contextWindow,
+          reasoning: model.reasoning,
+        }))
+
+      // Best-effort: merge models the provider's live listing advertises but
+      // the bundled catalog doesn't know yet, so newly released models are
+      // selectable without an app update. Catalog entries win; a failed probe
+      // (no key yet, offline, non-OpenAI endpoint) keeps the catalog list.
+      let apiKey = opts?.apiKey && !isMaskedCredentialValue(opts.apiKey) ? opts.apiKey : undefined
+      if (!apiKey && opts?.connectionSlug) {
+        apiKey = await getCredentialManager().getLlmApiKey(opts.connectionSlug).catch(() => undefined) ?? undefined
       }
+      const baseUrl = opts?.baseUrl?.trim() || getPiProviderBaseUrl(provider)
+      const listing = baseUrl
+        ? await fetchProviderModelListing({
+            baseUrl,
+            apiKey,
+            authStyle: (models[0] as { api?: string } | undefined)?.api === 'anthropic-messages'
+              ? 'anthropic'
+              : 'bearer',
+            // Shorter than the default: this sits in front of the tier
+            // dropdowns, so an unreachable endpoint must not stall the form.
+            timeoutMs: 4000,
+          }).catch(() => null)
+        : null
+      const known = new Set(models.map(m => m.id))
+      const fresh = (listing ?? []).filter(entry => !known.has(entry.id))
+      if (fresh.length > 0) {
+        // A listing usually discloses nothing but the id, so the provider's
+        // own catalog stands in for the capabilities it leaves out.
+        const family = inferFamilyModelDefaults(models.map(m => ({
+          contextWindow: m.contextWindow,
+          maxTokens: m.maxTokens,
+          supportsImages: (m.input ?? []).includes('image'),
+          supportsThinking: m.reasoning,
+        })))
+        // Unknown cost sorts fresh releases to the cheap end of the
+        // expensive-first list, so they lead instead — new models are usually
+        // the flagship the user opened the dropdown to find.
+        const freshSummaries = fresh.map(entry => ({
+          id: `pi/${entry.id}`,
+          name: entry.name ?? entry.id,
+          api: (models[0] as { api?: string } | undefined)?.api,
+          supportsImages: entry.supportsImages ?? family.supportsImages ?? false,
+          costInput: 0,
+          costOutput: 0,
+          contextWindow: entry.contextWindow ?? family.contextWindow,
+          reasoning: family.supportsThinking === true,
+          // Marks entries the live listing contributed — the setup flow keeps
+          // them out of the catalog-known set (see ApiKeyInput submit).
+          source: 'listing' as const,
+        }))
+        return {
+          models: [...freshSummaries, ...summaries],
+          totalCount: summaries.length + freshSummaries.length,
+        }
+      }
+      return { models: summaries, totalCount: models.length }
     } catch {
       return { models: [], totalCount: 0 }
     }
@@ -396,7 +456,9 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
     if (!getLlmConnection(slug)) return { success: false, error: 'Connection not found' }
     try {
       await getModelRefreshService().refreshNow(slug)
-      return { success: true }
+      // Report the resulting list size so the UI can confirm what it now holds.
+      const refreshed = getLlmConnection(slug)
+      return { success: true, modelCount: refreshed?.models?.length }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
     }

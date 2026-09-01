@@ -70,6 +70,9 @@ export interface ApiKeyInputProps {
     models?: string[]
     /** Pre-fill the protocol toggle for custom endpoints */
     customApi?: CustomEndpointApi
+    /** The connection being edited — lets the server authenticate the model
+     *  listing probe with the stored key while the form holds a masked one. */
+    connectionSlug?: string
   }
 }
 
@@ -174,6 +177,13 @@ export function ApiKeyInput({
   const [probingModelIds, setProbingModelIds] = useState<string[]>([])
   const tierFilterInputRef = useRef<HTMLInputElement>(null)
   const hydratedTierProviderRef = useRef<string | null>(null)
+  // Latest endpoint/key for loadPiModels, read without re-running it per keystroke.
+  const baseUrlRef = useRef(baseUrl)
+  const apiKeyRef = useRef(apiKey)
+  useEffect(() => {
+    baseUrlRef.current = baseUrl
+    apiKeyRef.current = apiKey
+  })
 
   const isDisabled = disabled || status === 'validating'
 
@@ -194,7 +204,15 @@ export function ApiKeyInput({
     }
     setPiModelsLoading(true)
     try {
-      const result = await window.electronAPI.getPiProviderModels(provider)
+      // Pass the current endpoint/key so the server can also merge the
+      // provider's live /models listing (new releases the catalog lacks).
+      // Without a usable key (none typed, or the masked pre-fill of an edit
+      // flow) the server falls back to the connection's stored key.
+      const result = await window.electronAPI.getPiProviderModels(provider, {
+        baseUrl: baseUrlRef.current.trim() || undefined,
+        apiKey: apiKeyRef.current.trim() || undefined,
+        connectionSlug: initialValues?.connectionSlug,
+      })
       setPiModels(result.models)
 
       if (hydratedTierProviderRef.current !== provider) {
@@ -219,6 +237,21 @@ export function ApiKeyInput({
   useEffect(() => {
     loadPiModels(activePreset)
   }, [activePreset, loadPiModels])
+
+  // The initial load probes the provider's live model listing without a key
+  // (or with a half-typed one), which many endpoints answer with 401. Once the
+  // key validates, re-probe with it so newly released models surface in the
+  // tier dropdowns before the connection is saved.
+  const listedWithKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (status !== 'success') return
+    const key = apiKeyRef.current.trim()
+    if (!key) return
+    const marker = `${activePreset}:${key}`
+    if (listedWithKeyRef.current === marker) return
+    listedWithKeyRef.current = marker
+    loadPiModels(activePreset)
+  }, [status, activePreset, loadPiModels])
 
   // Tier IDs the provider catalog doesn't list. Recomputed from the catalog so
   // a model stops counting as custom the moment the catalog does list it.
@@ -327,10 +360,13 @@ export function ApiKeyInput({
         return
       }
       // Tiers may resolve to the same model when a provider exposes few models
-      // (e.g. DeepSeek has 2). Dedupe so the model picker doesn't show duplicates.
+      // (e.g., DeepSeek has 2). Dedupe so the model picker doesn't show duplicates.
       const tierModelIds: string[] = [...new Set([bestModel, defaultModel, cheapModel])]
-      // A hand-typed model ID isn't in the Pi catalog, so the subprocess can
-      // only resolve it via the custom-endpoint provider.
+      // Only a hand-typed ID pins the connection to custom-endpoint mode. A
+      // listing-contributed model stays on the provider connection: the
+      // subprocess registers it against the provider's own endpoint, and
+      // switching piAuthProvider to reach it would cost the real provider
+      // identity (mini-model choice, thinking format) for nothing.
       const tierCustom = resolveTierCustomEndpoint(tierModelIds, piModels)
       onSubmit({
         apiKey: apiKey.trim(),

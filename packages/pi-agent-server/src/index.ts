@@ -63,13 +63,16 @@ import { resolvePiModel, isDeniedMiniModelId, isModelNotFoundError } from './mod
 import { pickProviderAppropriateMiniModel } from './pick-mini-model.ts';
 import {
   buildCustomEndpointModelDef,
+  isZaiEndpoint,
   normalizeCustomEndpointModelEntry,
   stripPiPrefix,
+  type CustomEndpointModelDefaults,
   type CustomEndpointModelEntry,
   type CustomEndpointModelOverrides,
 } from './custom-endpoint-models.ts';
 
 // Direct source imports from shared (bundled by bun build)
+import { inferFamilyModelDefaults } from '../../shared/src/config/provider-model-listing.ts';
 import { handleLargeResponse, estimateTokens, tokenLimitFor } from '../../shared/src/utils/large-response.ts';
 import { getSessionPlansPath, getSessionPath } from '../../shared/src/sessions/storage.ts';
 import { buildCallLlmRequest, withTimeout, LLM_QUERY_TIMEOUT_MS } from '../../shared/src/agent/llm-tool.ts';
@@ -682,6 +685,8 @@ function registerCustomEndpointModels(
   api: CustomEndpointApi,
   baseUrl: string,
   models: CustomEndpointModelEntry[],
+  /** Capabilities inferred from the provider's own catalog (pi connections). */
+  familyDefaults?: CustomEndpointModelDefaults,
 ): void {
   for (const m of models) {
     customEndpointModelIds.add(m.id);
@@ -694,6 +699,11 @@ function registerCustomEndpointModels(
     }
   }
   const allIds = [...customEndpointModelIds];
+  // No explicit compat here: pi-ai auto-detects the zai thinking format from
+  // the registered baseUrl. What needs deciding is the reasoning default —
+  // z.ai models think by default when the request omits `thinking`, so an
+  // unflagged synthetic model could never be told to stop thinking.
+  const zai = isZaiEndpoint(baseUrl);
   registry.registerProvider('custom-endpoint', {
     baseUrl,
     apiKey: resolveCustomEndpointApiKey(),
@@ -701,14 +711,95 @@ function registerCustomEndpointModels(
     authHeader: true,
     models: allIds.map(id => buildCustomEndpointModelDef(
       id,
-      {
+      familyDefaults ?? {
         supportsImages: initConfig?.customEndpoint?.supportsImages === true,
         supportsThinking: initConfig?.customEndpoint?.supportsThinking === true,
       },
       customModelOverrides.get(id),
+      zai ? { defaultReasoning: true } : undefined,
     )),
   });
   debugLog(`Registered custom endpoint: ${baseUrl} with ${allIds.length} model(s) [${allIds.join(', ')}], api: ${api}`);
+}
+
+/** What a synthetic registration needs: where to send, and what to assume. */
+interface SyntheticModelEndpoint {
+  api: CustomEndpointApi;
+  baseUrl: string;
+  /** Only for pi connections, where the provider's catalog is real evidence. */
+  familyDefaults?: CustomEndpointModelDefaults;
+}
+
+/**
+ * The endpoint a synthetic model registration should point at.
+ *
+ * A configured custom endpoint names its own, and nothing can be assumed about
+ * an arbitrary gateway's models. A `pi` connection is different: it borrows the
+ * URL and wire protocol from the catalog models the authenticated provider
+ * ships — the same routing those models use — and those siblings also say what
+ * a new release from this provider probably looks like. Only api-key auth
+ * qualifies: the synthetic provider sends the key as a header, so an OAuth
+ * credential has nothing to register with.
+ */
+function syntheticModelEndpoint(registry: PiModelRegistry): SyntheticModelEndpoint | undefined {
+  const configuredBaseUrl = initConfig?.baseUrl?.trim();
+  if (configuredBaseUrl && initConfig?.customEndpoint) {
+    return { api: initConfig.customEndpoint.api, baseUrl: configuredBaseUrl };
+  }
+
+  const piAuth = initConfig?.piAuth;
+  if (!piAuth || piAuth.credential?.type !== 'api_key') return undefined;
+  const family = registry.getAll().filter(model => (model as { provider?: string }).provider === piAuth.provider) as
+    Array<{ api?: string; baseUrl?: string; contextWindow?: number; maxTokens?: number; reasoning?: boolean; input?: readonly string[] }>;
+  const baseUrl = configuredBaseUrl || family[0]?.baseUrl;
+  const api = family[0]?.api;
+  if (!baseUrl || (api !== 'openai-completions' && api !== 'anthropic-messages')) return undefined;
+
+  const defaults = inferFamilyModelDefaults(family.map(model => ({
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    supportsImages: (model.input ?? []).includes('image'),
+    supportsThinking: model.reasoning,
+  })));
+  return { api, baseUrl, familyDefaults: defaults };
+}
+
+/**
+ * Resolve a model id, registering it synthetically when the bundled catalog
+ * has never heard of it.
+ *
+ * Two sources feed the model picker: the Pi SDK's bundled catalog and the
+ * provider's live `GET /models` listing. A model that only the listing knows —
+ * a release newer than this build — has no catalog entry in this subprocess,
+ * so selecting it would fail the turn even though the endpoint serves it fine.
+ * Registering it as a synthetic model against the same endpoint makes the pick
+ * work. Capabilities come from what the connection saved for that id, falling
+ * back to what the provider's other models suggest (see
+ * `syntheticModelEndpoint`).
+ */
+function resolveOrRegisterPiModel(registry: PiModelRegistry, modelId: string): ReturnType<PiModelRegistry['find']> | undefined {
+  const resolved = resolvePiModel(registry, modelId, initConfig?.piAuth?.provider, shouldPreferCustomEndpoint());
+  if (resolved) return resolved;
+
+  const endpoint = syntheticModelEndpoint(registry);
+  if (!endpoint) return undefined;
+
+  const bareId = stripPiPrefix(modelId);
+  // What the connection saved about this model outranks the family estimate:
+  // it is what the picker showed when the user chose it, and it may carry a
+  // capability the endpoint actually disclosed.
+  const saved = initConfig?.customModels
+    ?.map(normalizeCustomEndpointModelEntry)
+    .find(entry => entry.id === bareId);
+  registerCustomEndpointModels(registry, endpoint.api, endpoint.baseUrl, [saved ?? { id: bareId }], endpoint.familyDefaults);
+  const registered = registry.find('custom-endpoint', bareId) ?? undefined;
+  const shape = registered as { contextWindow?: number; maxTokens?: number; reasoning?: boolean } | undefined;
+  debugLog(
+    `[model] Registered unlisted model synthetically: ${bareId} @ ${endpoint.baseUrl} `
+    + `(context ${shape?.contextWindow}, maxTokens ${shape?.maxTokens}, reasoning ${shape?.reasoning}, `
+    + `${saved ? 'from saved connection metadata' : 'from provider family'})`,
+  );
+  return registered;
 }
 
 /**
@@ -983,7 +1074,7 @@ async function ensureSession(): Promise<AgentSession> {
   // Set model if specified
   if (initConfig.model) {
     try {
-      const piModel = resolvePiModel(modelRegistry, initConfig.model, initConfig.piAuth?.provider, shouldPreferCustomEndpoint());
+      const piModel = resolveOrRegisterPiModel(modelRegistry, initConfig.model);
       if (piModel) {
         // Verify resolved model's provider is compatible with the authenticated provider.
         // Without this, a model that resolves to a different provider would
@@ -1944,13 +2035,7 @@ async function handleUpdateRuntimeConfig(msg: RuntimeConfigUpdateMessage): Promi
     }
 
     if (piSession && piModelRegistry) {
-      let piModel = resolvePiModel(piModelRegistry, msg.model, initConfig.piAuth?.provider, shouldPreferCustomEndpoint());
-      if (!piModel && initConfig.baseUrl?.trim() && initConfig.customEndpoint) {
-        const bareId = stripPiPrefix(msg.model);
-        registerCustomEndpointModels(piModelRegistry, initConfig.customEndpoint.api, initConfig.baseUrl.trim(), [{ id: bareId }]);
-        piModel = piModelRegistry.find('custom-endpoint', bareId) ?? undefined;
-        debugLog(`[runtime_config] Dynamically registered custom endpoint model: ${bareId}`);
-      }
+      const piModel = resolveOrRegisterPiModel(piModelRegistry, msg.model);
 
       if (!piModel) {
         throw new Error(`Could not resolve model after runtime update: ${msg.model}`);
@@ -1977,17 +2062,10 @@ async function handleSetModel(msg: Extract<InboundMessage, { type: 'set_model' }
     debugLog(`[set_model] No active session or model registry, ignoring`);
     return;
   }
-  let piModel = resolvePiModel(piModelRegistry, msg.model, initConfig?.piAuth?.provider, shouldPreferCustomEndpoint());
-
-  // For custom endpoints, dynamically register unknown models so mid-session switching works.
-  // Uses registerCustomEndpointModels which accumulates into the existing model set
-  // (registerProvider replaces, so we track all IDs and re-register the full set).
-  if (!piModel && initConfig?.baseUrl?.trim() && initConfig?.customEndpoint) {
-    const bareId = stripPiPrefix(msg.model);
-    registerCustomEndpointModels(piModelRegistry, initConfig.customEndpoint.api, initConfig.baseUrl!.trim(), [{ id: bareId }]);
-    piModel = piModelRegistry.find('custom-endpoint', bareId) ?? undefined;
-    debugLog(`[set_model] Dynamically registered custom endpoint model: ${bareId}`);
-  }
+  // Unknown models are registered on the fly so mid-session switching works —
+  // both for custom endpoints and for listing-discovered models on a pi
+  // connection (see resolveOrRegisterPiModel).
+  const piModel = resolveOrRegisterPiModel(piModelRegistry, msg.model);
 
   if (!piModel) {
     debugLog(`[set_model] Could not resolve model: ${msg.model}`);

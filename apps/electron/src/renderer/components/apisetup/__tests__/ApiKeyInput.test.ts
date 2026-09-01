@@ -206,6 +206,15 @@ describe('resolveTierCustomEndpoint', () => {
     )).toBeNull()
   })
 
+  it('leaves a listing-discovered model on the provider connection', () => {
+    // The subprocess registers it against the provider's own endpoint, so
+    // there is nothing to gain by trading piAuthProvider for custom-endpoint.
+    expect(resolveTierCustomEndpoint(
+      ['pi/glm-5.3'],
+      [{ id: 'pi/glm-5.2', api: 'openai-completions' }, { id: 'pi/glm-5.3', api: 'openai-completions' }],
+    )).toBeNull()
+  })
+
   it('pins the connection to the provider protocol when a tier holds an unknown ID', () => {
     expect(resolveTierCustomEndpoint(
       ['stealth/ox-alpha', 'pi/google/gemini-3.5-flash'],
@@ -264,6 +273,25 @@ describe('buildTierSetupModels', () => {
     expect(models).toEqual([
       { id: 'pi/openai/gpt-5.6-terra', contextWindow: 400_000, supportsImages: true, supportsThinking: true },
       { id: 'stealth/ox-alpha', contextWindow: 1_048_576, supportsImages: true },
+    ])
+  })
+
+  it('carries a listing-discovered model on a plain provider connection', () => {
+    // The Pi catalog has never heard of it, so nothing downstream can look its
+    // shape up — the pick has to travel with what the dropdown showed.
+    const models = buildTierSetupModels({
+      tierModelIds: ['pi/openai/gpt-5.6-terra', 'pi/glm-5.3'],
+      catalog: [
+        ...CATALOG,
+        { id: 'pi/glm-5.3', contextWindow: 200_000, supportsImages: false, reasoning: true, source: 'listing' },
+      ],
+      customMeta: {},
+      isCustomEndpoint: false,
+    })
+
+    expect(models).toEqual([
+      'pi/openai/gpt-5.6-terra',
+      { id: 'pi/glm-5.3', contextWindow: 200_000, supportsImages: false, supportsThinking: true },
     ])
   })
 

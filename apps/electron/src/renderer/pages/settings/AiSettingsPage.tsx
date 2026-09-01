@@ -188,14 +188,33 @@ interface ConnectionRowProps {
   onValidate: () => void
   onEdit: () => void
   onSetMidStreamBehavior: (behavior: MidStreamBehavior) => void
+  onRefreshModels: () => void
   validationState: ValidationState
   validationError?: string
 }
 
-function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, onSetDefault, onValidate, onEdit, onSetMidStreamBehavior, validationState, validationError }: ConnectionRowProps) {
+function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, onSetDefault, onValidate, onEdit, onSetMidStreamBehavior, onRefreshModels, validationState, validationError }: ConnectionRowProps) {
   const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(false)
   const [piBaseUrl, setPiBaseUrl] = useState<string | undefined>(undefined)
+  const [refreshingModels, setRefreshingModels] = useState(false)
+
+  // Model refresh only applies to auto-synced Pi connections: a
+  // user-defined 3-tier list is the user's own selection and is preserved by
+  // the refresh service, and compat endpoints are hand-configured by design.
+  // Those flows reach new models through the edit dialog's dropdown instead.
+  const canRefreshModels =
+    connection.providerType === 'pi' && connection.modelSelectionMode !== 'userDefined3Tier'
+
+  const handleRefreshModels = useCallback(async () => {
+    if (refreshingModels) return
+    setRefreshingModels(true)
+    try {
+      await onRefreshModels()
+    } finally {
+      setRefreshingModels(false)
+    }
+  }, [refreshingModels, onRefreshModels])
 
   // Opening dialog/overlay flows directly from a dropdown item can race with
   // menu teardown and leave a transient interaction lock behind on some systems.
@@ -312,6 +331,15 @@ function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, 
             <CheckCircle2 className="h-3.5 w-3.5" />
             <span>{t("settings.ai.validateConnection")}</span>
           </StyledDropdownMenuItem>
+          {canRefreshModels && (
+            <StyledDropdownMenuItem
+              onClick={() => runAfterMenuClose(handleRefreshModels)}
+              disabled={refreshingModels}
+            >
+              <RefreshCcw className={cn('h-3.5 w-3.5', refreshingModels && 'animate-spin')} />
+              <span>{refreshingModels ? t("settings.ai.refreshingModels") : t("settings.ai.refreshModels")}</span>
+            </StyledDropdownMenuItem>
+          )}
           {(() => {
             const currentBehavior = resolveMidStreamBehavior(connection)
             return (
@@ -594,6 +622,7 @@ export default function AiSettingsPage() {
     activePreset?: string
     models?: string[]
     customApi?: CustomEndpointApi
+    connectionSlug?: string
   } | undefined>(undefined)
   const setFullscreenOverlayOpen = useSetAtom(fullscreenOverlayOpenAtom)
 
@@ -780,6 +809,7 @@ export default function AiSettingsPage() {
       activePreset: isCustomEndpointConnection ? 'custom' : (connection.piAuthProvider || undefined),
       models: modelIds,
       customApi: connection.customEndpoint?.api,
+      connectionSlug: connection.slug,
     })
 
     // Open overlay and jump directly to credentials step (no reset — jumpToCredentials sets state)
@@ -838,6 +868,25 @@ export default function AiSettingsPage() {
       }, 5000)
     }
   }, [t])
+
+  // Pull the provider's current model list (catalog + live listing merge) into
+  // the connection's synced model list. Runs server-side with the stored key.
+  const handleRefreshModels = useCallback(async (connection: LlmConnectionWithStatus) => {
+    if (!window.electronAPI?.refreshLlmConnectionModels) return
+    try {
+      const result = await window.electronAPI.refreshLlmConnectionModels(connection.slug)
+      if (result.success) {
+        await refreshLlmConnections?.()
+        toast.success(t("settings.ai.modelsRefreshed", { count: result.modelCount ?? 0 }))
+      } else {
+        toast.error(t("settings.ai.modelsRefreshFailed"), { description: result.error })
+      }
+    } catch (error) {
+      toast.error(t("settings.ai.modelsRefreshFailed"), {
+        description: error instanceof Error ? error.message : undefined,
+      })
+    }
+  }, [refreshLlmConnections, t])
 
   const handleSetDefaultConnection = useCallback(async (slug: string) => {
     if (!window.electronAPI) return
@@ -1044,6 +1093,7 @@ export default function AiSettingsPage() {
                         onValidate={() => handleValidateConnection(conn.slug)}
                         onEdit={() => handleEditConnection(conn)}
                         onSetMidStreamBehavior={(behavior) => handleSetMidStreamBehavior(conn, behavior)}
+                        onRefreshModels={() => handleRefreshModels(conn)}
                         validationState={validationStates[conn.slug]?.state || 'idle'}
                         validationError={validationStates[conn.slug]?.error}
                       />
