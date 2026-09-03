@@ -13,6 +13,34 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+### Added
+
+- **Bitlab now uses the proxy your computer is already set up with.** If your
+  machine routes traffic through a proxy, the app follows it — nothing to fill
+  in under Settings. Only the parts of Bitlab built on Chromium ever saw that
+  system setting; everything else dialed out direct, which is why connecting a
+  ChatGPT account could fail on a machine whose browser reached OpenAI without
+  trouble. Anything you type into Settings still wins, and an explicitly
+  disabled proxy still means a direct connection.
+
+### Fixed
+
+- **Connecting ChatGPT now tells you what to do about "Country, region, or
+  territory not supported".** That message came straight from OpenAI and read
+  like an account problem, when it really meant this request left your machine
+  without going through your proxy. The wording now points at the proxy setting
+  and keeps the original message underneath. A token exchange that never
+  reaches OpenAI at all gets the same treatment instead of a bare network error.
+- **The built-in browser pane no longer ignores your system proxy.** With no
+  proxy configured in Settings, it was pinned to a direct connection rather than
+  left to follow the machine.
+- **Agents you run now inherit the same proxy as the app.** They were only told
+  about a proxy typed into Settings, so one picked up from the environment or
+  from the system never reached them.
+- **A `socks4://` proxy address no longer breaks startup.** The address was
+  accepted by the settings form but rejected deeper down, and the resulting
+  error escaped far enough to take the launch with it.
+
 ## [0.9.0] - 2026-09-01
 
 ### Added

@@ -62,6 +62,9 @@ export interface SetupNeeds {
 
 // Credential health types
 import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@bitlab/shared/credentials/types';
+
+import type { OAuthFailureCode } from '@bitlab/shared/auth';
+export type { OAuthFailureCode };
 export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType };
 
 
@@ -378,7 +381,7 @@ export interface ElectronAPI {
 
   // Onboarding
   getSetupNeeds(): Promise<SetupNeeds>
-  startChatGptOAuth(connectionSlug: string): Promise<{ success: boolean; error?: string }>
+  startChatGptOAuth(connectionSlug: string): Promise<{ success: boolean; error?: string; failureCode?: OAuthFailureCode }>
   cancelChatGptOAuth(): Promise<{ success: boolean }>
   getChatGptAuthStatus(connectionSlug: string): Promise<{ authenticated: boolean; expiresAt?: number; hasRefreshToken?: boolean }>
   chatGptLogout(connectionSlug: string): Promise<{ success: boolean }>

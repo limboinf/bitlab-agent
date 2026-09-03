@@ -1,6 +1,36 @@
 # Network proxy
 
 Settings can enable HTTP and HTTPS proxy URLs plus a comma-separated no-proxy list.
+Leaving them empty is the normal case: Bitlab falls back to the proxy the machine
+already uses.
+
+## Where the proxy comes from
+
+Resolved once at startup, and again whenever the setting is saved. First match wins:
+
+| Priority | Source | Notes |
+|---|---|---|
+| 1 | In-app setting | An explicit "off" means direct — it does not fall through |
+| 2 | `HTTP_PROXY` / `HTTPS_PROXY` env vars | Only visible when the app is launched from a shell |
+| 3 | Operating system proxy | Read through Chromium, including PAC scripts |
+| 4 | Direct | |
+
+The third row exists because Node's HTTP stack ignores the OS proxy entirely,
+while Chromium follows it. Without that step a fully proxied machine still dialed
+out direct from the Node side, so region-locked endpoints (OpenAI's OAuth token
+exchange, for one) rejected the app while the user's browser reached them fine.
+
+`session.resolveProxy()` answers in PAC syntax (`DIRECT`, `PROXY host:port`,
+`SOCKS5 host:port`, or a fallback list). Bitlab takes the first entry it can dial;
+SOCKS4 is skipped because undici cannot use it. A system-derived proxy is applied
+to the Node side only — Chromium keeps following the OS itself, so its per-URL PAC
+routing stays intact.
+
+The resolved proxy is also exported to spawned subprocesses as `HTTP_PROXY` /
+`HTTPS_PROXY`, since a subprocess has its own Node runtime and cannot see either
+the dispatcher or the OS setting.
+
+Check `[proxy] Applying proxy settings` in the main log to see which source won.
 
 ## Where the proxy applies
 
@@ -52,7 +82,10 @@ The proxy settings page can be temporarily overridden by exporting the standard 
 | `NO_PROXY` / `no_proxy` | Comma-separated no-proxy list |
 | `ALL_PROXY` | Default when `HTTP_PROXY`/`HTTPS_PROXY` is unset |
 
-Electron itself respects these env vars when launching. Once the app is running, the in-app setting wins for connections that Bitlab opens itself; system-level auto-update requests continue to use the environment variables.
+These are read only when the in-app setting is empty — saving a setting takes
+precedence, including when it is switched off. Note that an app launched from the
+Dock or Finder inherits no shell environment at all, which is why the OS proxy
+fallback matters more than these variables in practice.
 
 ## Sandbox notes
 
@@ -60,7 +93,8 @@ On macOS, NSLocalNetworkUsageDescription is set so the Browser pane can reach LA
 
 ## Prefer the OS proxy
 
-If a custom application proxy is unnecessary, prefer the operating system proxy:
+Bitlab picks the OS proxy up on its own, so leaving the in-app setting empty is
+the recommended setup:
 
 - macOS: System Settings → Network → Proxies
 - Linux: `HTTP_PROXY` env var via systemd user environment

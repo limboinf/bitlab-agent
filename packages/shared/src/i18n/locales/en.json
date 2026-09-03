@@ -428,6 +428,8 @@
   "onboarding.credentials.chatGPTInstructions": "Click the button above to sign in with your OpenAI account. A browser window will open for authentication.",
   "onboarding.credentials.connectChatGPT": "Connect ChatGPT",
   "onboarding.credentials.connectChatGPTDesc": "Use your ChatGPT subscription for model access.",
+  "onboarding.credentials.oauthError.network_unreachable": "Could not reach OpenAI's auth service. Check your connection, or verify the proxy address under Settings → App → Network.",
+  "onboarding.credentials.oauthError.region_blocked": "OpenAI rejected this request as coming from an unsupported region. Your browser reaching OpenAI doesn't mean Bitlab took the same route — set a proxy under Settings → App → Network, then try again.",
   "onboarding.credentials.signInChatGPT": "Sign in with ChatGPT",
   "onboarding.gitBash.alreadyInstalled": "Already have Git installed?",
   "onboarding.gitBash.browse": "Browse...",

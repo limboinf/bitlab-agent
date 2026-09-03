@@ -27,42 +27,92 @@ const OAUTH_SCOPES = CHATGPT_OAUTH_CONFIG.SCOPES;
  */
 const TOKEN_REQUEST_TIMEOUT_MS = 20_000;
 
+/** OpenAI's error code for a request originating from a blocked country. */
+const REGION_BLOCKED_CODE = 'unsupported_country_region_territory';
+
+/**
+ * Why an OAuth call failed, when the cause is something the user can act on.
+ *
+ * Both codes below almost always mean the same local misconfiguration: the
+ * browser reached OpenAI through a proxy, but this process went out direct.
+ * The raw upstream text ("Country, region, or territory not supported") reads
+ * like an account problem instead, so the UI needs the classification to give
+ * the real advice.
+ */
+export type OAuthFailureCode =
+  /** OpenAI rejected the request's origin country. */
+  | 'region_blocked'
+  /** The token endpoint was never reached (DNS, TLS, timeout, refused proxy). */
+  | 'network_unreachable';
+
+/** OAuth failure carrying an actionable classification for the UI. */
+export class ChatGptOAuthError extends Error {
+  constructor(message: string, readonly failureCode?: OAuthFailureCode) {
+    super(message);
+    this.name = 'ChatGptOAuthError';
+  }
+}
+
+/** Read the actionable failure code off a thrown value, if it carries one. */
+export function getOAuthFailureCode(error: unknown): OAuthFailureCode | undefined {
+  return error instanceof ChatGptOAuthError ? error.failureCode : undefined;
+}
+
 /** POST to the token endpoint with a bounded timeout. */
-function postToTokenEndpoint(params: URLSearchParams): Promise<Response> {
-  return fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-    },
-    body: params.toString(),
-    signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
-  });
+async function postToTokenEndpoint(params: URLSearchParams): Promise<Response> {
+  try {
+    return await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: params.toString(),
+      signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // fetch only rejects when the request never completed at all.
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new ChatGptOAuthError(`Could not reach ${TOKEN_URL}: ${reason}`, 'network_unreachable');
+  }
+}
+
+interface TokenErrorDetail {
+  message: string;
+  failureCode?: OAuthFailureCode;
 }
 
 /**
- * Turn a failed token-endpoint response into a readable message.
+ * Turn a failed token-endpoint response into a readable message plus a code.
  *
  * OpenAI answers with several shapes: a flat `{error, error_description}` OAuth
  * error, or a nested `{error: {code, message}}` platform error (that nested one
  * is what used to surface as "[object Object]"). Falls back to the raw body.
  */
-async function readTokenErrorMessage(response: Response): Promise<string> {
+async function readTokenError(response: Response): Promise<TokenErrorDetail> {
   const errorText = await response.text();
+  let code: string | undefined;
+  let message = errorText;
+
   try {
     const json = JSON.parse(errorText) as {
       error?: string | { code?: string; message?: string };
       error_description?: string;
     };
     if (typeof json.error === 'object' && json.error !== null) {
-      const { code, message } = json.error;
-      if (message && code) return `${message} (${code})`;
-      if (message || code) return (message ?? code) as string;
+      code = json.error.code;
+      const nested = json.error.message;
+      if (nested && code) message = `${nested} (${code})`;
+      else message = nested || code || json.error_description || errorText;
+    } else {
+      code = typeof json.error === 'string' ? json.error : undefined;
+      message = json.error_description || code || errorText;
     }
-    return json.error_description || (typeof json.error === 'string' ? json.error : '') || errorText;
   } catch {
-    return errorText;
+    // Not JSON — the raw body is the best message we have.
   }
+
+  return { message, failureCode: code === REGION_BLOCKED_CODE ? 'region_blocked' : undefined };
 }
 
 export interface ChatGptTokens {
@@ -152,7 +202,8 @@ export async function exchangeChatGptTokens(
   const response = await postToTokenEndpoint(params);
 
   if (!response.ok) {
-    throw new Error(`Token exchange failed: ${response.status} - ${await readTokenErrorMessage(response)}`);
+    const { message, failureCode } = await readTokenError(response);
+    throw new ChatGptOAuthError(`Token exchange failed: ${response.status} - ${message}`, failureCode);
   }
 
   const data = (await response.json()) as {
@@ -193,7 +244,8 @@ export async function refreshChatGptTokens(
     const response = await postToTokenEndpoint(params);
 
     if (!response.ok) {
-      throw new Error(`Token refresh failed: ${response.status} - ${await readTokenErrorMessage(response)}`);
+      const { message, failureCode } = await readTokenError(response);
+      throw new ChatGptOAuthError(`Token refresh failed: ${response.status} - ${message}`, failureCode);
     }
 
     const data = (await response.json()) as {
@@ -241,7 +293,8 @@ export async function exchangeIdTokenForApiKey(idToken: string): Promise<string>
   const response = await postToTokenEndpoint(params);
 
   if (!response.ok) {
-    throw new Error(`Token exchange failed: ${response.status} - ${await readTokenErrorMessage(response)}`);
+    const { message, failureCode } = await readTokenError(response);
+    throw new ChatGptOAuthError(`Token exchange failed: ${response.status} - ${message}`, failureCode);
   }
 
   const data = (await response.json()) as {

@@ -428,6 +428,8 @@
   "onboarding.credentials.chatGPTInstructions": "点击上方按钮使用 OpenAI 账号登录。将打开浏览器窗口进行认证。",
   "onboarding.credentials.connectChatGPT": "连接 ChatGPT",
   "onboarding.credentials.connectChatGPTDesc": "使用 ChatGPT 订阅访问模型。",
+  "onboarding.credentials.oauthError.network_unreachable": "无法连接 OpenAI 认证服务。请检查网络连接，或在「设置 → 应用 → 网络」中确认代理地址是否正确。",
+  "onboarding.credentials.oauthError.region_blocked": "OpenAI 以“地区不受支持”拒绝了这次请求。浏览器能打开 OpenAI，不代表 Bitlab 也走了同一条网络——请在「设置 → 应用 → 网络」中填写代理地址，然后重试。",
   "onboarding.credentials.signInChatGPT": "使用 ChatGPT 登录",
   "onboarding.gitBash.alreadyInstalled": "已安装 Git?",
   "onboarding.gitBash.browse": "浏览...",

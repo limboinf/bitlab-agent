@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import {
   CHATGPT_OAUTH_CONFIG,
   exchangeChatGptTokens,
+  getOAuthFailureCode,
   generateCallbackPage,
   prepareChatGptOAuth,
 } from '../index.ts'
@@ -46,6 +47,33 @@ describe('LLM subscription OAuth', () => {
       await expect(failure).rejects.toThrow(
         'Token exchange failed: 403 - Country, region, or territory not supported (unsupported_country_region_territory)',
       )
+    })
+
+    it('classifies a region block so the UI can blame the proxy, not the account', async () => {
+      respondWith(403, {
+        error: {
+          code: 'unsupported_country_region_territory',
+          message: 'Country, region, or territory not supported',
+        },
+      })
+
+      const error = await exchangeChatGptTokens('ac_code', 'verifier').catch(e => e)
+      expect(getOAuthFailureCode(error)).toBe('region_blocked')
+    })
+
+    it('classifies an unreachable token endpoint', async () => {
+      globalThis.fetch = (async () => { throw new TypeError('fetch failed') }) as unknown as typeof fetch
+
+      const error = await exchangeChatGptTokens('ac_code', 'verifier').catch(e => e)
+      expect(getOAuthFailureCode(error)).toBe('network_unreachable')
+      expect(error.message).toContain(CHATGPT_OAUTH_CONFIG.TOKEN_URL)
+    })
+
+    it('leaves an ordinary OAuth error unclassified', async () => {
+      respondWith(400, { error: 'invalid_grant', error_description: 'Code expired' })
+
+      const error = await exchangeChatGptTokens('ac_code', 'verifier').catch(e => e)
+      expect(getOAuthFailureCode(error)).toBeUndefined()
     })
 
     it('still reports the flat OAuth error shape', async () => {

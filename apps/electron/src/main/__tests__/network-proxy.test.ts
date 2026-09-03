@@ -2,7 +2,7 @@
  * Tests for network proxy bypass rules (NO_PROXY parsing and matching).
  */
 import { describe, it, expect } from 'bun:test';
-import { parseNoProxyRules, shouldBypassProxy } from '../network-proxy-utils';
+import { parseNoProxyRules, parsePacProxy, shouldBypassProxy } from '../network-proxy-utils';
 
 describe('parseNoProxyRules', () => {
   it('returns empty array for undefined/empty input', () => {
@@ -90,3 +90,31 @@ describe('shouldBypassProxy', () => {
     expect(shouldBypassProxy('http://10.0.0.1/', rules)).toBe(false);
   });
 });
+
+describe('parsePacProxy', () => {
+  it('reads a plain proxy result', () => {
+    expect(parsePacProxy('PROXY 127.0.0.1:7890')).toBe('http://127.0.0.1:7890')
+  })
+
+  it('treats DIRECT as no proxy', () => {
+    expect(parsePacProxy('DIRECT')).toBeUndefined()
+    expect(parsePacProxy('')).toBeUndefined()
+    expect(parsePacProxy(undefined)).toBeUndefined()
+  })
+
+  it('takes the first usable entry from a fallback list', () => {
+    expect(parsePacProxy('PROXY a.example:8080;PROXY b.example:8080;DIRECT'))
+      .toBe('http://a.example:8080')
+  })
+
+  it('maps HTTPS and SOCKS5 keywords to dialable schemes', () => {
+    expect(parsePacProxy('HTTPS secure.example:443')).toBe('https://secure.example:443')
+    expect(parsePacProxy('SOCKS5 127.0.0.1:1080')).toBe('socks5://127.0.0.1:1080')
+  })
+
+  it('skips SOCKS4, which undici cannot dial, and uses the next entry', () => {
+    expect(parsePacProxy('SOCKS 127.0.0.1:1080;PROXY 127.0.0.1:7890'))
+      .toBe('http://127.0.0.1:7890')
+    expect(parsePacProxy('SOCKS4 127.0.0.1:1080;DIRECT')).toBeUndefined()
+  })
+})

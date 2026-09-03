@@ -104,3 +104,37 @@ export function shouldBypassProxy(url: string | URL, rules: NoProxyRule[]): bool
 
   return false;
 }
+
+/**
+ * PAC result keywords mapped to the URL scheme undici's ProxyAgent understands.
+ *
+ * `SOCKS` without a version means SOCKS4 in PAC, and undici rejects SOCKS4
+ * outright — leaving both out means we fall through to the next candidate (or
+ * direct) instead of throwing while applying a proxy the user never typed.
+ */
+const PAC_PROXY_SCHEMES: Record<string, string> = {
+  PROXY: 'http',
+  HTTP: 'http',
+  HTTPS: 'https',
+  SOCKS5: 'socks5',
+};
+
+/**
+ * Turn a PAC-style proxy result into a proxy URL.
+ *
+ * Chromium answers `resolveProxy()` in PAC syntax — `DIRECT`,
+ * `PROXY host:port`, or a fallback list like `PROXY a:1;SOCKS5 b:2;DIRECT`.
+ * Returns the first entry we can actually dial, or undefined for a direct route.
+ */
+export function parsePacProxy(pacResult: string | undefined): string | undefined {
+  if (!pacResult) return undefined;
+
+  for (const entry of pacResult.split(';')) {
+    const [keyword, hostPort] = entry.trim().split(/\s+/);
+    if (!keyword || !hostPort) continue; // DIRECT, or a malformed entry
+    const scheme = PAC_PROXY_SCHEMES[keyword.toUpperCase()];
+    if (scheme) return `${scheme}://${hostPort}`;
+  }
+
+  return undefined;
+}

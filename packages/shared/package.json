@@ -22,6 +22,7 @@
     "./docs/doc-links": "./src/docs/doc-links.ts",
     "./config/types": "./src/config/types.ts",
     "./config/mcp": "./src/config/mcp.ts",
+    "./config/proxy-env": "./src/config/proxy-env.ts",
     "./credentials": "./src/credentials/index.ts",
     "./credentials/types": "./src/credentials/types.ts",
     "./auth": "./src/auth/index.ts",

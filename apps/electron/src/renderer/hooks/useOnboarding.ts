@@ -233,6 +233,7 @@ export function useOnboarding({
         setState(s => ({
           ...s,
           errorMessage: result.error || 'Failed to save configuration',
+          errorCode: undefined,
         }))
         return false
       }
@@ -241,6 +242,7 @@ export function useOnboarding({
       setState(s => ({
         ...s,
         errorMessage: error instanceof Error ? error.message : 'Failed to save configuration',
+        errorCode: undefined,
       }))
       return false
     }
@@ -425,24 +427,24 @@ export function useOnboarding({
       onComplete()
       return true
     }
-    setState(s => ({ ...s, credentialStatus: 'error', errorMessage: testResult.error || 'Connection test failed' }))
+    setState(s => ({ ...s, credentialStatus: 'error', errorMessage: testResult.error || 'Connection test failed', errorCode: undefined }))
     return false
   }, [handleSaveConfig, onComplete])
 
   const handleStartOAuth = useCallback(async (methodOverride?: ApiSetupMethod, connectionSlugOverride?: string) => {
     const method = methodOverride ?? state.apiSetupMethod
     if (method !== 'pi_chatgpt_oauth') return
-    setState(s => ({ ...s, credentialStatus: 'validating', errorMessage: undefined }))
+    setState(s => ({ ...s, credentialStatus: 'validating', errorMessage: undefined, errorCode: undefined }))
     try {
       const targetSlug = resolveSlugForMethod(method, connectionSlugOverride ?? editingSlug, existingSlugs)
       const result = await window.electronAPI.startChatGptOAuth(targetSlug)
       if (result.success) {
         await saveAndValidateConnection(targetSlug, method, undefined, Boolean(connectionSlugOverride ?? editingSlug))
       } else {
-        setState(s => ({ ...s, credentialStatus: 'error', errorMessage: result.error || 'ChatGPT authentication failed' }))
+        setState(s => ({ ...s, credentialStatus: 'error', errorMessage: result.error || 'ChatGPT authentication failed', errorCode: result.failureCode }))
       }
     } catch (error) {
-      setState(s => ({ ...s, credentialStatus: 'error', errorMessage: error instanceof Error ? error.message : 'OAuth failed' }))
+      setState(s => ({ ...s, credentialStatus: 'error', errorMessage: error instanceof Error ? error.message : 'OAuth failed', errorCode: undefined }))
     }
   }, [state.apiSetupMethod, editingSlug, existingSlugs, saveAndValidateConnection])
 

@@ -5,13 +5,22 @@ import type { ApiSetupMethod } from "./APISetupStep"
 import { StepFormLayout, BackButton, ContinueButton } from "./primitives"
 import { ApiKeyInput, type ApiKeyStatus, type ApiKeySubmitData, type OAuthStatus } from "../apisetup"
 import type { CustomEndpointApi } from '@config/llm-connections'
+import type { OAuthFailureCode } from '@bitlab/shared/auth'
 
 export type CredentialStatus = ApiKeyStatus | OAuthStatus
+
+/** Spelled out rather than interpolated so the i18n usage lint can see both keys. */
+const OAUTH_FAILURE_HINT_KEY: Record<OAuthFailureCode, string> = {
+  region_blocked: 'onboarding.credentials.oauthError.region_blocked',
+  network_unreachable: 'onboarding.credentials.oauthError.network_unreachable',
+}
 
 interface CredentialsStepProps {
   apiSetupMethod: ApiSetupMethod
   status: CredentialStatus
   errorMessage?: string
+  /** Actionable classification of an OAuth failure, when the server named one. */
+  errorCode?: OAuthFailureCode
   onSubmit: (data: ApiKeySubmitData) => void
   onStartOAuth?: (methodOverride?: ApiSetupMethod) => void
   onBack: () => void
@@ -30,6 +39,7 @@ export function CredentialsStep({
   apiSetupMethod,
   status,
   errorMessage,
+  errorCode,
   onSubmit,
   onStartOAuth,
   onBack,
@@ -57,7 +67,14 @@ export function CredentialsStep({
           <div className="rounded-xl bg-foreground-2 p-4 text-sm text-muted-foreground">
             <p>{t("onboarding.credentials.chatGPTInstructions")}</p>
           </div>
-          {status === 'error' && errorMessage && <div className="rounded-lg bg-destructive/10 text-destructive text-sm p-3">{errorMessage}</div>}
+          {status === 'error' && errorMessage && (
+            <div className="rounded-lg bg-destructive/10 text-destructive text-sm p-3 space-y-1.5">
+              {/* A classified failure gets the fix, not just the upstream wording —
+                  "country not supported" really means this app went out unproxied. */}
+              {errorCode && <p>{t(OAUTH_FAILURE_HINT_KEY[errorCode])}</p>}
+              <p className={errorCode ? 'text-xs opacity-70' : undefined}>{errorMessage}</p>
+            </div>
+          )}
         </div>
       </StepFormLayout>
     )

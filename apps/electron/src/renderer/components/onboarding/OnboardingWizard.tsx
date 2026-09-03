@@ -7,6 +7,7 @@ import { LocalModelStep, type LocalModelSubmitData } from "./LocalModelStep"
 import { GitBashWarning, type GitBashStatus } from "./GitBashWarning"
 import type { ApiKeySubmitData } from "../apisetup"
 import type { CustomEndpointApi } from '@config/llm-connections'
+import type { OAuthFailureCode } from '@bitlab/shared/auth'
 
 export type OnboardingStep =
   | 'welcome'
@@ -24,6 +25,8 @@ export interface OnboardingState {
   apiSetupMethod: ApiSetupMethod | null
   isExistingUser: boolean
   errorMessage?: string
+  /** Actionable classification of an OAuth failure, when the server could name one. */
+  errorCode?: OAuthFailureCode
   gitBashStatus?: GitBashStatus
   isRecheckingGitBash?: boolean
   isCheckingGitBash?: boolean
@@ -147,6 +150,7 @@ export function OnboardingWizard({
             apiSetupMethod={state.apiSetupMethod!}
             status={state.credentialStatus}
             errorMessage={state.errorMessage}
+            errorCode={state.errorCode}
             onSubmit={onSubmitCredential}
             onStartOAuth={onStartOAuth}
             onBack={onBack}

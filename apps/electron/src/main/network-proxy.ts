@@ -8,14 +8,37 @@
 
 import { app, session } from 'electron';
 import { Agent, Dispatcher, ProxyAgent, setGlobalDispatcher } from 'undici';
-import { parseNoProxyRules, shouldBypassProxy, splitCommaSeparated, type NoProxyRule } from './network-proxy-utils';
+import { parseNoProxyRules, parsePacProxy, shouldBypassProxy, splitCommaSeparated, type NoProxyRule } from './network-proxy-utils';
 import { getNetworkProxySettings, setNetworkProxySettings } from '@bitlab/shared/config/storage';
+import { setResolvedProxySettings } from '@bitlab/shared/config/proxy-env';
 import type { NetworkProxySettings } from '@bitlab/shared/config/types';
 import { BROWSER_PANE_SESSION_PARTITION } from './browser-pane-manager';
 import log from './logger';
 
+/** Loopback must stay direct: the app talks to its own local server over HTTP. */
+const LOOPBACK_NO_PROXY = 'localhost,127.0.0.1,::1';
+
+/** Where a proxy configuration came from, in descending priority. */
+type ProxySource = 'settings' | 'environment' | 'system';
+
 // Track the current dispatcher so we can close it when reconfiguring
 let currentProxyDispatcher: Dispatcher | null = null;
+
+/**
+ * Build a ProxyAgent, or fall back to direct for a URL undici can't dial.
+ *
+ * undici throws synchronously on schemes it doesn't support (SOCKS4), and that
+ * throw would otherwise escape all the way out of startup.
+ */
+function createProxyAgent(proxyUrl: string | undefined): ProxyAgent | null {
+  if (!proxyUrl) return null;
+  try {
+    return new ProxyAgent(proxyUrl);
+  } catch (error) {
+    log.warn('[proxy] Unusable proxy URL, going direct for that protocol:', error);
+    return null;
+  }
+}
 
 /**
  * Custom undici Dispatcher that routes requests through proxy agents based on protocol,
@@ -33,8 +56,8 @@ class ProtocolProxyDispatcher extends Dispatcher {
     noProxy?: string;
   }) {
     super();
-    this.httpProxy = opts.httpProxy ? new ProxyAgent(opts.httpProxy) : null;
-    this.httpsProxy = opts.httpsProxy ? new ProxyAgent(opts.httpsProxy) : null;
+    this.httpProxy = createProxyAgent(opts.httpProxy);
+    this.httpsProxy = createProxyAgent(opts.httpsProxy);
     this.direct = new Agent();
     this.rules = parseNoProxyRules(opts.noProxy);
   }
@@ -107,12 +130,17 @@ function configureNodeProxy(settings: NetworkProxySettings | undefined): void {
  * Configure Electron session proxies (default session + browser-pane partition).
  * Requires app to be ready.
  */
-async function configureElectronProxy(settings: NetworkProxySettings | undefined): Promise<void> {
+async function configureElectronProxy(
+  settings: NetworkProxySettings | undefined,
+  fallbackMode: 'system' | 'direct',
+): Promise<void> {
   if (!app.isReady()) return;
 
+  // Chromium follows the OS proxy by itself; only pin it when the user made an
+  // explicit choice, so that "no setting" doesn't mean "ignore the system proxy".
   const proxyConfig = settings?.enabled
     ? buildElectronProxyConfig(settings)
-    : { mode: 'direct' as const };
+    : { mode: fallbackMode };
 
   const sessions = [
     session.defaultSession,
@@ -161,9 +189,80 @@ function readEnvProxySettings(): NetworkProxySettings | undefined {
   const httpsProxy = HTTPS_PROXY || https_proxy || httpProxy;
   if (!httpProxy && !httpsProxy) return undefined;
 
-  // Loopback must stay direct: the app talks to its own local server over HTTP.
-  const noProxy = [NO_PROXY || no_proxy, 'localhost,127.0.0.1,::1'].filter(Boolean).join(',');
+  const noProxy = [NO_PROXY || no_proxy, LOOPBACK_NO_PROXY].filter(Boolean).join(',');
   return { enabled: true, httpProxy: httpProxy || httpsProxy, httpsProxy, noProxy };
+}
+
+/**
+ * Cap on the system-proxy lookup. Resolving can mean fetching and evaluating a
+ * remote PAC script, and this runs on the startup path.
+ */
+const SYSTEM_PROXY_TIMEOUT_MS = 2_000;
+
+/** Reject if `promise` hasn't settled in time, without holding the event loop open. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms).unref();
+    }),
+  ]);
+}
+
+/**
+ * The proxy the operating system itself is configured with, read via Chromium.
+ *
+ * Node's HTTP stack ignores the OS proxy completely, so on a machine where every
+ * app is proxied this one still dials out direct — which is how a region-locked
+ * endpoint rejects us while the user's browser reaches it fine. Chromium does
+ * follow the OS settings (and evaluates any PAC script), so asking it means the
+ * user configures nothing here.
+ */
+async function readSystemProxySettings(): Promise<NetworkProxySettings | undefined> {
+  if (!app.isReady()) return undefined;
+
+  try {
+    // Chromium answers from whatever mode the session is in, so put it back on
+    // the OS settings first — otherwise we would read back our own last override.
+    await session.defaultSession.setProxy({ mode: 'system' });
+
+    // Ask for both protocols: a PAC script may route them differently.
+    const [httpProxy, httpsProxy] = await withTimeout(Promise.all([
+      session.defaultSession.resolveProxy('http://example.com').then(parsePacProxy),
+      session.defaultSession.resolveProxy('https://example.com').then(parsePacProxy),
+    ]), SYSTEM_PROXY_TIMEOUT_MS);
+
+    if (!httpProxy && !httpsProxy) return undefined;
+
+    return {
+      enabled: true,
+      httpProxy: httpProxy ?? httpsProxy,
+      httpsProxy: httpsProxy ?? httpProxy,
+      noProxy: LOOPBACK_NO_PROXY,
+    };
+  } catch (error) {
+    log.warn('[proxy] Could not read the system proxy:', error);
+    return undefined;
+  }
+}
+
+/**
+ * Resolve which proxy to use, in descending priority: what the user configured
+ * here, then the shell environment, then the operating system's own proxy.
+ */
+async function resolveProxySettings(): Promise<{
+  settings: NetworkProxySettings | undefined;
+  source: ProxySource;
+}> {
+  // An explicit setting wins even when it says "off" — that means direct, not
+  // "go guess from my shell or my OS".
+  const configured = getNetworkProxySettings();
+  if (configured) return { settings: configured, source: 'settings' };
+
+  const fromEnv = readEnvProxySettings();
+  if (fromEnv) return { settings: fromEnv, source: 'environment' };
+
+  return { settings: await readSystemProxySettings(), source: 'system' };
 }
 
 /**
@@ -171,24 +270,26 @@ function readEnvProxySettings(): NetworkProxySettings | undefined {
  * Safe to call before app.whenReady() — Electron session setup is skipped until ready.
  */
 export async function applyConfiguredProxySettings(): Promise<void> {
-  const configured = getNetworkProxySettings();
-  // Only fall back to the environment when the user never touched the setting —
-  // an explicit "off" means direct, not "guess from my shell".
-  const envSettings = configured ? undefined : readEnvProxySettings();
-  const settings = envSettings ?? configured;
+  const { settings, source } = await resolveProxySettings();
 
-  const hasHttpProxy = !!settings?.httpProxy;
-  const hasNoProxy = !!settings?.noProxy;
   log.info('[proxy] Applying proxy settings:', {
-    source: envSettings ? 'environment' : 'settings',
+    source,
     enabled: settings?.enabled ?? false,
-    hasHttpProxy,
+    hasHttpProxy: !!settings?.httpProxy,
     hasHttpsProxy: !!settings?.httpsProxy,
-    hasNoProxy,
+    hasNoProxy: !!settings?.noProxy,
   });
 
   configureNodeProxy(settings);
-  await configureElectronProxy(settings);
+  // Subprocesses read this back as env vars — they can't see the OS proxy either.
+  setResolvedProxySettings(settings);
+  // Chromium needs no override for a system-derived proxy — it already follows
+  // the OS, and pinning it would freeze a PAC script's per-URL routing.
+  // Only an explicit setting pins it, and only an explicit "off" means direct.
+  await configureElectronProxy(
+    source === 'system' ? undefined : settings,
+    source === 'settings' ? 'direct' : 'system',
+  );
 }
 
 /**

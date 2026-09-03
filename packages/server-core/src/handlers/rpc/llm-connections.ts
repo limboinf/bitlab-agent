@@ -340,8 +340,8 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
       pendingChatGptFlows.delete(args.state)
       throw new Error('ChatGPT OAuth flow expired')
     }
+    const { exchangeChatGptTokens, getOAuthFailureCode } = await import('@bitlab/shared/auth')
     try {
-      const { exchangeChatGptTokens } = await import('@bitlab/shared/auth')
       const tokens = await exchangeChatGptTokens(args.code, flow.codeVerifier)
       await getCredentialManager().setLlmOAuth(flow.connectionSlug, {
         accessToken: tokens.accessToken,
@@ -353,7 +353,13 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
       return { success: true }
     } catch (error) {
       pendingChatGptFlows.delete(args.state)
-      return { success: false, error: error instanceof Error ? error.message : 'Token exchange failed' }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Token exchange failed',
+        // Lets the UI point at the real fix (usually proxy settings) instead of
+        // echoing an upstream message that blames the user's country.
+        failureCode: getOAuthFailureCode(error),
+      }
     }
   })
 
