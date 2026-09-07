@@ -13,6 +13,34 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.10.0] - 2026-09-07
+
+### Added
+
+- **Pictures, video and audio an agent makes now appear inside the message
+  itself.** Until now a generated file only left its name behind in the row of
+  chips under the reply, so you had to open it somewhere else to see what you
+  got. Finished replies now show the result: thumbnails for images, a poster
+  frame with playback controls for video, a card with duration for audio, and
+  a click opens the full preview. The same file no longer shows up twice as
+  both a tile and a name chip.
+- **The transcript now records where you switched models.** Changing the model
+  mid-session left no trace, so reopening a session made it look like the model
+  you ended on had answered everything from the start. A switch now leaves a
+  marker line at the exact point it happened, naming the connection and model
+  on each side. Changing only the thinking level is not a switch and stays
+  unmarked.
+
+### Fixed
+
+- **macOS no longer keeps asking whether "bun" may use your confidential
+  information.** MCP sign-ins were written to the system keychain by the agent
+  process, and macOS ties each keychain entry to the exact program that created
+  it — a program that gets replaced on every update, so the prompt came back
+  again and again. Those tokens now belong to Bitlab itself. Servers you have
+  already signed into are carried over the first time they are used, and
+  signing in on one session immediately applies to the others.
+
 ## [0.9.1] - 2026-09-03
 
 ### Added
@@ -449,6 +477,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.10.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.10.0
 [0.9.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.9.1
 [0.9.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.9.0
 [0.8.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.8.0
