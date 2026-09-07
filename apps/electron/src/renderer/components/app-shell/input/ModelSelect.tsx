@@ -100,8 +100,9 @@ export function ModelSelect({
     ? t(`thinking.${thinkingLevel}`)
     : undefined
 
-  // A switch is its own feedback: the trigger label changes and the row gets
-  // its checkmark. Nothing else needs to be announced.
+  // A switch is its own feedback in the picker: the trigger label changes and
+  // the row gets its checkmark. A route change is additionally announced in
+  // the transcript by the server's persisted model_changed notice.
   const submit = React.useCallback(async (selection: SessionModelSelectionDto) => {
     const result = await select(selection)
     if (!result) return

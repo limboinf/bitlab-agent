@@ -113,7 +113,7 @@ export type SessionEvent =
   | { type: 'session_archived'; sessionId: string }
   | { type: 'session_unarchived'; sessionId: string }
   | { type: 'name_changed'; sessionId: string; name?: string }
-  | { type: 'session_model_changed'; sessionId: string; model: string | null; thinkingLevel?: ThinkingLevel }
+  | { type: 'session_model_changed'; sessionId: string; model: string | null; thinkingLevel?: ThinkingLevel; message?: Message }
   | { type: 'session_deleted'; sessionId: string }
   | { type: 'session_created'; sessionId: string }
   | { type: 'usage_update'; sessionId: string; tokenUsage: { inputTokens: number; contextWindow?: number } }

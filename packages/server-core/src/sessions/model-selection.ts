@@ -145,3 +145,9 @@ export function crossesConnection(
 ): boolean {
   return a.connection !== b.connection
 }
+
+/** Format a resolved route for display: `connection/model`, minus a missing side. */
+export function formatModelRoute(connection: string | undefined, model: string | undefined): string {
+  if (connection && model) return `${connection}/${model}`
+  return model ?? connection ?? 'default'
+}

@@ -118,6 +118,8 @@
   "chat.mentionFilesSkills": "Mention files and skills",
   "chat.messageNav.ariaLabel": "Message navigation",
   "chat.messageNav.goToMessage": "Jump to message {{index}} of {{total}}",
+  "chat.modelChanged.notice": "Model changed from {{from}} to {{to}}",
+  "chat.modelChanged.switchedAt": "Switched at {{time}}",
   "chat.modelPicker.openAiSettings": "Open AI settings",
   "chat.modelPicker.providerDefault": "Provider default",
   "chat.modelPicker.selectFailed": "Could not switch model: {{message}}",

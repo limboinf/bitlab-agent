@@ -246,6 +246,23 @@ export interface MessageModelSelection {
   thinkingLevel?: string;
 }
 
+/**
+ * The route a `model_changed` notice moved the session between, with both ends
+ * already resolved (connection defaults applied) so renderers never re-resolve.
+ * The formatted sentence lives in `content`; these fields exist so the UI can
+ * localize the wording and style each side.
+ */
+export interface MessageModelChange {
+  /** Connection slug the session ran under before the switch. */
+  fromConnection?: string;
+  /** Model id the session ran under before the switch. */
+  fromModel?: string;
+  /** Connection slug the session runs under after the switch. */
+  toConnection?: string;
+  /** Model id the session runs under after the switch. */
+  toModel?: string;
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -303,7 +320,9 @@ export interface Message {
   // Turn ID: Correlation ID from the API's message.id, groups all messages in an assistant turn
   turnId?: string;
   // Status type for special status messages (e.g., compacting)
-  statusType?: 'compacting' | 'compaction_complete';
+  statusType?: 'compacting' | 'compaction_complete' | 'model_changed';
+  // Route a model_changed notice moved between (resolved on both ends)
+  modelChange?: MessageModelChange;
   // Info level for info messages (determines icon/color)
   infoLevel?: 'info' | 'warning' | 'error' | 'success';
   // Error-specific fields (for typed errors with diagnostics)
@@ -360,8 +379,10 @@ export interface StoredMessage {
   isIntermediate?: boolean;
   isThinking?: boolean;
   turnId?: string;
-  // Status type for compaction messages (persisted for reload)
-  statusType?: 'compacting' | 'compaction_complete';
+  // Status type for compaction / model-switch notices (persisted for reload)
+  statusType?: 'compacting' | 'compaction_complete' | 'model_changed';
+  // Route a model_changed notice moved between (persisted for reload)
+  modelChange?: MessageModelChange;
   // Info level for info messages (persisted for reload)
   infoLevel?: 'info' | 'warning' | 'error' | 'success';
   // Error display fields

@@ -311,6 +311,8 @@ export interface SessionModelChangedEvent {
   model: string | null
   /** Carried so the renderer's session mirror stays exact after a switch. */
   thinkingLevel?: ThinkingLevel
+  /** Persisted notice message for a route change, appended to the transcript. */
+  message?: Message
 }
 
 /**

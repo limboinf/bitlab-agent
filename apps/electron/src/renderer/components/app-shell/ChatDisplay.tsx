@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { useEffect, useState, useMemo, useCallback } from "react"
 import {
   AlertTriangle,
+  Box,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -2253,6 +2254,12 @@ function ErrorMessage({ message, onOpenUrl, sessionId, onRetry }: { message: Mes
   )
 }
 
+/** Route label for the model-switch notice: `connection/model`, minus a missing side. */
+function formatModelRouteLabel(connection?: string, model?: string): string {
+  if (connection && model) return `${connection}/${model}`
+  return model ?? connection ?? ''
+}
+
 function MessageBubble({
   message,
   onOpenFile,
@@ -2355,6 +2362,30 @@ function MessageBubble({
           <span className="text-sm text-muted-foreground/70 select-none">
             Conversation Compacted
           </span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+      )
+    }
+
+    // Model-switch notice - same centered rule row, marking where the transcript
+    // changed models. The message persists server-side, so reloads keep the mark.
+    if (message.statusType === 'model_changed') {
+      const change = message.modelChange
+      const from = formatModelRouteLabel(change?.fromConnection, change?.fromModel)
+      const to = formatModelRouteLabel(change?.toConnection, change?.toModel)
+      return (
+        <div className="flex items-center gap-3 my-12 px-3 select-none">
+          <div className="flex-1 h-px bg-border" />
+          <div className="flex items-center gap-2 text-sm text-muted-foreground/70">
+            <Box className="w-3.5 h-3.5 shrink-0" />
+            <span>{change ? t('chat.modelChanged.notice', { from, to }) : message.content}</span>
+            <span
+              className="flex items-center shrink-0 cursor-help"
+              title={t('chat.modelChanged.switchedAt', { time: new Date(message.timestamp).toLocaleString() })}
+            >
+              <Info className="w-3 h-3 opacity-50" />
+            </span>
+          </div>
           <div className="flex-1 h-px bg-border" />
         </div>
       )

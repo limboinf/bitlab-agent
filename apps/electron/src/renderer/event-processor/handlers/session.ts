@@ -444,10 +444,14 @@ export function handleSessionModelChanged(
 ): ProcessResult {
   const { session, streaming } = state
 
+  // A route change arrives with its persisted transcript notice; appendMessage
+  // dedups by id, so a replayed retained event never duplicates the row.
+  const sessionWithNotice = event.message ? appendMessage(session, event.message) : session
+
   return {
     state: {
       session: {
-        ...session,
+        ...sessionWithNotice,
         model: event.model ?? undefined,
         ...(event.thinkingLevel !== undefined && { thinkingLevel: event.thinkingLevel }),
       },

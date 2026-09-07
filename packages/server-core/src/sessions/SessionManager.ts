@@ -103,7 +103,10 @@ import {
   crossesConnection,
   currentSelection,
   effectiveSelection,
+  formatModelRoute,
+  loggedSelection,
   type SessionModelSelection,
+  sameRoute,
 } from './model-selection'
 import { rollbackFailedBranchCreation, sanitizeForTitle } from '@bitlab/server-core/domain'
 import { applyTranscriptEvent } from './persist-transcript'
@@ -1961,6 +1964,35 @@ export class SessionManager implements ISessionManager {
       )
     }
 
+    // A route change leaves a mark in the transcript: a persisted info notice
+    // rendered exactly where the switch happened, so the log says which model
+    // answered each stretch instead of a session field that drifts. Only a
+    // route change is announced (thinking-level-only keeps the route), and a
+    // session that never dispatched a turn has no transcript to mark.
+    let modelChangeNotice: Message | undefined
+    if (!sameRoute(previous, next) && loggedSelection(managed.messages)) {
+      const previousContext = resolveBackendContext({
+        sessionConnectionSlug: previous.connection,
+        workspaceDefaultConnectionSlug: workspaceConfig?.defaults?.defaultLlmConnection,
+        managedModel: previous.model,
+      })
+      modelChangeNotice = {
+        id: generateMessageId(),
+        role: 'info',
+        statusType: 'model_changed',
+        infoLevel: 'info',
+        content: `Model changed from ${formatModelRoute(previousContext.connection?.slug, previousContext.resolvedModel)} to ${formatModelRoute(context.connection?.slug, context.resolvedModel)}`,
+        timestamp: this.nextTimestamp(),
+        modelChange: {
+          fromConnection: previousContext.connection?.slug,
+          fromModel: previousContext.resolvedModel,
+          toConnection: context.connection?.slug,
+          toModel: context.resolvedModel,
+        },
+      }
+      managed.messages.push(modelChangeNotice)
+    }
+
     await this.flushSession(sessionId)
     this.emit(managed.workspace.id, { type: 'connection_changed', sessionId, connectionSlug: next.connection ?? '' })
     this.emit(managed.workspace.id, {
@@ -1968,6 +2000,7 @@ export class SessionManager implements ISessionManager {
       sessionId,
       model: next.model ?? null,
       ...(next.thinkingLevel ? { thinkingLevel: next.thinkingLevel } : {}),
+      ...(modelChangeNotice ? { message: modelChangeNotice } : {}),
     })
     return { selected: next }
   }

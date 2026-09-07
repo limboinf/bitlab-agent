@@ -118,6 +118,8 @@
   "chat.mentionFilesSkills": "引用文件和技能",
   "chat.messageNav.ariaLabel": "消息导航",
   "chat.messageNav.goToMessage": "跳转到第 {{index}} 条消息（共 {{total}} 条）",
+  "chat.modelChanged.notice": "模型已从 {{from}} 切换为 {{to}}",
+  "chat.modelChanged.switchedAt": "切换于 {{time}}",
   "chat.modelPicker.openAiSettings": "打开 AI 设置",
   "chat.modelPicker.providerDefault": "提供方默认",
   "chat.modelPicker.selectFailed": "切换模型失败：{{message}}",
