@@ -11,6 +11,7 @@ import type {
 import type { PermissionMode } from '../agent/mode-types.ts';
 import type { ThinkingLevel } from '../agent/thinking-levels.ts';
 import type { CustomEndpointConfig } from '../config/llm-connections.ts';
+import type { MediaMetadata } from './media.ts';
 
 export { generateMessageId } from '@bitlab/core/types';
 
@@ -260,6 +261,8 @@ export type ArtifactKind =
   | 'markdown'
   | 'pdf'
   | 'image'
+  | 'video'
+  | 'audio'
   | 'json'
   | 'code'
   | 'text'
@@ -295,6 +298,13 @@ export interface SessionArtifact {
   /** `tool` = traceable write; `session-output` = found by scanning plans/ or data/. */
   sources: Array<'tool' | 'session-output'>
   revisions: ArtifactRevision[]
+  /**
+   * Probed media facts, present only for `image`/`video`/`audio` artifacts that
+   * still exist. Carried on the snapshot rather than fetched per card: the
+   * message list would otherwise open one request per file just to learn a
+   * picture's dimensions.
+   */
+  media?: MediaMetadata
 }
 
 export interface SessionArtifactsSnapshot {

@@ -11,6 +11,7 @@
  */
 
 import { createContext, useContext, type ReactNode } from 'react'
+import type { MediaMetadata } from '@bitlab/shared/protocol'
 
 /**
  * Platform-specific actions that components may need
@@ -122,6 +123,34 @@ export interface PlatformActions {
    * Used by PDF preview blocks that need raw binary data
    */
   onReadFileBinary?: (path: string) => Promise<Uint8Array>
+
+  /**
+   * Read an image as a size-bounded thumbnail data URL (Electron: host-side
+   * resize via IPC). Used by media cards in the message list, which must never
+   * pull a full-size picture just to show a 160px tile.
+   *
+   * Web: not available — cards fall back to a file-type icon.
+   */
+  onReadFilePreviewDataUrl?: (path: string, maxSize?: number) => Promise<string>
+
+  /**
+   * Build a URL a `<video>` / `<audio>` / `<img>` element can stream a local
+   * media file from (Electron: the media-preview:// scheme).
+   *
+   * This is the capability gate for in-message playback. A host that cannot
+   * serve ranged media returns nothing and the card says so, rather than
+   * showing a player that would never start — see the media preview design.
+   */
+  getMediaSourceUrl?: (path: string) => string | null
+
+  /**
+   * Probe a media file for its real MIME type, size and pixel dimensions
+   * (Electron: file:readMediaMetadata).
+   *
+   * Only needed for paths with no artifact behind them; media the agent
+   * produced already carries probed metadata on the artifact snapshot.
+   */
+  onReadMediaMetadata?: (path: string) => Promise<MediaMetadata | null>
 
   /**
    * Reveal a file in the system file manager (Electron: shell.showItemInFolder)

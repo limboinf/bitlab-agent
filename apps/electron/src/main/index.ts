@@ -39,6 +39,7 @@ import { handleDeepLink } from './deep-link'
 import { createApplicationMenu, rebuildMenu, setMenuEventSink } from './menu'
 import { registerThumbnailHandler, THUMBNAIL_PRIVILEGED_SCHEME } from './thumbnail-protocol'
 import { registerHtmlPreviewHandler, HTML_PREVIEW_PRIVILEGED_SCHEME } from './html-preview-protocol'
+import { registerMediaPreviewHandler, MEDIA_PREVIEW_PRIVILEGED_SCHEME } from './media-preview-protocol'
 import { applyConfiguredProxySettings } from './network-proxy'
 import { getLastWorkspaceId } from './window-state'
 
@@ -52,6 +53,7 @@ app.setName(process.env.BITLAB_APP_NAME || 'Bitlab')
 protocol.registerSchemesAsPrivileged([
   THUMBNAIL_PRIVILEGED_SCHEME,
   HTML_PREVIEW_PRIVILEGED_SCHEME,
+  MEDIA_PREVIEW_PRIVILEGED_SCHEME,
 ])
 
 let stopServer: (() => Promise<void>) | null = null
@@ -132,6 +134,7 @@ async function start() {
   await applyConfiguredProxySettings()
   registerThumbnailHandler()
   registerHtmlPreviewHandler()
+  registerMediaPreviewHandler()
   configureBundledTools()
   initializeDocs()
   ensureDefaultPermissions()

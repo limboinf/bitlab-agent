@@ -8,6 +8,7 @@ export * from './follow-up-helpers'
 export * from './mcp-activity'
 export * from './task-list-utils'
 export * from './produced-files-utils'
+export * from './media-utils'
 
 // Components
 export { TurnCard, ResponseCard, SIZE_CONFIG, ActivityStatusIcon, type TurnCardProps, type ResponseCardProps, type ActivityItem, type ActivityStatus, type ResponseContent, type TodoItem } from './TurnCard'
@@ -16,6 +17,8 @@ export { InlineExecution, mapToolEventToActivity, type InlineExecutionProps, typ
 export { TurnCardActionsMenu, type TurnCardActionsMenuProps } from './TurnCardActionsMenu'
 export { UserMessageBubble, type UserMessageBubbleProps } from './UserMessageBubble'
 export { ProducedFilesRow, MAX_PRODUCED_CHIPS, type ProducedFile, type ProducedFilesRowProps } from './ProducedFilesRow'
+export { MessageMediaPreview, MAX_MEDIA_TILES, type MessageMediaPreviewProps } from './MessageMediaPreview'
+export * from './media'
 export { SystemMessage, type SystemMessageProps, type SystemMessageType } from './SystemMessage'
 
 // Attachment helpers

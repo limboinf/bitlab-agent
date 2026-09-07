@@ -3,7 +3,8 @@ import { isAbsolute, join, resolve, dirname, parse as parsePath } from 'path'
 import { homedir } from 'os'
 import { validatePathFormat } from '../../utils/path-validation'
 import { randomUUID } from 'crypto'
-import { RPC_CHANNELS, type FileAttachment, type DirectoryListingResult } from '@bitlab/shared/protocol'
+import { RPC_CHANNELS, type FileAttachment, type DirectoryListingResult, type MediaMetadata } from '@bitlab/shared/protocol'
+import { probeMediaMetadata } from '../../sessions/media'
 import type { StoredAttachment } from '@bitlab/core/types'
 import { readFileAttachment, validateImageForClaudeAPI, IMAGE_LIMITS } from '@bitlab/shared/utils'
 import { getSessionAttachmentsPath, validateSessionId } from '@bitlab/shared/sessions'
@@ -25,6 +26,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.file.READ_USER_ATTACHMENT,
   RPC_CHANNELS.file.STORE_ATTACHMENT,
   RPC_CHANNELS.file.GENERATE_THUMBNAIL,
+  RPC_CHANNELS.file.READ_MEDIA_METADATA,
   RPC_CHANNELS.fs.SEARCH,
   RPC_CHANNELS.fs.LIST_DIRECTORY,
 ] as const
@@ -98,6 +100,25 @@ export function registerFilesHandlers(server: RpcServer, deps: HandlerDeps): voi
       const message = error instanceof Error ? error.message : 'Unknown error'
       deps.platform.logger.error('readFilePreviewDataUrl error:', message)
       throw new Error(`Failed to read file preview: ${message}`)
+    }
+  })
+
+  // Probe one media file for its real MIME type, byte size and (for images) its
+  // pixel dimensions. Reads only the file's leading bytes — never the media
+  // itself, which is what keeps a message list of a hundred cards cheap.
+  //
+  // The artifact snapshot already carries this for anything the agent produced;
+  // this channel serves the paths that have no artifact behind them, such as a
+  // file opened from the file tree.
+  server.handle(RPC_CHANNELS.file.READ_MEDIA_METADATA, async (ctx, path: string): Promise<MediaMetadata | null> => {
+    try {
+      const workspaceId = ctx.workspaceId ?? deps.windowManager?.getWorkspaceForWindow(ctx.webContentsId!)
+      const safePath = await validateFilePath(path, getWorkspaceAllowedDirs(workspaceId))
+      return await probeMediaMetadata(safePath)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      deps.platform.logger.error('readMediaMetadata error:', message)
+      throw new Error(`Failed to read media metadata: ${message}`)
     }
   })
 

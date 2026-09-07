@@ -22,12 +22,14 @@
 import { readdir, stat } from 'node:fs/promises'
 import nodePath from 'node:path'
 import type { Message } from '@bitlab/core/types'
+import { mediaTypeForPath } from '@bitlab/shared/protocol'
 import type {
   ArtifactKind,
   ArtifactRevision,
   SessionArtifact,
   SessionArtifactsSnapshot,
 } from '@bitlab/shared/protocol'
+import { probeMediaMetadata } from './media'
 
 /** The subset of `node:path` this module needs — injectable so tests can run win32 fixtures on POSIX. */
 export type PathApi = Pick<typeof nodePath, 'resolve' | 'isAbsolute' | 'basename' | 'relative' | 'join' | 'sep'>
@@ -192,7 +194,6 @@ const KIND_BY_EXTENSION: Record<string, ArtifactKind> = {
   html: 'html', htm: 'html',
   md: 'markdown', mdx: 'markdown',
   pdf: 'pdf',
-  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image', bmp: 'image', avif: 'image',
   json: 'json', jsonc: 'json', json5: 'json',
   docx: 'office', doc: 'office', xlsx: 'office', xls: 'office', pptx: 'office', ppt: 'office',
   txt: 'text', log: 'text', csv: 'text', tsv: 'text',
@@ -206,6 +207,12 @@ const KIND_BY_EXTENSION: Record<string, ArtifactKind> = {
 
 export function toArtifactKind(filePath: string, path: PathApi = nodePath): ArtifactKind {
   const name = path.basename(filePath)
+  // Media wins over every other reading of an extension: `.svg` is a picture
+  // first and markup second, and the media kinds are what the message cards
+  // key on. The shared table also covers formats no browser can decode, so a
+  // `.heic` is still an image artifact — just one that opens externally.
+  const mediaType = mediaTypeForPath(name)
+  if (mediaType) return mediaType
   const dotIndex = name.lastIndexOf('.')
   if (dotIndex <= 0) return 'other'
   return KIND_BY_EXTENSION[name.slice(dotIndex + 1).toLowerCase()] ?? 'other'
@@ -324,11 +331,22 @@ export async function buildSessionArtifactsSnapshot(
     // A scan-only entry with no provenance and no file left is not a fact any more.
     if (!exists && !candidate.sources.includes('tool')) continue
 
+    const kind = toArtifactKind(candidate.path, path)
+
+    // Media gets probed here rather than on demand: the message cards need the
+    // real MIME and the picture's dimensions to lay out, and one pass over the
+    // headers beats one request per card. A probe that comes back null means
+    // the bytes are not the media the extension claimed — the file stays an
+    // artifact, it just gets no player.
+    const media = exists && (kind === 'image' || kind === 'video' || kind === 'audio')
+      ? await probeMediaMetadata(candidate.path, { byteSize: size, modifiedAt })
+      : null
+
     const artifact: SessionArtifact = {
       path: candidate.path,
       relativePath: toRelativePath(candidate.path, context),
       name: path.basename(candidate.path),
-      kind: toArtifactKind(candidate.path, path),
+      kind,
       scope,
       classification,
       exists,
@@ -338,15 +356,25 @@ export async function buildSessionArtifactsSnapshot(
         ? ['tool', 'session-output']
         : candidate.sources,
       revisions: candidate.revisions,
+      ...(media ? { media } : {}),
     }
 
     if (classification === 'artifact') artifacts.push(artifact)
     else changes.push(artifact)
   }
 
-  const byRecency = (a: SessionArtifact, b: SessionArtifact) => sortKey(b) - sortKey(a)
-  artifacts.sort(byRecency)
-  changes.sort(byRecency)
+  // A poster frame is part of the media it belongs to, not a deliverable of its
+  // own — it is already reachable as `media.posterPath`. Listing it twice would
+  // put a thumbnail of the video next to the video and call both results.
+  const posterPaths = new Set<string>()
+  for (const artifact of [...artifacts, ...changes]) {
+    if (artifact.media?.posterPath) posterPaths.add(artifact.media.posterPath)
+  }
+  const notAPoster = (artifact: SessionArtifact) => !posterPaths.has(artifact.path)
 
-  return { sessionId, artifacts, changes }
+  const byRecency = (a: SessionArtifact, b: SessionArtifact) => sortKey(b) - sortKey(a)
+  const visibleArtifacts = artifacts.filter(notAPoster).sort(byRecency)
+  const visibleChanges = changes.filter(notAPoster).sort(byRecency)
+
+  return { sessionId, artifacts: visibleArtifacts, changes: visibleChanges }
 }

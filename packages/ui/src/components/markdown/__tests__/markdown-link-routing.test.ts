@@ -13,6 +13,41 @@ describe('resolveMarkdownLinkTarget', () => {
     })
   })
 
+  it('resolves trailing-slash directory paths as file targets', () => {
+    expect(resolveMarkdownLinkTarget('/Users/balintorosz/.bitlab/sessions/abc/data/')).toEqual({
+      kind: 'file',
+      path: '/Users/balintorosz/.bitlab/sessions/abc/data/',
+    })
+  })
+
+  it('resolves extension-less local paths as file targets', () => {
+    expect(resolveMarkdownLinkTarget('/Users/balintorosz/projects/app/Makefile')).toEqual({
+      kind: 'file',
+      path: '/Users/balintorosz/projects/app/Makefile',
+    })
+  })
+
+  it('resolves home-relative directory paths as file targets', () => {
+    expect(resolveMarkdownLinkTarget('~/workspaces/default/data')).toEqual({
+      kind: 'file',
+      path: '~/workspaces/default/data',
+    })
+  })
+
+  it('resolves windows drive-letter directory paths as file targets', () => {
+    expect(resolveMarkdownLinkTarget('C:\\Users\\Tester\\reports')).toEqual({
+      kind: 'file',
+      path: 'C:\\Users\\Tester\\reports',
+    })
+  })
+
+  it('keeps protocol-relative URLs as url targets', () => {
+    expect(resolveMarkdownLinkTarget('//example.com/assets')).toEqual({
+      kind: 'url',
+      url: '//example.com/assets',
+    })
+  })
+
   it('resolves parent-relative file paths as file targets', () => {
     expect(resolveMarkdownLinkTarget('../downloads/assets/screenshot.png')).toEqual({
       kind: 'file',
@@ -116,6 +151,14 @@ describe('ReactMarkdown anchor rendering with markdownUrlTransform', () => {
 describe('classifyMarkdownLinkTarget', () => {
   it('classifies absolute unix file paths as file', () => {
     expect(classifyMarkdownLinkTarget('/Users/balintorosz/.bitlab/sessions/abc/image.jpg')).toBe('file')
+  })
+
+  it('classifies directory paths as file', () => {
+    expect(classifyMarkdownLinkTarget('/Users/balintorosz/.bitlab/sessions/abc/data/')).toBe('file')
+  })
+
+  it('classifies protocol-relative URLs as url', () => {
+    expect(classifyMarkdownLinkTarget('//example.com/assets')).toBe('url')
   })
 
   it('classifies file URLs as file', () => {

@@ -18,13 +18,29 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect, useCallback, useRef, memo } from 'react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { File, Folder, FolderOpen, FileText, Image, FileCode, ChevronRight, ExternalLink } from 'lucide-react'
+import {
+  AudioLines,
+  ChevronRight,
+  ExternalLink,
+  File,
+  FileCode,
+  FileJson,
+  FileText,
+  FileType2,
+  Folder,
+  FolderOpen,
+  Globe,
+  Image,
+  Video,
+} from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuTrigger,
   StyledContextMenuContent,
   StyledContextMenuItem,
 } from '@/components/ui/styled-context-menu'
+import { classifyFile } from '@bitlab/ui'
+import { mediaTypeForPath } from '@bitlab/shared/protocol'
 import type { SessionFile } from '../../../shared/types'
 import { cn } from '@/lib/utils'
 import * as storage from '@/lib/local-storage'
@@ -104,8 +120,23 @@ function collectDirectoryPaths(entries: SessionFile[]): string[] {
   return directories
 }
 
+/** Icon per classifyFile() type — mirrors KIND_ICONS in the Artifacts panel. */
+const PREVIEW_TYPE_ICONS = {
+  image: Image,
+  video: Video,
+  audio: AudioLines,
+  html: Globe,
+  markdown: FileText,
+  json: FileJson,
+  code: FileCode,
+  text: FileText,
+  pdf: FileType2,
+} as const
+
 /**
- * Get icon for file based on name/type (14x14px matching sidebar)
+ * Get icon for file based on name/type (14x14px matching sidebar).
+ * Uses the shared classifyFile() — same source as the link interceptor —
+ * so every extension the app can preview also gets a distinguishing icon.
  */
 function getFileIcon(file: SessionFile, isExpanded?: boolean) {
   const iconClass = "h-3.5 w-3.5 text-muted-foreground"
@@ -116,21 +147,12 @@ function getFileIcon(file: SessionFile, isExpanded?: boolean) {
       : <Folder className={iconClass} />
   }
 
-  const ext = file.name.split('.').pop()?.toLowerCase()
-
-  if (ext === 'md' || ext === 'markdown') {
-    return <FileText className={iconClass} />
-  }
-
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico'].includes(ext || '')) {
-    return <Image className={iconClass} />
-  }
-
-  if (['ts', 'tsx', 'js', 'jsx', 'json', 'yaml', 'yml', 'py', 'rb', 'go', 'rs'].includes(ext || '')) {
-    return <FileCode className={iconClass} />
-  }
-
-  return <File className={iconClass} />
+  const { type } = classifyFile(file.path)
+  // Recognised media the app can't preview (mkv, heic…) still deserve their
+  // media icon instead of the generic sheet.
+  const icon: keyof typeof PREVIEW_TYPE_ICONS | null = type ?? mediaTypeForPath(file.path)
+  const Icon = (icon && PREVIEW_TYPE_ICONS[icon]) || File
+  return <Icon className={iconClass} />
 }
 
 /**

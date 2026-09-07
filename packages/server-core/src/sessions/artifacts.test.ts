@@ -184,6 +184,8 @@ describe('toArtifactKind', () => {
     expect(toArtifactKind('/a/notes.md')).toBe('markdown')
     expect(toArtifactKind('/a/out.pdf')).toBe('pdf')
     expect(toArtifactKind('/a/chart.png')).toBe('image')
+    expect(toArtifactKind('/a/clip.mp4')).toBe('video')
+    expect(toArtifactKind('/a/voice.mp3')).toBe('audio')
     expect(toArtifactKind('/a/data.json')).toBe('json')
     expect(toArtifactKind('/a/deck.pptx')).toBe('office')
     expect(toArtifactKind('/a/main.ts')).toBe('code')
@@ -288,6 +290,47 @@ describe('buildSessionArtifactsSnapshot', () => {
     expect(snapshot.artifacts[0]!.kind).toBe('json')
     expect(snapshot.artifacts[0]!.exists).toBe(true)
     expect(snapshot.artifacts[0]!.size).toBe(2)
+  })
+
+  it('attaches probed media facts to media artifacts', async () => {
+    const png = Buffer.alloc(33)
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0)
+    png.write('IHDR', 12, 'latin1')
+    png.writeUInt32BE(640, 16)
+    png.writeUInt32BE(480, 20)
+    writeFileSync(join(sessionFolderPath, 'data', 'render.png'), png)
+
+    const snapshot = await build([])
+    expect(snapshot.artifacts[0]!.kind).toBe('image')
+    expect(snapshot.artifacts[0]!.media).toEqual({
+      mimeType: 'image/png',
+      byteSize: 33,
+      width: 640,
+      height: 480,
+    })
+  })
+
+  it('keeps a poster frame inside its media, not beside it as a result of its own', async () => {
+    const mediaDir = join(sessionFolderPath, 'data', 'media', 'clip-1')
+    mkdirSync(mediaDir, { recursive: true })
+    const mp4 = Buffer.alloc(32)
+    mp4.writeUInt32BE(32, 0)
+    mp4.write('ftyp', 4, 'latin1')
+    mp4.write('isom', 8, 'latin1')
+    writeFileSync(join(mediaDir, 'source.mp4'), mp4)
+    writeFileSync(join(mediaDir, 'poster.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]))
+
+    const snapshot = await build([])
+    expect(snapshot.artifacts.map(a => a.name)).toEqual(['source.mp4'])
+    expect(snapshot.artifacts[0]!.media?.posterPath).toBe(join(mediaDir, 'poster.jpg'))
+  })
+
+  it('does not attach media facts to a file whose bytes belie its extension', async () => {
+    writeFileSync(join(sessionFolderPath, 'data', 'fake.png'), 'not a picture')
+
+    const snapshot = await build([])
+    expect(snapshot.artifacts[0]!.kind).toBe('image')
+    expect(snapshot.artifacts[0]!.media).toBeUndefined()
   })
 
   it('rebuilds identically from the same transcript', async () => {

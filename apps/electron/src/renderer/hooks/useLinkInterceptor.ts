@@ -33,6 +33,21 @@ interface PDFPreview {
   filePath: string
 }
 
+/**
+ * Video and audio share one state: both are streamed from a host URL rather
+ * than read into memory, and the overlay picks its element from `mediaType`.
+ *
+ * The URL is resolved before the overlay opens. A host that cannot serve one
+ * never reaches this state — the file goes to the system application instead of
+ * to a player that would sit at zero forever.
+ */
+interface MediaPreview {
+  type: 'media'
+  filePath: string
+  mediaType: 'video' | 'audio'
+  sourceUrl: string
+}
+
 interface CodePreview {
   type: 'code'
   filePath: string
@@ -72,6 +87,7 @@ interface HtmlPreview {
 export type FilePreviewState =
   | ImagePreview
   | PDFPreview
+  | MediaPreview
   | CodePreview
   | MarkdownPreview
   | JSONPreview
@@ -94,6 +110,11 @@ interface LinkInterceptorOptions {
   readFileDataUrl: (path: string) => Promise<string>
   /** Read file as binary (Uint8Array) for PDF previews via react-pdf */
   readFileBinary: (path: string) => Promise<Uint8Array>
+  /**
+   * Build a streamable URL for a local media file. Absent on hosts that cannot
+   * serve one (the WebUI), which is what routes media to the system app there.
+   */
+  getMediaSourceUrl?: (path: string) => string | null
 }
 
 // ── Hook return type ───────────────────────────────────────────────────────────
@@ -159,6 +180,20 @@ export function useLinkInterceptor(options: LinkInterceptorOptions): LinkInterce
     // For image/pdf: set state immediately — the overlay handles its own async loading
     if (type === 'image' || type === 'pdf') {
       setPreviewState({ type, filePath: path })
+      return
+    }
+
+    // Media never gets read here: the overlay is handed a streamable URL, which
+    // is what lets the user seek instead of waiting for a whole file. No URL
+    // means this host has no in-app playback to offer, so the file opens where
+    // it can actually play.
+    if (type === 'video' || type === 'audio') {
+      const sourceUrl = optionsRef.current.getMediaSourceUrl?.(path)
+      if (!sourceUrl) {
+        optionsRef.current.openFileExternal(path)
+        return
+      }
+      setPreviewState({ type: 'media', filePath: path, mediaType: type, sourceUrl })
       return
     }
 

@@ -73,6 +73,7 @@ import {
   ShikiThemeProvider,
   PlatformProvider,
   ImagePreviewOverlay,
+  MediaPreviewOverlay,
   PDFPreviewOverlay,
   CodePreviewOverlay,
   HtmlFilePreviewOverlay,
@@ -81,6 +82,7 @@ import {
 } from '@bitlab/ui'
 import { useLinkInterceptor, type FilePreviewState } from '@/hooks/useLinkInterceptor'
 import { buildHtmlPreviewUrl } from '../shared/html-preview-url'
+import { buildMediaPreviewUrl } from '../shared/media-preview-url'
 import { useTransportConnectionState } from '@/hooks/useTransportConnectionState'
 import { useStaleSessionRecovery } from '@/hooks/useStaleSessionRecovery'
 import { TransportConnectionBanner, shouldShowTransportConnectionBanner } from '@/components/app-shell/TransportConnectionBanner'
@@ -88,7 +90,7 @@ import {
   markBackgroundTaskSignal,
   markLiveBackgroundTasksOrphaned,
 } from '@/components/app-shell/background-task-chip-state'
-import { getFileManagerName } from '@/lib/platform'
+import { getFileManagerName, isWebUI } from '@/lib/platform'
 import { rendererLog } from '@/lib/logger'
 import { ActionRegistryProvider } from '@/actions'
 import { toast } from 'sonner'
@@ -1685,6 +1687,8 @@ export default function App() {
     readFile: (path) => window.electronAPI.readFile(path),
     readFileDataUrl: (path) => window.electronAPI.readFileDataUrl(path),
     readFileBinary: (path) => window.electronAPI.readFileBinary(path),
+    // Desktop only — see the PlatformProvider actions below for why.
+    getMediaSourceUrl: isWebUI ? undefined : buildMediaPreviewUrl,
   })
 
   const connectionState = useTransportConnectionState()
@@ -1940,6 +1944,17 @@ export default function App() {
     onReadFileDataUrl: (path: string) => window.electronAPI.readFileDataUrl(path),
     // Read file as binary Uint8Array (used by PDF preview blocks)
     onReadFileBinary: (path: string) => window.electronAPI.readFileBinary(path),
+    // Bounded thumbnail for media cards — never the full-size picture.
+    onReadFilePreviewDataUrl: (path: string, maxSize?: number) =>
+      window.electronAPI.readFilePreviewDataUrl(path, maxSize),
+    // URL a <video>/<audio> element streams local media from. The scheme only
+    // exists in the desktop host, so the WebUI gets nothing and its cards say
+    // playback is unavailable — see media-preview-protocol.ts. Handing a
+    // browser tab a media-preview:// URL would render a player that can never
+    // start, which is exactly the fake capability the design rules out.
+    ...(isWebUI ? {} : { getMediaSourceUrl: buildMediaPreviewUrl }),
+    // Probe a media file the artifact snapshot does not cover.
+    onReadMediaMetadata: (path: string) => window.electronAPI.readMediaMetadata(path),
     // Reveal a file in the system file manager (Finder on macOS, Explorer on Windows, etc.)
     onRevealInFinder: (path: string) => {
       window.electronAPI.showInFolder(path).catch(() => {})
@@ -2104,6 +2119,7 @@ function WindowCloseHandler() {
  *
  * Handles all preview types from the link interceptor:
  * - image → ImagePreviewOverlay (binary, loaded via data URL)
+ * - media → MediaPreviewOverlay (video/audio, streamed from media-preview://)
  * - pdf → PDFPreviewOverlay (binary, embedded via Chromium viewer)
  * - code/text → CodePreviewOverlay (syntax highlighted)
  * - html → HtmlFilePreviewOverlay (live preview + source)
@@ -2147,6 +2163,18 @@ function FilePreviewRenderer({
           onClose={onClose}
           filePath={state.filePath}
           loadPdfData={loadPdfData}
+          theme={theme}
+        />
+      )
+
+    case 'media':
+      return (
+        <MediaPreviewOverlay
+          isOpen
+          onClose={onClose}
+          filePath={state.filePath}
+          mediaType={state.mediaType}
+          sourceUrl={state.sourceUrl}
           theme={theme}
         />
       )

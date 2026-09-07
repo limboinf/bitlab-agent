@@ -11,6 +11,7 @@
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
+  AudioLines,
   Code2,
   FileJson,
   FileText,
@@ -18,6 +19,7 @@ import {
   Globe,
   Image as ImageIcon,
   MoreHorizontal,
+  Video,
   File as GenericFile,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -38,6 +40,8 @@ const KIND_ICONS: Record<SessionArtifact['kind'], typeof GenericFile> = {
   markdown: FileText,
   pdf: FileType2,
   image: ImageIcon,
+  video: Video,
+  audio: AudioLines,
   json: FileJson,
   code: Code2,
   text: FileText,

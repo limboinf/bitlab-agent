@@ -6,8 +6,10 @@
  * Used by useLinkInterceptor to decide between in-app preview vs. opening externally.
  */
 
+import { EXTERNAL_MEDIA_EXTENSIONS, PLAYABLE_MEDIA_EXTENSIONS } from '@bitlab/shared/protocol'
+
 /** Preview types that map to specific overlay components */
-export type FilePreviewType = 'image' | 'code' | 'markdown' | 'json' | 'text' | 'pdf' | 'html'
+export type FilePreviewType = 'image' | 'video' | 'audio' | 'code' | 'markdown' | 'json' | 'text' | 'pdf' | 'html'
 
 export interface FileClassification {
   /** The preview type, or null if no in-app preview is available */
@@ -22,9 +24,19 @@ export interface FileClassification {
  * HEIC/HEIF and TIFF are excluded — Chromium has no codec for these,
  * so they fall through to system open (external app).
  */
-const IMAGE_EXTENSIONS = new Set([
-  'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif',
-])
+const IMAGE_EXTENSIONS = new Set(PLAYABLE_MEDIA_EXTENSIONS.image)
+
+/**
+ * Media formats a Chromium-class renderer decodes natively — previewed in
+ * MediaPreviewOverlay, streamed from a controlled URL rather than read into
+ * memory. The shared protocol table is the single source of truth, so the
+ * player, the classifier and the host-side scheme cannot drift apart.
+ *
+ * Formats with no browser codec (HEIC, MKV, WMA) are absent on purpose: they
+ * stay in EXTERNAL_EXTENSIONS and open in the system application.
+ */
+const VIDEO_EXTENSIONS = new Set(PLAYABLE_MEDIA_EXTENSIONS.video)
+const AUDIO_EXTENSIONS = new Set(PLAYABLE_MEDIA_EXTENSIONS.audio)
 
 /**
  * Code file extensions — rendered in CodePreviewOverlay with syntax highlighting.
@@ -82,9 +94,10 @@ const EXTERNAL_EXTENSIONS = new Set([
   'pptx', 'ppt',             // Presentations
   'zip', 'tar', 'gz', 'rar', '7z',  // Archives
   'dmg', 'pkg', 'exe', 'msi',       // Installers
-  'mp3', 'wav', 'flac', 'aac',      // Audio
-  'mp4', 'mov', 'avi', 'mkv',       // Video
-  'heic', 'heif', 'tiff', 'tif',    // Images Chromium can't decode
+  // Media with no browser codec — recognized as files, opened by the OS.
+  ...EXTERNAL_MEDIA_EXTENSIONS.image,
+  ...EXTERNAL_MEDIA_EXTENSIONS.video,
+  ...EXTERNAL_MEDIA_EXTENSIONS.audio,
 ])
 
 /**
@@ -102,13 +115,15 @@ function getExtension(filePath: string): string {
  * Classify a file path by extension to determine preview capability.
  *
  * Priority order when an extension matches multiple sets (e.g. svg):
- * image > html > markdown > json > code > text > pdf
+ * image > video > audio > html > markdown > json > code > text > pdf
  */
 export function classifyFile(filePath: string): FileClassification {
   const ext = getExtension(filePath)
   if (!ext) return { type: null, canPreview: false }
 
   if (IMAGE_EXTENSIONS.has(ext))    return { type: 'image', canPreview: true }
+  if (VIDEO_EXTENSIONS.has(ext))    return { type: 'video', canPreview: true }
+  if (AUDIO_EXTENSIONS.has(ext))    return { type: 'audio', canPreview: true }
   if (HTML_EXTENSIONS.has(ext))     return { type: 'html', canPreview: true }
   if (MARKDOWN_EXTENSIONS.has(ext)) return { type: 'markdown', canPreview: true }
   if (JSON_EXTENSIONS.has(ext))     return { type: 'json', canPreview: true }
@@ -126,6 +141,8 @@ export function classifyFile(filePath: string): FileClassification {
  */
 export const FILE_EXTENSIONS_PATTERN = [
   ...IMAGE_EXTENSIONS,
+  ...VIDEO_EXTENSIONS,
+  ...AUDIO_EXTENSIONS,
   ...HTML_EXTENSIONS,
   ...CODE_EXTENSIONS,
   ...MARKDOWN_EXTENSIONS,

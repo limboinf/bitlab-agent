@@ -43,6 +43,8 @@ import { parseDiffFromFile, type FileContents } from '@pierre/diffs'
 import { getDiffStats, getUnifiedDiffStats } from '../code-viewer'
 import { TurnCardActionsMenu } from './TurnCardActionsMenu'
 import { ProducedFilesRow, type ProducedFile } from './ProducedFilesRow'
+import { MessageMediaPreview } from './MessageMediaPreview'
+import type { MessageMedia } from '@bitlab/shared/protocol'
 import { computeLastChildSet, groupActivitiesByParent, isActivityGroup, formatDuration, formatTokens, deriveTurnPhase, shouldShowThinkingIndicator, type ActivityGroup, type AssistantTurn } from './turn-utils'
 import { getInlineToolDetail, INLINE_DETAIL_MAX_LINES, type InlineToolDetail } from './tool-detail'
 import { getMcpActivityPresentation } from './mcp-activity'
@@ -421,6 +423,12 @@ export interface TurnCardProps {
    * flash failed writes as finished deliverables.
    */
   producedFiles?: ProducedFile[]
+  /**
+   * Media this turn produced — the same artifacts, for the subset worth
+   * showing rather than naming. Rendered above the produced-files row under the
+   * same completeness rule.
+   */
+  producedMedia?: MessageMedia[]
   /** Opens the artifacts panel from the produced-files row. */
   onViewAllArtifacts?: () => void
 }
@@ -2857,6 +2865,7 @@ export const TurnCard = React.memo(function TurnCard({
   openAnnotationRequest,
   annotationInteractionMode = 'interactive',
   producedFiles,
+  producedMedia,
   onViewAllArtifacts,
 }: TurnCardProps) {
   // Derive the turn phase from props using the state machine.
@@ -3038,7 +3047,22 @@ export const TurnCard = React.memo(function TurnCard({
 
   // Only a finished turn gets a produced-files row. Mid-turn it would show
   // writes that a later step still overwrites or that the run never completes.
-  const producedFilesRow = isComplete && !isStreaming && producedFiles && producedFiles.length > 0
+  const turnIsSettled = isComplete && !isStreaming
+
+  // Media sits above the chip row: the picture is the result, the file name is
+  // the receipt. Both are the same artifacts, selected by the same tool calls.
+  const producedMediaBlock = turnIsSettled && producedMedia && producedMedia.length > 0
+    ? (
+      <MessageMediaPreview
+        media={producedMedia}
+        compact={compactMode}
+        onOpenArtifact={(path) => onOpenFile?.(path)}
+        onViewAll={onViewAllArtifacts}
+      />
+    )
+    : null
+
+  const producedFilesRow = turnIsSettled && producedFiles && producedFiles.length > 0
     ? (
       <ProducedFilesRow
         files={producedFiles}
@@ -3048,11 +3072,20 @@ export const TurnCard = React.memo(function TurnCard({
     )
     : null
 
+  const producedSlot = producedMediaBlock || producedFilesRow
+    ? (
+      <>
+        {producedMediaBlock}
+        {producedFilesRow}
+      </>
+    )
+    : null
+
   // The row belongs under the answer, so the response card takes it and places
   // it above its action bar. A card that wrote files but ends without a final
   // response — the work half of a turn split around a submitted plan — still
   // has to show them, so it falls back to the card's own footer.
-  const standaloneProducedFilesRow = response ? null : producedFilesRow
+  const standaloneProducedFilesRow = response ? null : producedSlot
 
   return (
     <div className="space-y-1">
@@ -3284,7 +3317,7 @@ export const TurnCard = React.memo(function TurnCard({
                 onOpenFile={onOpenFile}
                 onOpenUrl={onOpenUrl}
                 onPopOut={onPopOut ? () => onPopOut(response.text) : undefined}
-                producedFilesSlot={producedFilesRow}
+                producedFilesSlot={producedSlot}
                 variant={response.isPlan ? 'plan' : 'response'}
                 messageId={response.messageId}
                 annotations={response.annotations}
@@ -3316,7 +3349,7 @@ export const TurnCard = React.memo(function TurnCard({
             onOpenFile={onOpenFile}
             onOpenUrl={onOpenUrl}
             onPopOut={onPopOut ? () => onPopOut(response.text) : undefined}
-            producedFilesSlot={producedFilesRow}
+            producedFilesSlot={producedSlot}
             variant={response.isPlan ? 'plan' : 'response'}
             messageId={response.messageId}
             annotations={response.annotations}
@@ -3379,6 +3412,7 @@ export const TurnCard = React.memo(function TurnCard({
 
   // Re-render when the turn's artifacts change (a late write, a deleted file)
   if (prev.producedFiles !== next.producedFiles) return false
+  if (prev.producedMedia !== next.producedMedia) return false
 
   // Re-render when active follow-up annotation state changes (plan CTA label)
   if (prev.hasActiveFollowUpAnnotations !== next.hasActiveFollowUpAnnotations) return false

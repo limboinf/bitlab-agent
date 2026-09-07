@@ -65,6 +65,8 @@ import {
   normalizeFollowUpText,
   isExternalMcpToolName,
   selectTurnProducedFiles,
+  selectTurnProducedMedia,
+  stopAudioPlayback,
   type Turn,
   type AssistantTurn,
   type UserTurn,
@@ -475,6 +477,11 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   // Artifacts for this panel's session, so every finished turn can show what it
   // produced. The store behind this hook is shared with the right dock.
   const { artifacts } = useSessionArtifacts(session?.id)
+
+  // Sound does not follow the user out of the session that produced it. Card
+  // unmounts already stop their own element; this covers the panel being torn
+  // down or re-pointed while an audio card is mid-playback.
+  useEffect(() => () => { stopAudioPlayback() }, [session?.id])
   const openDockSection = useSetAtom(openRightDockSectionAtom)
 
   // Input is only disabled when explicitly disabled (e.g., agent needs activation)
@@ -1758,6 +1765,14 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
                     // Assistant turns - render with TurnCard (buffered streaming)
                     const assistantUiKey = getAssistantTurnUiKey(turn, index)
+
+                    // Media and files are the same artifacts split by what the
+                    // card can show. A file that got a media tile does not also
+                    // get a chip — one result, one row.
+                    const turnMedia = selectTurnProducedMedia(artifacts, turn.activities)
+                    const mediaPaths = new Set(turnMedia.map((item) => item.artifactPath))
+                    const turnFiles = selectTurnProducedFiles(artifacts, turn.activities)
+                      .filter(file => !mediaPaths.has(file.path))
                     return (
                       <div
                         key={turnKey}
@@ -1785,7 +1800,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                         onExpandedActivityGroupsChange={setExpandedActivityGroups}
                         onOpenFile={onOpenFile}
                         onOpenUrl={onOpenUrl}
-                        producedFiles={selectTurnProducedFiles(artifacts, turn.activities)}
+                        producedFiles={turnFiles}
+                        producedMedia={turnMedia}
                         onViewAllArtifacts={() => openDockSection('artifacts')}
                         isLastResponse={isLastResponse}
                         compactMode={compactMode}

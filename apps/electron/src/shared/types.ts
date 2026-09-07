@@ -232,6 +232,7 @@ import type {
   SkillFile,
   SessionFile,
   SessionArtifactsSnapshot,
+  MediaMetadata,
   GitBashStatus,
   UpdateInfo,
   WorkspaceSettings,
@@ -313,6 +314,8 @@ export interface ElectronAPI {
   readUserAttachment(path: string): Promise<FileAttachment | null>
   storeAttachment(sessionId: string, attachment: FileAttachment): Promise<import('../../../../packages/core/src/types/index.ts').StoredAttachment>
   generateThumbnail(base64: string, mimeType: string): Promise<string | null>
+  /** Probe a media file for its real MIME type, byte size and pixel dimensions. */
+  readMediaMetadata(path: string): Promise<MediaMetadata | null>
   /** Returns the absolute filesystem path for a File (only works for file-picker / OS-drag Files). */
   getFilePath(file: File): string | null
 

@@ -22,6 +22,22 @@ describe('classifyFile', () => {
     expect(FILE_EXTENSIONS_PATTERN.split('|')).toContain('htm')
   })
 
+  it('previews media the renderer can decode, and only that', () => {
+    expect(classifyFile('clip.mp4')).toEqual({ type: 'video', canPreview: true })
+    expect(classifyFile('voice.mp3')).toEqual({ type: 'audio', canPreview: true })
+    // No browser codec — these stay file links that open in the system app.
+    expect(classifyFile('raw.mkv')).toEqual({ type: null, canPreview: false })
+    expect(classifyFile('tape.wma')).toEqual({ type: null, canPreview: false })
+    expect(classifyFile('shot.heic')).toEqual({ type: null, canPreview: false })
+  })
+
+  it('detects media that opens externally as a file link', () => {
+    const extensions = FILE_EXTENSIONS_PATTERN.split('|')
+    expect(extensions).toContain('mkv')
+    expect(extensions).toContain('heic')
+    expect(extensions).toContain('mp4')
+  })
+
   it('has no preview for unknown extensions', () => {
     expect(classifyFile('archive.xyz')).toEqual({ type: null, canPreview: false })
   })

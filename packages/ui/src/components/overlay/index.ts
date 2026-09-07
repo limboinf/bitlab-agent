@@ -19,6 +19,7 @@ export { DataTableOverlay, type DataTableOverlayProps } from './DataTableOverlay
 export { DocumentFormattedMarkdownOverlay, type DocumentFormattedMarkdownOverlayProps } from './DocumentFormattedMarkdownOverlay'
 export { ImagePreviewOverlay, type ImagePreviewOverlayProps } from './ImagePreviewOverlay'
 export { PDFPreviewOverlay, type PDFPreviewOverlayProps } from './PDFPreviewOverlay'
+export { MediaPreviewOverlay, type MediaPreviewOverlayProps } from './MediaPreviewOverlay'
 export { MermaidPreviewOverlay, type MermaidPreviewOverlayProps } from './MermaidPreviewOverlay'
 export { HTMLPreviewOverlay, type HTMLPreviewOverlayProps } from './HTMLPreviewOverlay'
 export { HtmlFilePreviewOverlay, type HtmlFilePreviewOverlayProps } from './HtmlFilePreviewOverlay'
