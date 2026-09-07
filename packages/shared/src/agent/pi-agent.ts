@@ -459,6 +459,8 @@ export class PiAgent extends BaseAgent {
       }
     });
 
+    PiAgent.liveAgents.add(this);
+
     // Handle subprocess exit
     child.on('exit', (code, signal) => {
       this.handleSubprocessExit(code, signal);
@@ -482,6 +484,14 @@ export class PiAgent extends BaseAgent {
       this.debug(`init MCP config: ${mcpServerNames.map(n => `${n}(${mcpConfig.mcpServers[n]?.lifecycle ?? 'lazy'})`).join(', ')}`);
     }
 
+    // MCP OAuth tokens stay in the main process's credential store. The
+    // subprocess is handed a snapshot instead of a keychain handle, because the
+    // adapter reads them synchronously and `bun` is an unstable owner for an OS
+    // credential entry — see pi-agent-server/src/mcp/keyring-store.ts.
+    const mcpSecrets = mcpServerNames.length
+      ? await getCredentialManager().listMcpOAuthPayloads()
+      : undefined;
+
     // Send init command (flat structure matching subprocess InboundMessage type)
     this.send({
       type: 'init',
@@ -502,6 +512,7 @@ export class PiAgent extends BaseAgent {
       searchConfig: searchSettings.searchConfig,
       searchApiKeys: searchSettings.searchApiKeys,
       mcpConfig,
+      mcpSecrets,
       baseUrl: runtime.baseUrl,
       customEndpoint: runtime.customEndpoint,
       customModels: runtime.customModels,
@@ -598,6 +609,38 @@ export class PiAgent extends BaseAgent {
   }
 
   private static readonly oauthPersistChains = new Map<string, Promise<void>>();
+
+  /**
+   * Agents with a live subprocess, so an MCP token change in one session can be
+   * mirrored to the others. Each subprocess only holds the snapshot it was
+   * seeded with at init; without this, a refresh in one session leaves every
+   * other session using a token the server has already rotated away.
+   */
+  private static readonly liveAgents = new Set<PiAgent>();
+
+  /** Serializes MCP token writes — they all share one credential store. */
+  private static mcpSecretPersistChain: Promise<void> = Promise.resolve();
+
+  /**
+   * Persist a token the adapter just wrote, and mirror it to the other live
+   * sessions. Fire-and-forget by design: the adapter's store interface is
+   * synchronous and has already returned by the time this runs.
+   */
+  private persistMcpSecret(account: string, payload: string | null): void {
+    PiAgent.mcpSecretPersistChain = PiAgent.mcpSecretPersistChain
+      .then(async () => {
+        const credentialManager = getCredentialManager();
+        if (payload === null) await credentialManager.deleteMcpOAuthPayload(account);
+        else await credentialManager.setMcpOAuthPayload(account, payload);
+      })
+      .catch(error => {
+        this.debug(`Failed to persist MCP secret ${account}: ${error}`);
+      });
+
+    for (const agent of PiAgent.liveAgents) {
+      if (agent !== this) agent.send({ type: 'mcp_secret_sync', account, payload });
+    }
+  }
 
   private persistRefreshedOAuthCredential(message: {
     provider: string;
@@ -855,6 +898,15 @@ export class PiAgent extends BaseAgent {
           message: (msg.message as string) ?? '',
           level: (msg.level as 'info' | 'warning' | 'error') ?? 'info',
         });
+        break;
+
+      case 'mcp_secret_write':
+        // The adapter signed in, refreshed, or re-wrote a token.
+        this.persistMcpSecret(msg.account as string, msg.payload as string);
+        break;
+
+      case 'mcp_secret_delete':
+        this.persistMcpSecret(msg.account as string, null);
         break;
 
       case 'subagent_settled':
@@ -1586,6 +1638,7 @@ export class PiAgent extends BaseAgent {
   private handleSubprocessExit(code: number | null, signal: string | null): void {
     this.debug(`Pi subprocess exited: code=${code}, signal=${signal}`);
 
+    PiAgent.liveAgents.delete(this);
     this.subprocess = null;
     this.readline = null;
     this.resetSubprocessErrorDedup();

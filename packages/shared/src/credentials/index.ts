@@ -1,7 +1,9 @@
 /**
  * Credential Storage Module
  *
- * Provides secure credential storage using AES-256-GCM encrypted file.
+ * Provides secure credential storage across a priority-ordered set of
+ * backends — an AES-256-GCM encrypted file everywhere, plus Electron
+ * safeStorage for MCP tokens in the desktop app (see backends/safe-storage.ts).
  * All methods auto-initialize, so explicit initialize() calls are optional.
  *
  * Usage:
@@ -15,6 +17,7 @@
  */
 
 export { CredentialManager, getCredentialManager } from './manager.ts';
+export { SafeStorageBackend } from './backends/safe-storage.ts';
 export type { CredentialId, CredentialType, StoredCredential } from './types.ts';
 export {
   credentialIdToAccount,

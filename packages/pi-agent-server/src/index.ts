@@ -20,6 +20,19 @@ import { join } from 'node:path';
 import { mkdirSync, mkdtempSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 
+// MUST run before pi-mcp-adapter is loaded (mcp-extension.ts imports it
+// lazily): it swaps the adapter's OS keyring for the main process's credential
+// store, so this subprocess never authenticates against the macOS keychain.
+// See mcp/keyring-store.ts for why the subprocess is the wrong owner.
+import {
+  installKeyringShim,
+  seedMcpSecrets,
+  setSecretWriter,
+  applyMcpSecretSync,
+} from './mcp/keyring-store.ts';
+
+installKeyringShim();
+
 // Pi SDK
 import {
   createAgentSession,
@@ -165,6 +178,12 @@ interface InitMessage {
    * is the only source. Absent or empty `mcpServers` = MCP disabled.
    */
   mcpConfig?: AdapterMcpConfig;
+  /**
+   * MCP OAuth tokens, keyed by pi-mcp-adapter's own account key. Same contract
+   * as searchApiKeys: the credential store lives in the main process and this
+   * subprocess only holds what it was handed, for the life of the process.
+   */
+  mcpSecrets?: Record<string, string>;
 }
 
 interface RuntimeConfigUpdateMessage {
@@ -202,6 +221,7 @@ type InboundMessage =
   | { type: 'mcp_approval_response'; requestId: string; decision: McpApprovalDecision }
   | { type: 'mcp_auth'; id: string; serverName: string }
   | { type: 'mcp_logout'; id: string; serverName: string; url: string }
+  | { type: 'mcp_secret_sync'; account: string; payload: string | null }
   | { type: 'shutdown' };
 
 /** Proxy tool definition from main process */
@@ -332,6 +352,14 @@ interface OutboundMcpOpResult {
   message: string;
   code?: string;
 }
+/**
+ * An MCP OAuth token changed inside the adapter (first sign-in, refresh, or
+ * sign-out). The main process persists it and mirrors it to the other live
+ * sessions — see mcp/keyring-store.ts. Fire-and-forget: the adapter's store
+ * interface is synchronous and never reads a write's result back.
+ */
+interface OutboundMcpSecretWrite { type: 'mcp_secret_write'; account: string; payload: string }
+interface OutboundMcpSecretDelete { type: 'mcp_secret_delete'; account: string }
 interface OutboundError { type: 'error'; message: string; code?: string }
 
 type OutboundMessage =
@@ -351,6 +379,8 @@ type OutboundMessage =
   | OutboundSessionIdUpdate
   | OutboundOAuthCredentialUpdate
   | OutboundMcpStatus
+  | OutboundMcpSecretWrite
+  | OutboundMcpSecretDelete
   | OutboundMcpApprovalRequest
   | OutboundMcpNotify
   | OutboundMcpOpResult
@@ -1746,6 +1776,14 @@ async function handleInit(msg: Extract<InboundMessage, { type: 'init' }>): Promi
 
   initConfig = msg;
 
+  // Before any MCP server can connect, so the adapter never reads an empty store.
+  seedMcpSecrets(msg.mcpSecrets);
+  setSecretWriter((account, payload) => {
+    send(payload === null
+      ? { type: 'mcp_secret_delete', account }
+      : { type: 'mcp_secret_write', account, payload });
+  });
+
   // Azure OpenAI requires a tenant-specific endpoint URL.
   // The Pi SDK (via Vercel AI SDK) reads AZURE_OPENAI_BASE_URL from env.
   if (msg.piAuth?.provider === 'azure-openai-responses' && msg.baseUrl) {
@@ -2420,6 +2458,10 @@ async function processMessage(msg: InboundMessage): Promise<void> {
 
     case 'mcp_logout':
       await handleMcpLogout(msg);
+      break;
+
+    case 'mcp_secret_sync':
+      applyMcpSecretSync(msg.account, msg.payload);
       break;
 
     case 'shutdown':

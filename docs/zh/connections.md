@@ -128,7 +128,8 @@ Settings UI / Craft OAuth flow
    │  API key 或 OAuth access + refresh + expiry
    ▼
 @bitlab/shared/credentials
-   │  持久化到 OS keychain(Keychain / libsecret / Credential Vault)
+   │  持久化到 <configDir>/credentials.enc(AES-256-GCM,密钥由机器硬件 UUID 派生)
+   │  —— 任何 Bitlab 进程都能读
    ▼
 连接记录(不存明文 key)
    │
@@ -139,7 +140,32 @@ Settings UI / Craft OAuth flow
 Pi 刷新:新 OAuth 凭证回传父进程并持久化
 ```
 
-删除一条连接时,如果其他连接仍在使用,凭证引用不会被清除。测试通过注入假的凭证 provider,绝不真写 keychain;见 `packages/shared/src/credentials/__tests__/`。
+删除一条连接时,如果其他连接仍在使用,凭证不会被清除。测试通过注入假的 backend,绝不真写凭证库;见 `packages/shared/src/credentials/__tests__/`。
+
+### Backend
+
+`CredentialManager` 持有一组按优先级排序的 backend,并用每个 backend 的 `accepts()`
+决定某条凭证归谁。读取会遍历所有符合条件的 backend;写入落到接受该凭证的最高优先级 backend。
+
+| Backend | 优先级 | 可用范围 | 存什么 |
+| --- | --- | --- | --- |
+| `safe-storage` | 200 | 仅 Electron 主进程 | MCP OAuth token |
+| `secure-storage` | 100 | 所有进程 | 其余全部 |
+
+MCP OAuth token 之所以特殊,在于谁来读它。pi-mcp-adapter 跑在 agent 子进程里
+—— 一个 `bun` 二进制 —— 过去直接从那里访问系统钥匙串。macOS 把钥匙串条目绑定到
+创建它的代码身份,而 `bun` 恰恰是最不稳定的一种身份:开发机上同时存在多份副本、
+分属两个签名 team,随包分发的那份每次构建还会重新签名。每次身份对不上,就是一次
+"bun 想要使用你储存在钥匙串中的机密信息"弹窗。Electron 的 `safeStorage` 改为把
+条目绑定到 app bundle(`app.bitlab.desktop`),这个身份在产品生命周期内是稳定的。
+
+因此子进程完全不碰系统凭证库:它在 `init` 时拿到一份快照,变更通过
+`mcp_secret_write` / `mcp_secret_delete` 回报主进程,由主进程持久化并同步给其他
+存活会话。见 `packages/pi-agent-server/src/mcp/keyring-store.ts`。
+
+LLM key 刻意留在 `secure-storage`:`safe-storage` 无法被 headless 的
+`packages/server` 读取,迁过去会让同一台机器上的 server 看不到桌面端的任何凭证。
+headless 运行时自行完成 MCP 授权,token 存进 `credentials.enc`。
 
 ## 限制
 

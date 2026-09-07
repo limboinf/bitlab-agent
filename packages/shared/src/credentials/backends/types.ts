@@ -17,6 +17,14 @@ export interface CredentialBackend {
   /** Check if this backend is available on the current platform */
   isAvailable(): Promise<boolean>;
 
+  /**
+   * Whether this backend handles a given credential. Omitted means "all of
+   * them". A backend that is only reachable from some processes uses this to
+   * claim the credential types that benefit, and leave the rest on a backend
+   * every process can read — see SafeStorageBackend.
+   */
+  accepts?(id: CredentialId): boolean;
+
   /** Get a credential by ID */
   get(id: CredentialId): Promise<StoredCredential | null>;
 

@@ -1,8 +1,8 @@
-/** Credential storage types for model connections. */
+/** Credential storage types for model connections and MCP servers. */
 
-export type CredentialType = 'llm_api_key' | 'llm_oauth' | 'web_search_api_key';
+export type CredentialType = 'llm_api_key' | 'llm_oauth' | 'web_search_api_key' | 'mcp_oauth';
 
-const CREDENTIAL_TYPES: readonly CredentialType[] = ['llm_api_key', 'llm_oauth', 'web_search_api_key'];
+const CREDENTIAL_TYPES: readonly CredentialType[] = ['llm_api_key', 'llm_oauth', 'web_search_api_key', 'mcp_oauth'];
 
 const CREDENTIAL_DELIMITER = '::';
 

@@ -128,7 +128,8 @@ Settings UI / Craft OAuth flow
    │  API key or OAuth access + refresh + expiry
    ▼
 @bitlab/shared/credentials
-   │  persist via OS keychain (Keychain / libsecret / Credential Vault)
+   │  persist to <configDir>/credentials.enc (AES-256-GCM, key derived from
+   │  the machine's hardware UUID) — readable from every Bitlab process
    ▼
 connection record (no plaintext key)
    │
@@ -139,7 +140,37 @@ runtime: full credential injected into Pi AuthStorage
 Pi refresh: updated OAuth credential returned to the parent and persisted
 ```
 
-When you delete a connection, the credential reference is removed from the keychain *iff* no other connection still uses it. Tests inject fake credential providers rather than creating real keychain entries; see `packages/shared/src/credentials/__tests__/`.
+When you delete a connection, the stored credential is removed *iff* no other connection still uses it. Tests inject fake backends rather than writing real credential stores; see `packages/shared/src/credentials/__tests__/`.
+
+### Backends
+
+`CredentialManager` holds a priority-ordered list of backends and picks per
+credential via each backend's `accepts()`. Reads walk every eligible backend;
+writes go to the highest-priority one that accepts the credential.
+
+| Backend | Priority | Available in | Holds |
+| --- | --- | --- | --- |
+| `safe-storage` | 200 | Electron main process only | MCP OAuth tokens |
+| `secure-storage` | 100 | every process | everything else |
+
+MCP OAuth tokens are the exception because of who reads them. pi-mcp-adapter
+runs inside the agent subprocess — a `bun` binary — and used to reach the OS
+keychain from there. macOS binds a keychain entry to the code identity that
+created it, and `bun` is an unstable one: several copies exist on a developer's
+machine, signed by two different teams, and the vendored copy is re-signed on
+every build. Every mismatch is another "bun wants to use your confidential
+information" prompt. Electron's `safeStorage` binds the entry to the app bundle
+(`app.bitlab.desktop`) instead, which is stable for the life of the product.
+
+The subprocess therefore never touches the OS store: it is seeded with a
+snapshot over `init` and reports changes back as `mcp_secret_write` /
+`mcp_secret_delete`, which the main process persists and mirrors to the other
+live sessions. See `packages/pi-agent-server/src/mcp/keyring-store.ts`.
+
+LLM keys deliberately stay on `secure-storage`: `safe-storage` cannot be read
+by a headless `packages/server` run, so moving them would hide every desktop
+credential from the server on the same machine. A headless run authenticates
+its own MCP servers and stores those tokens in `credentials.enc`.
 
 ## Limitations
 
