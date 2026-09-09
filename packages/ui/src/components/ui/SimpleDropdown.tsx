@@ -1,7 +1,8 @@
 import * as React from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as ReactDOM from 'react-dom'
 import { cn } from '../../lib/utils'
+import { resolveMenuPlacement, type MenuPosition } from './menu-placement'
 
 /**
  * SimpleDropdown - A lightweight dropdown menu without external dependencies
@@ -111,6 +112,12 @@ export interface SimpleDropdownProps {
   onOpenChange?: (open: boolean) => void
   /** Enable built-in ArrowUp/ArrowDown/Enter keyboard navigation (default: true) */
   keyboardNavigation?: boolean
+  /**
+   * Width the menu actually renders at, in px. Used only to keep it inside the
+   * viewport — a wide menu clamped against the default would still run off the
+   * right edge on a narrow window.
+   */
+  menuWidth?: number
 }
 
 export function SimpleDropdown({
@@ -121,6 +128,7 @@ export function SimpleDropdown({
   disabled = false,
   onOpenChange,
   keyboardNavigation = true,
+  menuWidth = 160,
 }: SimpleDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [highlightedId, setHighlightedId] = useState<string | null>(null)
@@ -136,7 +144,7 @@ export function SimpleDropdown({
     })
   }, [onOpenChange])
 
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  const [position, setPosition] = useState<MenuPosition | null>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -166,55 +174,49 @@ export function SimpleDropdown({
     })
   }, [getNavigableIds, highlightedId])
 
-  const updatePosition = useCallback(() => {
-    if (!triggerRef.current) return
-
+  /**
+   * Measure the trigger and hand the geometry to `resolveMenuPlacement`.
+   *
+   * Reads the mounted menu's own height when there is one, so the first paint
+   * (measured in a layout effect) settles before the browser draws.
+   */
+  const computePosition = useCallback((): MenuPosition | null => {
+    if (!triggerRef.current) return null
     const rect = triggerRef.current.getBoundingClientRect()
-    const menuWidth = 160 // Approximate menu width
-
-    let left = align === 'end' ? rect.right - menuWidth : rect.left
-    const top = rect.bottom + 4
-
-    // Keep menu within viewport
-    if (left < 8) left = 8
-    if (left + menuWidth > window.innerWidth - 8) {
-      left = window.innerWidth - menuWidth - 8
-    }
-
-    setPosition({ top, left })
-  }, [align])
+    return resolveMenuPlacement({
+      rect,
+      menuWidth,
+      contentHeight: menuRef.current?.scrollHeight ?? 0,
+      align,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    })
+  }, [align, menuWidth])
 
   const handleToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     if (disabled) return
 
-    if (!isOpen) {
-      // Calculate position before opening to prevent animation from wrong position
-      if (triggerRef.current) {
-        const rect = triggerRef.current.getBoundingClientRect()
-        const menuWidth = 160
-        let left = align === 'end' ? rect.right - menuWidth : rect.left
-        const top = rect.bottom + 4
-        if (left < 8) left = 8
-        if (left + menuWidth > window.innerWidth - 8) {
-          left = window.innerWidth - menuWidth - 8
-        }
-        setPosition({ top, left })
-      }
-    }
+    // Position before opening so the menu never animates in from the wrong spot.
+    if (!isOpen) setPosition(computePosition())
     setIsOpenWithCallback(prev => !prev)
-  }, [disabled, isOpen, align, setIsOpenWithCallback])
+  }, [disabled, isOpen, computePosition, setIsOpenWithCallback])
 
   const handleClose = useCallback(() => {
     setIsOpenWithCallback(false)
   }, [setIsOpenWithCallback])
 
-  // Update position when opening (for edge cases like window resize)
-  useEffect(() => {
-    if (isOpen) {
-      updatePosition()
-    }
-  }, [isOpen, updatePosition])
+  // Re-place the menu once it has mounted and its real height is known. A
+  // layout effect runs before paint, so a menu that has to flip upward never
+  // appears below the trigger first.
+  //
+  // Keyed on `isOpen` alone on purpose: `computePosition` reads the menu it is
+  // about to reposition, so re-running it on its own result would loop.
+  const positionRef = useRef(computePosition)
+  positionRef.current = computePosition
+  useLayoutEffect(() => {
+    if (isOpen) setPosition(positionRef.current())
+  }, [isOpen])
 
   // Reset keyboard highlight when menu opens
   useEffect(() => {
@@ -317,12 +319,12 @@ export function SimpleDropdown({
           <div
             ref={menuRef}
             className={cn(
-              'fixed z-50 min-w-[140px] p-1',
+              'fixed z-50 min-w-[140px] p-1 overflow-y-auto overscroll-contain',
               'bg-background rounded-[8px] shadow-strong border border-border/50',
               'animate-in fade-in-0 zoom-in-95 duration-100',
               className
             )}
-            style={{ top: position.top, left: position.left }}
+            style={{ top: position.top, left: position.left, maxHeight: position.maxHeight }}
           >
             {children}
           </div>
