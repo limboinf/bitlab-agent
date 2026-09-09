@@ -13,6 +13,8 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.11.0] - 2026-09-09
+
 ### Added
 
 - **Every reply now tells you how long it took.** A "Took 28 s" entry sits next
@@ -497,6 +499,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.11.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.11.0
 [0.10.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.10.0
 [0.9.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.9.1
 [0.9.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.9.0
