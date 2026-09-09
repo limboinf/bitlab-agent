@@ -25,10 +25,11 @@ import { cn } from "@/lib/utils"
 import { Check, ChevronDown, Eye, EyeOff, Image as ImageIcon, Loader2 } from "lucide-react"
 import { pickTierDefaults, resolveTierModels, type PiModelInfo } from "./tier-models"
 import {
+  hasUnlistedTierModel,
   resolveCustomEndpointPayload,
+  resolveInitialPreset,
   resolvePiAuthProviderForSubmit,
   resolvePresetStateForBaseUrlChange,
-  resolveTierCustomEndpoint,
   buildTierSetupModels,
   type PresetKey,
 } from "./submit-helpers"
@@ -113,15 +114,11 @@ const PI_PROVIDER_PRESETS: Preset[] = [
  * gets pinned to openai-completions) but stay branded in the dropdown.
  */
 const OPENAI_COMPAT_CUSTOM_URL_PRESETS: ReadonlySet<string> = new Set(['manifest'])
+const DEFAULT_ENDPOINT_PROVIDERS: ReadonlySet<string> = new Set(['anthropic', 'openai', 'pi', 'google'])
 
 const COMPAT_CUSTOM_DEFAULTS = 'claude-opus-4-8, claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5'
 const COMPAT_MINIMAX_DEFAULTS = 'MiniMax-M2.5, MiniMax-M2.5-highspeed'
 const COMPAT_KIMI_DEFAULTS = 'k2p5, kimi-k2-thinking'
-
-function getPresetForUrl(url: string, presets: Preset[]): PresetKey {
-  const match = presets.find(p => p.key !== 'custom' && p.url === url)
-  return match?.key ?? 'custom'
-}
 
 function parseModelList(value: string): string[] {
   return value
@@ -146,8 +143,12 @@ export function ApiKeyInput({
   const defaultPreset = presets[0]
 
   // Compute initial preset: explicit (Pi piAuthProvider), derived from URL, or default
-  const initialPreset = initialValues?.activePreset
-    ?? (initialValues?.baseUrl ? getPresetForUrl(initialValues.baseUrl, presets) : defaultPreset.key)
+  const initialPreset = resolveInitialPreset({
+    explicitPreset: initialValues?.activePreset,
+    baseUrl: initialValues?.baseUrl,
+    presets,
+    defaultPreset: defaultPreset.key,
+  })
 
   const { t } = useTranslation()
   const [apiKey, setApiKey] = useState(initialValues?.apiKey ?? '')
@@ -188,7 +189,6 @@ export function ApiKeyInput({
   const isDisabled = disabled || status === 'validating'
 
   // Hide endpoint/model fields for providers with well-known endpoints handled by the SDK
-  const DEFAULT_ENDPOINT_PROVIDERS = new Set(['anthropic', 'openai', 'pi', 'google'])
   const isDefaultProviderPreset = DEFAULT_ENDPOINT_PROVIDERS.has(activePreset)
 
   // Provider-specific placeholders from the active preset
@@ -219,7 +219,9 @@ export function ApiKeyInput({
         const tiers = resolveTierModels(
           result.models,
           provider === initialPreset ? initialValues?.models : undefined,
-          { allowUnknownIds: !!initialValues?.customApi },
+          // Saved choices for the same provider are authoritative, including
+          // preview/private model IDs absent from the bundled catalog.
+          { allowUnknownIds: true },
         )
         setBestModel(tiers.best)
         setDefaultModel(tiers.default_)
@@ -232,7 +234,7 @@ export function ApiKeyInput({
     } finally {
       setPiModelsLoading(false)
     }
-  }, [initialPreset, initialValues?.models, initialValues?.customApi])
+  }, [initialPreset, initialValues?.connectionSlug, initialValues?.models])
 
   useEffect(() => {
     loadPiModels(activePreset)
@@ -322,7 +324,11 @@ export function ApiKeyInput({
 
   const handleBaseUrlChange = (value: string) => {
     setBaseUrl(value)
-    const presetKey = getPresetForUrl(value, presets)
+    const presetKey = resolveInitialPreset({
+      baseUrl: value,
+      presets,
+      defaultPreset: 'custom',
+    })
     const currentPresetObj = presets.find(p => p.key === activePreset)
     const nextPresetState = resolvePresetStateForBaseUrlChange({
       matchedPreset: presetKey,
@@ -362,12 +368,6 @@ export function ApiKeyInput({
       // Tiers may resolve to the same model when a provider exposes few models
       // (e.g., DeepSeek has 2). Dedupe so the model picker doesn't show duplicates.
       const tierModelIds: string[] = [...new Set([bestModel, defaultModel, cheapModel])]
-      // Only a hand-typed ID pins the connection to custom-endpoint mode. A
-      // listing-contributed model stays on the provider connection: the
-      // subprocess registers it against the provider's own endpoint, and
-      // switching piAuthProvider to reach it would cost the real provider
-      // identity (mini-model choice, thinking format) for nothing.
-      const tierCustom = resolveTierCustomEndpoint(tierModelIds, piModels)
       onSubmit({
         apiKey: apiKey.trim(),
         baseUrl: baseUrl.trim() || undefined,
@@ -376,11 +376,12 @@ export function ApiKeyInput({
           tierModelIds,
           catalog: piModels,
           customMeta: customModelMeta,
-          isCustomEndpoint: !!tierCustom,
         }),
-        piAuthProvider: tierCustom?.piAuthProvider ?? effectivePiAuthProvider,
+        piAuthProvider: effectivePiAuthProvider,
         modelSelectionMode: 'userDefined3Tier',
-        customEndpoint: tierCustom?.customEndpoint,
+        // Unlisted models are synthesized against this provider's own endpoint
+        // at runtime; they do not turn the provider itself into Custom.
+        customEndpoint: undefined,
       })
       return
     }
@@ -426,14 +427,14 @@ export function ApiKeyInput({
   const activeTierConfig = openTier ? tierConfigs.find(t => t.label === openTier) : null
 
   // Escape hatch for models the provider catalog doesn't list yet (new
-  // releases, stealth models, private deployments). Needs a base URL because
-  // an unknown ID can only be reached through the custom-endpoint provider.
+  // releases, stealth models, private deployments). The runtime registers
+  // these against the selected provider's endpoint on demand.
   const tierFilterTrimmed = tierFilter.trim()
   const canUseCustomModelId =
     tierFilterTrimmed.length > 0 &&
     baseUrl.trim().length > 0 &&
     !piModels.some(m => m.id === tierFilterTrimmed)
-  const tierCustomEndpoint = resolveTierCustomEndpoint(
+  const hasUnlistedModel = hasUnlistedTierModel(
     [bestModel, defaultModel, cheapModel].filter(Boolean),
     piModels
   )
@@ -737,14 +738,9 @@ export function ApiKeyInput({
                   </div>
                 )
               })}
-              {tierCustomEndpoint && (
+              {hasUnlistedModel && (
                 <p className="text-xs text-foreground/30">
-                  A custom model ID isn't in this provider's catalog, so the connection
-                  talks to the endpoint directly over{' '}
-                  {tierCustomEndpoint.customEndpoint.api === 'anthropic-messages'
-                    ? 'Anthropic Compatible'
-                    : 'OpenAI Compatible'}. Leave the context window blank to accept the
-                  {' '}131,072-token default.
+                  {t('apiSetup.unlistedModelHint')}
                 </p>
               )}
               {modelError && (

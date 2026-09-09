@@ -13,6 +13,14 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+### Fixed
+
+- **Preview and private models now stay attached to the provider you selected.**
+  Adding a model that is newer than Bitlab's bundled catalog no longer turns a
+  DeepSeek or other named connection into Custom. Older affected connections
+  are recovered conservatively when edited, without changing intentional Custom
+  endpoints.
+
 ## [0.11.0] - 2026-09-09
 
 ### Added

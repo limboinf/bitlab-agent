@@ -2,6 +2,46 @@ import type { CustomEndpointApi, CustomEndpointConfig } from '@config/llm-connec
 
 export type PresetKey = string
 
+function normalizePresetUrl(url: string): string {
+  return url.trim().replace(/\/+$/, '')
+}
+
+/** Restore a named provider from its endpoint when no explicit preset exists. */
+export function resolveInitialPreset(params: {
+  explicitPreset?: PresetKey
+  baseUrl?: string
+  presets: ReadonlyArray<{ key: PresetKey; url: string }>
+  defaultPreset: PresetKey
+}): PresetKey {
+  if (params.explicitPreset) return params.explicitPreset
+  if (!params.baseUrl) return params.defaultPreset
+
+  const normalizedBaseUrl = normalizePresetUrl(params.baseUrl)
+  const match = params.presets.find(p =>
+    p.key !== 'custom' && p.url && normalizePresetUrl(p.url) === normalizedBaseUrl
+  )
+  return match?.key ?? 'custom'
+}
+
+/**
+ * Old tier-provider saves are distinguishable from intentional Custom saves:
+ * the former used three-tier mode and persisted catalog capability objects,
+ * while the Custom text field persisted bare model IDs. Require both legacy
+ * markers before allowing the endpoint URL to infer a provider.
+ */
+export function resolveEditPresetHint(params: {
+  hasCustomEndpoint: boolean
+  piAuthProvider?: PresetKey
+  modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier'
+  models?: ReadonlyArray<string | object>
+}): PresetKey | undefined {
+  if (!params.hasCustomEndpoint) return params.piAuthProvider
+  const isLegacyTierSave =
+    params.modelSelectionMode === 'userDefined3Tier'
+    && params.models?.some(model => typeof model !== 'string')
+  return isLegacyTierSave ? undefined : 'custom'
+}
+
 /**
  * Preset keys that are regional variants of a canonical Pi auth provider.
  * The Pi SDK recognizes both 'minimax' and 'minimax-cn' as separate providers
@@ -95,34 +135,13 @@ export function resolveCustomEndpointPayload(params: {
   }
 }
 
-/**
- * Decide whether a set of tier selections forces the connection into custom
- * endpoint mode.
- *
- * A tier may hold a model ID the provider catalog doesn't know — the user typed
- * it into the tier search box. The Pi subprocess only registers unknown IDs when
- * the connection carries a `customEndpoint`; without one it throws
- * "Could not resolve model" the first time that tier is used. So one custom ID
- * pins the whole connection to the protocol the provider's own catalog models
- * already speak.
- *
- * Returns null when every tier is a known catalog model (the common case).
- */
-export function resolveTierCustomEndpoint(
+/** Whether the selected provider must synthesize an unlisted model at runtime. */
+export function hasUnlistedTierModel(
   tierModelIds: string[],
-  catalog: ReadonlyArray<{ id: string; api?: string }>
-): { customEndpoint: CustomEndpointConfig; piAuthProvider: string } | null {
+  catalog: ReadonlyArray<{ id: string }>
+): boolean {
   const known = new Set(catalog.map(m => m.id))
-  if (tierModelIds.every(id => known.has(id))) return null
-
-  const api: CustomEndpointApi = catalog.find(m => m.api)?.api === 'anthropic-messages'
-    ? 'anthropic-messages'
-    : 'openai-completions'
-
-  return {
-    customEndpoint: { api },
-    piAuthProvider: api === 'anthropic-messages' ? 'anthropic' : 'openai',
-  }
+  return tierModelIds.some(id => !known.has(id))
 }
 
 /** Per-model capability hints carried through connection setup. */
@@ -151,6 +170,7 @@ export interface TierCatalogModel {
  * to the 131k text-only default at registration time:
  *
  *  - a custom endpoint has no catalog behind it at all;
+ *  - a hand-typed provider model is not in the bundled/live catalog yet;
  *  - a listing-discovered model is one the catalog has never heard of, even on
  *    a plain provider connection.
  *
@@ -162,13 +182,12 @@ export function buildTierSetupModels(params: {
   tierModelIds: string[]
   catalog: ReadonlyArray<TierCatalogModel>
   customMeta: Record<string, { contextWindow?: number; supportsImages?: boolean }>
-  isCustomEndpoint: boolean
 }): Array<string | TierSetupModel> {
-  const { tierModelIds, catalog, customMeta, isCustomEndpoint } = params
+  const { tierModelIds, catalog, customMeta } = params
 
   return tierModelIds.map(id => {
     const known = catalog.find(m => m.id === id)
-    if (!isCustomEndpoint && known?.source !== 'listing') return id
+    if (known && known.source !== 'listing') return id
 
     const meta = customMeta[id]
     const contextWindow = known?.contextWindow ?? meta?.contextWindow

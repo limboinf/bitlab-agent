@@ -17,6 +17,7 @@
   "apiSetup.pasteAuthCode": "在此粘贴授权码",
   "apiSetup.protocol": "协议",
   "apiSetup.searchModels": "搜索模型...",
+  "apiSetup.unlistedModelHint": "此模型尚未收录，但仍使用当前供应商。上下文窗口留空时参考该供应商已有模型估算。",
   "artifacts.backToSections": "返回产物",
   "artifacts.browserTab": "浏览器",
   "artifacts.changesEmpty": "暂无变更",

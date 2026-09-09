@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  hasUnlistedTierModel,
   resolveCustomEndpointPayload,
+  resolveEditPresetHint,
+  resolveInitialPreset,
   resolvePiAuthProviderForSubmit,
   resolvePresetStateForBaseUrlChange,
-  resolveTierCustomEndpoint,
   buildTierSetupModels,
 } from '../submit-helpers'
 import { pickTierDefaults, resolveTierModels } from '../tier-models'
@@ -60,6 +62,69 @@ describe('resolvePiAuthProviderForSubmit', () => {
 
   it('passes through non-custom presets unchanged', () => {
     expect(resolvePiAuthProviderForSubmit('google', 'anthropic')).toBe('google')
+  })
+})
+
+describe('resolveInitialPreset', () => {
+  const PRESETS = [
+    { key: 'anthropic', url: 'https://api.anthropic.com' },
+    { key: 'deepseek', url: 'https://api.deepseek.com' },
+    { key: 'custom', url: '' },
+  ]
+
+  it('recovers DeepSeek from a legacy custom-endpoint URL', () => {
+    expect(resolveInitialPreset({
+      baseUrl: 'https://api.deepseek.com/',
+      presets: PRESETS,
+      defaultPreset: 'anthropic',
+    })).toBe('deepseek')
+  })
+
+  it('preserves an explicit Custom selection', () => {
+    expect(resolveInitialPreset({
+      explicitPreset: 'custom',
+      baseUrl: 'https://api.deepseek.com',
+      presets: PRESETS,
+      defaultPreset: 'anthropic',
+    })).toBe('custom')
+  })
+})
+
+describe('resolveEditPresetHint', () => {
+  it('allows URL recovery for legacy tier saves carrying capability objects', () => {
+    expect(resolveEditPresetHint({
+      hasCustomEndpoint: true,
+      piAuthProvider: 'openai',
+      modelSelectionMode: 'userDefined3Tier',
+      models: [{ id: 'deepseek-v4.1-flash-preview' }],
+    })).toBeUndefined()
+  })
+
+  it('keeps an intentional Custom connection explicit', () => {
+    expect(resolveEditPresetHint({
+      hasCustomEndpoint: true,
+      piAuthProvider: 'openai',
+      modelSelectionMode: 'userDefined3Tier',
+      models: ['deepseek-v4.1-flash-preview'],
+    })).toBe('custom')
+  })
+
+  it('keeps a structured intentional Custom connection explicit outside the tier flow', () => {
+    expect(resolveEditPresetHint({
+      hasCustomEndpoint: true,
+      piAuthProvider: 'openai',
+      modelSelectionMode: 'automaticallySyncedFromProvider',
+      models: [{ id: 'deepseek-v4.1-flash-preview' }],
+    })).toBe('custom')
+  })
+
+  it('keeps the saved provider for ordinary provider connections', () => {
+    expect(resolveEditPresetHint({
+      hasCustomEndpoint: false,
+      piAuthProvider: 'deepseek',
+      modelSelectionMode: 'userDefined3Tier',
+      models: ['deepseek-v4-pro'],
+    })).toBe('deepseek')
   })
 })
 
@@ -193,54 +258,33 @@ describe('resolveTierModels with custom endpoint hydration', () => {
   })
 })
 
-describe('resolveTierCustomEndpoint', () => {
+describe('hasUnlistedTierModel', () => {
   const OPENROUTER_CATALOG = [
     { id: 'pi/openai/gpt-5.6-terra', api: 'openai-completions' },
     { id: 'pi/google/gemini-3.5-flash', api: 'openai-completions' },
   ]
 
-  it('returns null when every tier is a known catalog model', () => {
-    expect(resolveTierCustomEndpoint(
+  it('returns false when every tier is a known catalog model', () => {
+    expect(hasUnlistedTierModel(
       ['pi/openai/gpt-5.6-terra', 'pi/google/gemini-3.5-flash'],
       OPENROUTER_CATALOG,
-    )).toBeNull()
+    )).toBe(false)
   })
 
   it('leaves a listing-discovered model on the provider connection', () => {
     // The subprocess registers it against the provider's own endpoint, so
     // there is nothing to gain by trading piAuthProvider for custom-endpoint.
-    expect(resolveTierCustomEndpoint(
+    expect(hasUnlistedTierModel(
       ['pi/glm-5.3'],
-      [{ id: 'pi/glm-5.2', api: 'openai-completions' }, { id: 'pi/glm-5.3', api: 'openai-completions' }],
-    )).toBeNull()
+      [{ id: 'pi/glm-5.2' }, { id: 'pi/glm-5.3' }],
+    )).toBe(false)
   })
 
-  it('pins the connection to the provider protocol when a tier holds an unknown ID', () => {
-    expect(resolveTierCustomEndpoint(
+  it('keeps an unlisted model on the selected provider connection', () => {
+    expect(hasUnlistedTierModel(
       ['stealth/ox-alpha', 'pi/google/gemini-3.5-flash'],
       OPENROUTER_CATALOG,
-    )).toEqual({
-      customEndpoint: { api: 'openai-completions' },
-      piAuthProvider: 'openai',
-    })
-  })
-
-  it('uses anthropic-messages for providers whose catalog speaks it', () => {
-    expect(resolveTierCustomEndpoint(
-      ['some-unreleased-model'],
-      [{ id: 'pi/claude-opus-4-8', api: 'anthropic-messages' }],
-    )).toEqual({
-      customEndpoint: { api: 'anthropic-messages' },
-      piAuthProvider: 'anthropic',
-    })
-  })
-
-  it('defaults to openai-completions when the catalog carries no protocol hint', () => {
-    expect(resolveTierCustomEndpoint(['mystery-model'], [{ id: 'pi/known' }]))
-      .toEqual({
-        customEndpoint: { api: 'openai-completions' },
-        piAuthProvider: 'openai',
-      })
+    )).toBe(true)
   })
 })
 
@@ -257,23 +301,7 @@ describe('buildTierSetupModels', () => {
       tierModelIds: ['pi/openai/gpt-5.6-terra', 'pi/google/gemini-3.5-flash'],
       catalog: CATALOG,
       customMeta: {},
-      isCustomEndpoint: false,
     })).toEqual(['pi/openai/gpt-5.6-terra', 'pi/google/gemini-3.5-flash'])
-  })
-
-  it('carries catalog capabilities for every tier once the connection is a custom endpoint', () => {
-    // Otherwise all three collapse to buildCustomEndpointModelDef's 131k default.
-    const models = buildTierSetupModels({
-      tierModelIds: ['pi/openai/gpt-5.6-terra', 'stealth/ox-alpha'],
-      catalog: CATALOG,
-      customMeta: { 'stealth/ox-alpha': { contextWindow: 1_048_576, supportsImages: true } },
-      isCustomEndpoint: true,
-    })
-
-    expect(models).toEqual([
-      { id: 'pi/openai/gpt-5.6-terra', contextWindow: 400_000, supportsImages: true, supportsThinking: true },
-      { id: 'stealth/ox-alpha', contextWindow: 1_048_576, supportsImages: true },
-    ])
   })
 
   it('carries a listing-discovered model on a plain provider connection', () => {
@@ -286,7 +314,6 @@ describe('buildTierSetupModels', () => {
         { id: 'pi/glm-5.3', contextWindow: 200_000, supportsImages: false, reasoning: true, source: 'listing' },
       ],
       customMeta: {},
-      isCustomEndpoint: false,
     })
 
     expect(models).toEqual([
@@ -295,25 +322,23 @@ describe('buildTierSetupModels', () => {
     ])
   })
 
+  it('carries hand-typed model capabilities without changing the provider', () => {
+    expect(buildTierSetupModels({
+      tierModelIds: ['deepseek-v4.1-flash-preview'],
+      catalog: CATALOG,
+      customMeta: {
+        'deepseek-v4.1-flash-preview': { contextWindow: 200_000, supportsImages: false },
+      },
+    })).toEqual([
+      { id: 'deepseek-v4.1-flash-preview', contextWindow: 200_000, supportsImages: false },
+    ])
+  })
+
   it('omits unknown capabilities instead of inventing them', () => {
     expect(buildTierSetupModels({
       tierModelIds: ['mystery-model'],
       catalog: [],
       customMeta: {},
-      isCustomEndpoint: true,
     })).toEqual([{ id: 'mystery-model' }])
-  })
-
-  it('lets the catalog win over stale custom metadata for the same ID', () => {
-    const models = buildTierSetupModels({
-      tierModelIds: ['pi/google/gemini-3.5-flash'],
-      catalog: CATALOG,
-      customMeta: { 'pi/google/gemini-3.5-flash': { contextWindow: 1, supportsImages: false } },
-      isCustomEndpoint: true,
-    })
-
-    expect(models).toEqual([
-      { id: 'pi/google/gemini-3.5-flash', contextWindow: 1_000_000, supportsImages: true, supportsThinking: false },
-    ])
   })
 })

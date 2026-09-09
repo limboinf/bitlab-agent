@@ -17,6 +17,7 @@
   "apiSetup.pasteAuthCode": "Paste your authorization code here",
   "apiSetup.protocol": "Protocol",
   "apiSetup.searchModels": "Search models...",
+  "apiSetup.unlistedModelHint": "This model is not in Bitlab's catalog yet. It will still use the selected provider. Leave the context window blank to estimate it from the provider's existing models.",
   "artifacts.backToSections": "Back to artifacts",
   "artifacts.browserTab": "Browser",
   "artifacts.changesEmpty": "No changes yet",

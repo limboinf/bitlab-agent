@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { resolveEditPresetHint } from '@/components/apisetup/submit-helpers'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -806,7 +807,12 @@ export default function AiSettingsPage() {
       apiKey,
       baseUrl: connection.baseUrl,
       connectionDefaultModel: modelStr,
-      activePreset: isCustomEndpointConnection ? 'custom' : (connection.piAuthProvider || undefined),
+      activePreset: resolveEditPresetHint({
+        hasCustomEndpoint: isCustomEndpointConnection,
+        piAuthProvider: connection.piAuthProvider,
+        modelSelectionMode: connection.modelSelectionMode,
+        models: connection.models,
+      }),
       models: modelIds,
       customApi: connection.customEndpoint?.api,
       connectionSlug: connection.slug,
