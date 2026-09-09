@@ -49,6 +49,17 @@ export type {
 } from './message.ts';
 export { generateMessageId } from './message.ts';
 
+// Execution metrics (per-model-call latency facts)
+export type {
+  ExecutionStatus,
+  ExecutionCoverage,
+  ExecutionMeasurement,
+  LlmRequestMetrics,
+  AgentRunMetrics,
+  MessageExecutionRef,
+} from './execution-metrics.ts';
+export { RUN_METRICS_SCHEMA_VERSION } from './execution-metrics.ts';
+
 // Message persistence mappers
 export { messageToStored, storedToMessage } from './message-mapper.ts';
 

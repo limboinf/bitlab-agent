@@ -15,6 +15,8 @@ export { TurnCard, ResponseCard, SIZE_CONFIG, ActivityStatusIcon, type TurnCardP
 export { TaskList, TaskRow, TaskStatusIcon, type TaskListProps } from './TaskList'
 export { InlineExecution, mapToolEventToActivity, type InlineExecutionProps, type InlineExecutionStatus, type InlineActivityItem } from './InlineExecution'
 export { TurnCardActionsMenu, type TurnCardActionsMenuProps } from './TurnCardActionsMenu'
+export { TurnTimingDetails, type TurnTimingDetailsProps } from './TurnTimingDetails'
+export { formatMetricDuration, formatTokensPerSecond, formatCount, type FormattedDuration } from './timing-format'
 export { UserMessageBubble, type UserMessageBubbleProps } from './UserMessageBubble'
 export { ProducedFilesRow, MAX_PRODUCED_CHIPS, type ProducedFile, type ProducedFilesRowProps } from './ProducedFilesRow'
 export { MessageMediaPreview, MAX_MEDIA_TILES, type MessageMediaPreviewProps } from './MessageMediaPreview'

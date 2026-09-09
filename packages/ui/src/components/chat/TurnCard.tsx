@@ -3,7 +3,7 @@ import { useMemo, useEffect, useRef, useCallback, useState } from 'react'
 import i18n from 'i18next'
 import { formatTaskListSummary } from './task-list-utils'
 import { useTranslation } from 'react-i18next'
-import type { ToolDisplayMeta, AnnotationV1 } from '@bitlab/core'
+import type { AgentRunMetrics, ToolDisplayMeta, AnnotationV1 } from '@bitlab/core'
 import { normalizePath, pathStartsWith, stripPathPrefix } from '@bitlab/core/utils'
 import { isParentTaskTool } from '@bitlab/shared/utils/toolNames'
 import { motion, AnimatePresence } from 'motion/react'
@@ -30,6 +30,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Markdown } from '../markdown'
+import { TurnTimingDetails } from './TurnTimingDetails'
 import { Spinner } from '../ui/LoadingIndicator'
 import { type IslandTransitionConfig } from '../ui'
 import { AnnotationIslandMenu } from '../annotations/AnnotationIslandMenu'
@@ -399,6 +400,8 @@ export interface TurnCardProps {
    *  auto-compact / WebUI mobile. Hides Copy / Markdown / Branch actions; keeps the
    *  Accept Plan dropdown when a plan is the last response. */
   compactMode?: boolean
+  /** Execution metrics for the run this card ends, when one was recorded. */
+  runMetrics?: AgentRunMetrics
   /** Callback to branch the session from a specific message */
   onBranch?: (messageId: string, options?: { newPanel?: boolean }) => void
   /** Callback to add an annotation to a response message */
@@ -1614,6 +1617,8 @@ export interface ResponseCardProps {
   /** Compact-footer layout. Hides Copy / Markdown / Branch in the response footer;
    *  keeps the Accept Plan dropdown when a plan is the last response. */
   compactMode?: boolean
+  /** Execution metrics shown as a "took N s" entry in the action row. */
+  runMetrics?: AgentRunMetrics
   /** Callback to branch the session from this response */
   onBranch?: (options?: { newPanel?: boolean }) => void
   /** Callback to add annotation from selected text */
@@ -1860,6 +1865,7 @@ export function ResponseCard({
   isLastResponse = true,
   showAcceptPlan = true,
   compactMode = false,
+  runMetrics,
   onBranch,
   onAddAnnotation,
   onRemoveAnnotation,
@@ -2710,6 +2716,7 @@ export function ResponseCard({
                     <span>{t('common.markdown')}</span>
                   </button>
                 )}
+                {runMetrics && <TurnTimingDetails run={runMetrics} />}
               </div>
 
               <div className="flex items-center gap-3">
@@ -2732,6 +2739,14 @@ export function ResponseCard({
                 )}
                 {onBranch && <BranchDropdown onBranch={onBranch} />}
               </div>
+            </div>
+          )}
+
+          {/* compactMode hides the desktop action row, so the timing entry gets its
+              own slim row — it must stay reachable on narrow screens. */}
+          {compactMode && runMetrics && (
+            <div className={cn("mt-2 flex items-center", SIZE_CONFIG.fontSize)}>
+              <TurnTimingDetails run={runMetrics} compact />
             </div>
           )}
 
@@ -2855,6 +2870,7 @@ export const TurnCard = React.memo(function TurnCard({
   displayMode = 'detailed',
   animateResponse = false,
   compactMode = false,
+  runMetrics,
   onBranch,
   onAddAnnotation,
   onRemoveAnnotation,
@@ -3319,6 +3335,7 @@ export const TurnCard = React.memo(function TurnCard({
                 onPopOut={onPopOut ? () => onPopOut(response.text) : undefined}
                 producedFilesSlot={producedSlot}
                 variant={response.isPlan ? 'plan' : 'response'}
+                runMetrics={runMetrics}
                 messageId={response.messageId}
                 annotations={response.annotations}
                 onAddAnnotation={onAddAnnotation}
@@ -3351,6 +3368,7 @@ export const TurnCard = React.memo(function TurnCard({
             onPopOut={onPopOut ? () => onPopOut(response.text) : undefined}
             producedFilesSlot={producedSlot}
             variant={response.isPlan ? 'plan' : 'response'}
+            runMetrics={runMetrics}
             messageId={response.messageId}
             annotations={response.annotations}
             onAddAnnotation={onAddAnnotation}
@@ -3372,6 +3390,14 @@ export const TurnCard = React.memo(function TurnCard({
 
       {standaloneProducedFilesRow && (
         <div className="px-3">{standaloneProducedFilesRow}</div>
+      )}
+
+      {/* A turn that errored, was cancelled, or only ran tools still has timings
+          worth reading — with no response card to host the entry, it goes here. */}
+      {!response && runMetrics && (
+        <div className={cn("px-3 flex items-center", SIZE_CONFIG.fontSize)}>
+          <TurnTimingDetails run={runMetrics} compact={compactMode} />
+        </div>
       )}
     </div>
   )
@@ -3397,6 +3423,9 @@ export const TurnCard = React.memo(function TurnCard({
 
   // Re-render if compactMode changed (affects ResponseCard footer rendering)
   if (prev.compactMode !== next.compactMode) return false
+
+  // Re-render when the run's metrics snapshot changed (new revision object)
+  if (prev.runMetrics !== next.runMetrics) return false
 
   // Re-render if annotation interaction mode changed (interactive vs tooltip-only)
   if (prev.annotationInteractionMode !== next.annotationInteractionMode) return false

@@ -9,7 +9,7 @@
  * Pi backend.
  */
 
-import type { AgentEvent as CraftAgentEvent } from '@bitlab/core/types';
+import type { AgentEvent as CraftAgentEvent, LlmRequestMetrics } from '@bitlab/core/types';
 import type {
   AgentEvent as PiAgentEvent,
 } from '@earendil-works/pi-agent-core';
@@ -232,6 +232,16 @@ export class PiEventAdapter extends BaseEventAdapter {
     // the correct `sdkTurnAnchor` (the leaf id AFTER the SDK has appended the
     // assistant entry). We forward it through as-is — SessionManager correlates
     // it to an assistant message via `sdkMessageId`.
+    // Model-call timing, sampled in the subprocess. Passed straight through:
+    // the readings are already final, and the session — not the adapter — owns
+    // which run they belong to.
+    const eventType = (event as { type?: string }).type;
+    if (eventType === 'llm_request_started' || eventType === 'llm_request_completed') {
+      const request = (event as unknown as { request?: LlmRequestMetrics }).request;
+      if (request) yield { type: eventType, request };
+      return;
+    }
+
     if ((event as { type?: string }).type === 'pi_turn_anchor') {
       const e = event as unknown as { sdkMessageId?: string; sdkTurnAnchor?: string };
       if (e.sdkMessageId && e.sdkTurnAnchor) {

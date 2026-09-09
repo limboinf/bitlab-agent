@@ -33,6 +33,19 @@ import type {
   WorkspaceInfo,
 } from '@bitlab/core/types'
 import { messageToStored, storedToMessage } from '@bitlab/core/types'
+import type { AgentRunMetrics, MessageExecutionRef } from '@bitlab/core/types'
+import {
+  applyRequestCompleted,
+  applyRequestStarted,
+  beginRun,
+  bindMessageToRequest,
+  findRun,
+  markStaleRunsInterrupted,
+  sanitizeTranscriptMetrics,
+  settleRun,
+  trimTranscriptMetricsForBranch,
+  type ActiveRun,
+} from './run-metrics.ts'
 import {
   AbortReason,
   createBackendFromResolvedContext,
@@ -239,6 +252,13 @@ interface RunningBackgroundTask {
   agentsCompleted?: number
 }
 
+/**
+ * Clocks execution metrics are measured against. Epoch time is for reading a
+ * record; every duration comes from the monotonic clock, which a system time
+ * change cannot run backwards.
+ */
+const RUN_CLOCK = { now: () => Date.now(), monotonic: () => performance.now() }
+
 interface ManagedSession extends SessionConfig {
   workspace: Workspace
   messages: Message[]
@@ -268,6 +288,8 @@ interface ManagedSession extends SessionConfig {
   lastFinalMessageId?: string
   lastMessageRole?: Session['lastMessageRole']
   pendingExternalHeader?: SessionHeader
+  /** Execution-metrics control object for the turn currently running. */
+  activeRun?: ActiveRun
 }
 
 export function createManagedSession(
@@ -456,6 +478,11 @@ export class SessionManager implements ISessionManager {
     if (stored) {
       managed.messages = stored.messages.map(storedToMessage)
       managed.tokenUsage = stored.tokenUsage
+      // A run still marked running in a file means the process that was timing
+      // it is gone. Only the server can say that — a renderer remount cannot,
+      // since a disconnected client does not stop the agent.
+      sanitizeTranscriptMetrics(managed.messages)
+      markStaleRunsInterrupted(managed.messages)
     }
     managed.messagesLoaded = true
   }
@@ -471,7 +498,7 @@ export class SessionManager implements ISessionManager {
       preview: _preview, messageCount: _messageCount,
       lastFinalMessageId: _lastFinalMessageId, lastMessageRole: _lastMessageRole,
       pendingExternalHeader: _pendingExternalHeader,
-      contextUsage: _contextUsage,
+      contextUsage: _contextUsage, activeRun: _activeRun,
       messages, tokenUsage, ...config } = managed
     return { ...config, messages: messages.map(messageToStored), tokenUsage }
   }
@@ -629,6 +656,11 @@ export class SessionManager implements ISessionManager {
               ? JSON.parse(serialized.replaceAll(sourcePath, branchPath)) as StoredSession['messages'][number]
               : message
           })
+      // Metrics recorded on a kept user message can still describe calls made
+      // after the cut. Rebuild them from what the branch actually contains, on
+      // the copy, so the source session is untouched and the branch never shows
+      // a duration for work it does not hold.
+      branched.messages = trimTranscriptMetricsForBranch(branched.messages)
       branched.branchFromMessageId = options.branchFromMessageId
       branched.branchFromSdkSessionId = branchSource.sdkSessionId
       branched.branchFromSessionPath = sourcePath
@@ -757,6 +789,10 @@ export class SessionManager implements ISessionManager {
 
     if (managed.isProcessing) {
       const redirected = managed.agent?.redirect(message) ?? false
+      // A steered message joins the run already in flight rather than owning
+      // one: the metrics stay with the message that started the execution, and
+      // the transcript still says which run this message reached.
+      if (redirected && managed.activeRun) userMessage.executionRef = { runId: managed.activeRun.runId }
       if (!redirected) {
         userMessage.isQueued = true
         managed.messageQueue.push({
@@ -813,7 +849,7 @@ export class SessionManager implements ISessionManager {
         }
       }
     }
-    await this.runTurn(managed, message, attachments, userMessage)
+    await this.runTurn(managed, message, attachments, userMessage, options?.optimisticMessageId)
     if (shouldGenerateTitle) void this.generateTitle(managed, message)
   }
 
@@ -860,6 +896,7 @@ export class SessionManager implements ISessionManager {
     message: string,
     attachments?: FileAttachment[],
     userMessage?: Message,
+    optimisticMessageId?: string,
   ): Promise<void> {
     // The assembly boundary: this turn commits to the selection that is current
     // NOW, and every later read of the route during the turn sees this snapshot.
@@ -876,11 +913,25 @@ export class SessionManager implements ISessionManager {
     }
     managed.isProcessing = true
     runtimeHooks.onSessionStarted()
+    // Open the run BEFORE the model does any work, so a crash mid-turn still
+    // leaves a record that recovery can mark interrupted. The owner is the
+    // persisted user message: metrics travel with the transcript, never in a
+    // side table that a reload would lose.
+    if (userMessage) {
+      managed.activeRun = beginRun(userMessage, RUN_CLOCK, optimisticMessageId)
+      const opened = findRun(managed.messages, managed.activeRun.runId)
+      if (opened) this.emitRunMetrics(managed, managed.activeRun, opened.run)
+      await this.flushSession(managed.id)
+    }
     let stopReason: SessionCompletionEvent['stopReason'] = 'complete'
     try {
       const agent = await this.getOrCreateAgent(managed)
       for await (const event of agent.chat(message, attachments)) {
         if (this.handleAgentEvent(managed, event)) stopReason = 'error'
+        // Commit barrier at each model call's close. This ordered consumer is
+        // the right place for it: an awaited flush here cannot reorder the
+        // event stream, whereas starting one inside handleAgentEvent would.
+        if (event.type === 'llm_request_completed') await this.flushSession(managed.id)
       }
     } catch (error) {
       stopReason = 'error'
@@ -895,6 +946,20 @@ export class SessionManager implements ISessionManager {
       this.emit(managed.workspace.id, { type: 'error', sessionId: managed.id, error: errorMessage })
       runtimeHooks.captureException(error, { errorSource: 'session-turn', sessionId: managed.id })
     } finally {
+      // The single settle point for the run: whatever happened above — normal
+      // completion, a thrown error, a user stop — its wall time is closed here
+      // exactly once.
+      const activeRun = managed.activeRun
+      if (activeRun) {
+        managed.activeRun = undefined
+        const settled = settleRun(
+          managed.messages,
+          activeRun,
+          stopReason === 'error' ? 'error' : 'completed',
+          RUN_CLOCK,
+        )
+        if (settled) this.emitRunMetrics(managed, activeRun, settled)
+      }
       managed.isProcessing = false
       managed.currentStatus = undefined
       // Release the snapshot: the turn is over, so the next read of the route
@@ -918,7 +983,8 @@ export class SessionManager implements ISessionManager {
       case 'text_complete': {
         const timestamp = this.nextTimestamp()
         const messageId = event.sdkMessageId ?? generateMessageId()
-        managed.messages = applyTranscriptEvent(managed.messages, event, { id: messageId, timestamp })
+        managed.messages = applyTranscriptEvent(managed.messages, event, { id: messageId, timestamp, executionRef: this.executionRefOf(managed) })
+        this.bindMessageMetrics(managed, messageId)
         if (!event.isIntermediate) {
           managed.lastFinalMessageId = messageId
           managed.lastMessageRole = 'assistant'
@@ -945,7 +1011,8 @@ export class SessionManager implements ISessionManager {
       case 'thinking_complete': {
         const timestamp = this.nextTimestamp()
         const messageId = generateMessageId()
-        managed.messages = applyTranscriptEvent(managed.messages, event, { id: messageId, timestamp })
+        managed.messages = applyTranscriptEvent(managed.messages, event, { id: messageId, timestamp, executionRef: this.executionRefOf(managed) })
+        this.bindMessageMetrics(managed, messageId)
         this.emit(managed.workspace.id, {
           type: 'thinking_complete',
           sessionId,
@@ -958,7 +1025,7 @@ export class SessionManager implements ISessionManager {
       }
       case 'tool_start': {
         const timestamp = this.nextTimestamp()
-        managed.messages = applyTranscriptEvent(managed.messages, event, { id: generateMessageId(), timestamp })
+        managed.messages = applyTranscriptEvent(managed.messages, event, { id: generateMessageId(), timestamp, executionRef: this.executionRefOf(managed) })
         this.emit(managed.workspace.id, { type: 'tool_start', sessionId, toolName: event.toolName, toolUseId: event.toolUseId, toolInput: event.input, toolIntent: event.intent, toolDisplayName: event.displayName, toolDisplayMeta: event.toolDisplayMeta, turnId: event.turnId, parentToolUseId: event.parentToolUseId, timestamp })
         break
       }
@@ -1120,9 +1187,59 @@ export class SessionManager implements ISessionManager {
         break
       case 'steer_undelivered':
         break
+      case 'llm_request_started':
+      case 'llm_request_completed': {
+        // Attribution is the session's job: the subprocess measures one call at
+        // a time and never has to know which run it belongs to.
+        const activeRun = managed.activeRun
+        if (!activeRun) break
+        const run = event.type === 'llm_request_started'
+          ? applyRequestStarted(managed.messages, activeRun, event.request)
+          : applyRequestCompleted(managed.messages, activeRun, event.request)
+        if (run) this.emitRunMetrics(managed, activeRun, run)
+        break
+      }
     }
     this.persistSession(managed)
     return isTurnError
+  }
+
+  /** The model call a message produced right now belongs to, if any. */
+  private executionRefOf(managed: ManagedSession): MessageExecutionRef | undefined {
+    const activeRun = managed.activeRun
+    if (!activeRun) return undefined
+    return activeRun.currentRequestId
+      ? { runId: activeRun.runId, requestId: activeRun.currentRequestId }
+      : { runId: activeRun.runId }
+  }
+
+  /** Record that a persisted message came out of the call currently in flight. */
+  private bindMessageMetrics(managed: ManagedSession, messageId: string): void {
+    const activeRun = managed.activeRun
+    if (!activeRun) return
+    const run = bindMessageToRequest(managed.messages, activeRun, messageId)
+    if (run) this.emitRunMetrics(managed, activeRun, run)
+  }
+
+  /**
+   * Publish a run snapshot after queueing it for persistence.
+   *
+   * The copy matters: the record keeps being mutated as the turn runs, and a
+   * client holding a live reference would silently see readings change under it.
+   */
+  private emitRunMetrics(managed: ManagedSession, activeRun: ActiveRun, run: AgentRunMetrics): void {
+    this.persistSession(managed)
+    this.emit(managed.workspace.id, {
+      type: 'run_metrics_updated',
+      sessionId: managed.id,
+      ownerMessageId: activeRun.ownerMessageId,
+      // Clients that still hold their optimistic id for this message cannot
+      // route on the canonical one — offer both rather than forcing a swap.
+      ...(activeRun.ownerOptimisticMessageId
+        ? { ownerOptimisticMessageId: activeRun.ownerOptimisticMessageId }
+        : {}),
+      run: structuredClone(run),
+    })
   }
 
   /** Craft-compatible async entry point for events arriving outside a live turn. */
@@ -1771,6 +1888,9 @@ export class SessionManager implements ISessionManager {
   async cancelProcessing(sessionId: string, silent = false): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (!managed?.agent || !managed.isProcessing) return
+    // Intent only: the run settles when the execution actually unwinds, so its
+    // duration still covers the time it took to stop.
+    if (managed.activeRun) managed.activeRun.abortRequested = true
     managed.agent.forceAbort(AbortReason.UserStop)
     managed.isProcessing = false
     if (!silent) this.emit(managed.workspace.id, { type: 'interrupted', sessionId })

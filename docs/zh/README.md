@@ -24,6 +24,7 @@
 | 权限 | [permissions.md](./permissions.md) |
 | 发布、更新与遥测 | [releases.md](./releases.md) |
 | 会话 | [sessions.md](./sessions.md) |
+| AI 消息时延统计 | [sessions.md · 时延统计](./sessions.md#ai-message-latency-design) |
 | Skills | [skills.md](./skills.md) |
 | Skills 设计方案（技能中心、市场、创作） | [skills-design.md](./skills-design.md) |
 | 界面提示音 | [sound.md](./sound.md) |

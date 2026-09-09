@@ -1,4 +1,4 @@
-import type { AgentEvent, Message } from '@bitlab/core/types'
+import type { AgentEvent, Message, MessageExecutionRef } from '@bitlab/core/types'
 import { findToolStartTargetIndex, findOpenToolMessageIndex } from '@bitlab/core/utils'
 
 type TranscriptEvent = Extract<AgentEvent, { type: 'text_complete' | 'thinking_complete' | 'tool_start' | 'tool_result' }>
@@ -6,6 +6,13 @@ type TranscriptEvent = Extract<AgentEvent, { type: 'text_complete' | 'thinking_c
 export interface TranscriptIds {
   id: string
   timestamp: number
+  /**
+   * The run (and model call) that produced this message. Stamped at creation so
+   * a reloaded transcript can still say which call a thinking block and the
+   * answer beside it came from — without it, the two would look like separate
+   * responses and their usage would be counted twice.
+   */
+  executionRef?: MessageExecutionRef
 }
 
 function isToolError(result: string | undefined, isError?: boolean): boolean {
@@ -59,6 +66,7 @@ export function applyTranscriptEvent(
           toolIntent: event.intent,
           toolDisplayName: event.displayName,
           toolDisplayMeta: event.toolDisplayMeta,
+          ...(ids.executionRef ? { executionRef: ids.executionRef } : {}),
         },
       ]
     }
@@ -110,6 +118,7 @@ export function applyTranscriptEvent(
           isIntermediate: event.isIntermediate,
           turnId: event.turnId,
           parentToolUseId: event.parentToolUseId,
+          ...(ids.executionRef ? { executionRef: ids.executionRef } : {}),
         },
       ]
 
@@ -126,6 +135,7 @@ export function applyTranscriptEvent(
           isIntermediate: true,
           isThinking: true,
           turnId: event.turnId,
+          ...(ids.executionRef ? { executionRef: ids.executionRef } : {}),
         },
       ]
   }

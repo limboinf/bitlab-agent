@@ -13,6 +13,26 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+### Added
+
+- **Every reply now tells you how long it took.** A "Took 28 s" entry sits next
+  to Copy and Markdown at the bottom of a finished reply; opening it shows the
+  turn's total time, the model's output speed in tokens per second, the time to
+  the first token of the first call, and how many model calls the turn made.
+  Total time deliberately covers tool runs and approval waits, so it answers
+  "how long did this take me" rather than "how fast is the model" — the two are
+  shown separately for that reason. Readings are measured where the call is
+  actually made and saved with the conversation, so they survive a refresh, a
+  session switch and a restart. Turns from before this release show no entry
+  rather than a guessed number.
+
+### Fixed
+
+- **Dropdown menus near the bottom of the window no longer open off-screen.**
+  A menu opened from a footer used to run past the bottom edge and cover the
+  composer; menus now flip above their trigger when there is more room there,
+  and scroll instead of overflowing when neither side fits.
+
 ## [0.10.0] - 2026-09-07
 
 ### Added

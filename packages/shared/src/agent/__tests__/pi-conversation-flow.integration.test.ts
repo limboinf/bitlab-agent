@@ -124,5 +124,34 @@ describe('Pi conversation flow with a local OpenAI-compatible endpoint', () => {
     expect(events.some(event => event.type === 'tool_result')).toBe(true)
     expect(events.some(event => event.type === 'text_complete' && event.text.includes('Session flow verified.'))).toBe(true)
     expect(events.at(-1)?.type).toBe('complete')
+
+    // Every SDK call is sampled, including the tool-only first response that
+    // produced no text at all.
+    const started = events.filter(event => event.type === 'llm_request_started')
+    const completed = events.filter(event => event.type === 'llm_request_completed')
+    expect(started).toHaveLength(2)
+    expect(completed).toHaveLength(2)
+    expect(new Set(started.map(event => event.request.requestId)).size).toBe(2)
+    for (const event of completed) {
+      expect(event.request.status).toBe('completed')
+      expect(event.request.durationMs).toBeGreaterThanOrEqual(0)
+      expect(Number.isFinite(event.request.durationMs)).toBe(true)
+    }
+    // The tool-only response carries the tool it asked for, so a text-less call
+    // can still be tied back to the work it caused.
+    expect(completed[0]?.request.toolUseIds).toContain('call-session-info')
+
+    // The answer must be created before its call is settled — that ordering is
+    // what lets the session bind the message to the call that produced it.
+    const answerIndex = events.findIndex(event => event.type === 'text_complete')
+    const lastCompletedIndex = events.findLastIndex(event => event.type === 'llm_request_completed')
+    expect(answerIndex).toBeGreaterThan(-1)
+    expect(lastCompletedIndex).toBeGreaterThan(answerIndex)
+
+    // Metrics are application-side only: nothing about them may reach the model.
+    const payloads = JSON.stringify(requestBodies)
+    expect(payloads).not.toContain('agentRuns')
+    expect(payloads).not.toContain('executionRef')
+    expect(payloads).not.toContain('sdk-call-v1')
   }, 30_000)
 })

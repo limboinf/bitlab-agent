@@ -10,3 +10,11 @@ export {
   findOpenToolMessageIndex,
   findLatestToolMessageIndex,
 } from './tool-messages.ts';
+
+export {
+  deriveRunMetrics,
+  isThroughputSample,
+  sanitizeRunMetrics,
+  trimRunMetricsForBranch,
+} from './execution-metrics.ts';
+export type { RunMetricsSummary, BranchRetention } from './execution-metrics.ts';

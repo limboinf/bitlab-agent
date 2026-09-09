@@ -14,6 +14,7 @@
 
 import type { SessionState, AgentEvent, ProcessResult } from './types'
 import { handleTextDelta, handleTextComplete } from './handlers/text'
+import { handleRunMetricsUpdated } from './handlers/run-metrics'
 import { handleThinkingDelta, handleThinkingComplete } from './handlers/thinking'
 import { handleToolStart, handleToolResult, handleTaskBackgrounded, handleShellBackgrounded, handleTaskProgress, handleTaskCompleted } from './handlers/tool'
 import {
@@ -187,6 +188,9 @@ export function processEvent(
 
     case 'context_usage':
       return handleContextUsage(state, event)
+
+    case 'run_metrics_updated':
+      return { state: handleRunMetricsUpdated(state, event), effects: [] }
 
     default: {
       // Unknown event type - return state unchanged but as new reference

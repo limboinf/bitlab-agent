@@ -8,7 +8,40 @@ import { debug } from '../utils/debug.js'
 
 interface PendingWrite {
   data: StoredSession
-  timer: ReturnType<typeof setTimeout>
+  timer: ReturnType<typeof setTimeout> | null
+}
+
+/**
+ * Detach the parts of a session that keep being mutated after it is queued.
+ *
+ * Execution metrics are updated in place all through a turn — a request pushed,
+ * a revision bumped, a duration written on settle. A queued write holds the
+ * caller's own arrays, so without this the bytes that reach disk would be
+ * whatever the transcript looked like when the timer fired, not what the caller
+ * asked to save. Only messages that carry metrics are copied; the rest (large
+ * tool results, attachments) stay shared, since nothing rewrites them.
+ *
+ * @param session - the session being queued.
+ * @returns a session safe to serialize later.
+ */
+function snapshotForCommit(session: StoredSession): StoredSession {
+  let copied = false
+  const messages = session.messages.map(message => {
+    if (!message.agentRuns) return message
+    copied = true
+    return {
+      ...message,
+      agentRuns: message.agentRuns.map(run => ({
+        ...run,
+        requests: run.requests.map(request => ({
+          ...request,
+          messageIds: [...request.messageIds],
+          toolUseIds: [...request.toolUseIds],
+        })),
+      })),
+    }
+  })
+  return copied ? { ...session, messages } : session
 }
 
 interface HeaderMetadataSignature {
@@ -52,7 +85,13 @@ function mergeHeaderWithExternalMetadata(localHeader: SessionHeader, diskHeader:
  */
 class SessionPersistenceQueue {
   private pending = new Map<string, PendingWrite>()
-  private writeInProgress = new Map<string, Promise<void>>()
+  /**
+   * The tail of each session's write chain. Timed writes and explicit flushes
+   * append to the same chain, so two of them can never be inside the same
+   * `.tmp` file at once — the race that made a debounced write and a flush
+   * clobber each other.
+   */
+  private writeChain = new Map<string, Promise<void>>()
   private lastWrittenHeaderSignature = new Map<string, string>()
   private debounceMs: number
 
@@ -66,15 +105,43 @@ class SessionPersistenceQueue {
    */
   enqueue(session: StoredSession): void {
     const existing = this.pending.get(session.id)
-    if (existing) {
-      clearTimeout(existing.timer)
-    }
+    if (existing?.timer) clearTimeout(existing.timer)
 
     const timer = setTimeout(() => {
-      void this.write(session.id)
+      void this.schedule(session.id).catch(error => {
+        // A background write has no caller to report to; surface it and keep the
+        // queue alive rather than raising an unhandled rejection.
+        console.error(`[PersistenceQueue] Background write failed for ${session.id}:`, error)
+      })
     }, this.debounceMs)
 
-    this.pending.set(session.id, { data: session, timer })
+    this.pending.set(session.id, { data: snapshotForCommit(session), timer })
+  }
+
+  /**
+   * Append one write to this session's chain and return when it has run.
+   *
+   * The chain — not the pending entry — is what a flush waits on: a write that
+   * has already been taken off the queue is still in flight, and returning
+   * before it lands would report data as saved that is not.
+   *
+   * @param sessionId - session to write.
+   * @returns a promise for that write's completion.
+   */
+  private schedule(sessionId: string): Promise<void> {
+    const previous = this.writeChain.get(sessionId) ?? Promise.resolve()
+    const next = previous
+      .catch(() => { /* a failed earlier write must not cancel this one */ })
+      .then(() => this.write(sessionId))
+    this.writeChain.set(sessionId, next)
+    void next
+      .catch(() => { /* the awaiting caller owns this rejection */ })
+      .finally(() => {
+        // Drop the chain once this session's last write has settled, so an app
+        // with thousands of sessions doesn't retain a promise per session.
+        if (this.writeChain.get(sessionId) === next) this.writeChain.delete(sessionId)
+      })
+    return next
   }
 
   /**
@@ -85,6 +152,7 @@ class SessionPersistenceQueue {
     const entry = this.pending.get(sessionId)
     if (!entry) return
 
+    if (entry.timer) clearTimeout(entry.timer)
     this.pending.delete(sessionId)
 
     try {
@@ -149,9 +217,16 @@ class SessionPersistenceQueue {
 
       const tmpFile = filePath + '.tmp'
       await writeFile(tmpFile, lines.join('\n') + '\n', 'utf-8')
-      // On Windows, rename fails if target exists. Delete first for cross-platform compatibility.
-      try { await unlink(filePath) } catch { /* ignore if doesn't exist */ }
-      await rename(tmpFile, filePath)
+      // rename() replaces the target atomically on POSIX. Deleting first would
+      // open a window where a crash leaves no session file at all; only Windows
+      // needs the unlink, and only when the replace itself was refused.
+      try {
+        await rename(tmpFile, filePath)
+      } catch (renameError) {
+        if (process.platform !== 'win32') throw renameError
+        await unlink(filePath).catch(() => { /* nothing to replace */ })
+        await rename(tmpFile, filePath)
+      }
       debug(`[PersistenceQueue] Wrote session ${sessionId}`)
     } catch (error) {
       console.error(`[PersistenceQueue] Failed to write session ${sessionId}:`, error)
@@ -164,26 +239,14 @@ class SessionPersistenceQueue {
    * to prevent race conditions on the shared .tmp file.
    */
   async flush(sessionId: string): Promise<void> {
-    const entry = this.pending.get(sessionId)
-    if (entry) {
-      clearTimeout(entry.timer)
-
-      // Wait for any in-progress write to complete first
-      const inProgress = this.writeInProgress.get(sessionId)
-      if (inProgress) {
-        await inProgress
-      }
-
-      // Start new write and track it
-      const writePromise = this.write(sessionId)
-      this.writeInProgress.set(sessionId, writePromise)
-
-      try {
-        await writePromise
-      } finally {
-        this.writeInProgress.delete(sessionId)
-      }
+    if (this.pending.has(sessionId)) {
+      await this.schedule(sessionId)
+      return
     }
+    // Nothing queued, but an earlier write may still be running — a caller that
+    // flushes to read the file back must not overtake it.
+    const inFlight = this.writeChain.get(sessionId)
+    if (inFlight) await inFlight
   }
 
   /**
@@ -192,10 +255,11 @@ class SessionPersistenceQueue {
   cancel(sessionId: string): void {
     const entry = this.pending.get(sessionId)
     if (entry) {
-      clearTimeout(entry.timer)
+      if (entry.timer) clearTimeout(entry.timer)
       this.pending.delete(sessionId)
       debug(`[PersistenceQueue] Cancelled pending write for session ${sessionId}`)
     }
+    this.writeChain.delete(sessionId)
     this.lastWrittenHeaderSignature.delete(sessionId)
   }
 
@@ -203,8 +267,8 @@ class SessionPersistenceQueue {
    * Flush all pending sessions. Call this on app quit.
    */
   async flushAll(): Promise<void> {
-    const sessionIds = [...this.pending.keys()]
-    await Promise.all(sessionIds.map(id => this.flush(id)))
+    const sessionIds = new Set([...this.pending.keys(), ...this.writeChain.keys()])
+    await Promise.all([...sessionIds].map(id => this.flush(id)))
   }
 
   /**

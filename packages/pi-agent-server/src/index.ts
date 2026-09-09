@@ -127,6 +127,8 @@ import {
 } from './subagents-extension.ts';
 import { PiSkillBridge } from './skill-bridge.ts';
 import { SkillCatalog } from '@bitlab/shared/skills';
+import { LlmRequestTracker, instrumentStreamFn } from './llm-request-timing.ts';
+import type { LlmRequestMetrics } from '@bitlab/core/types';
 
 // ============================================================
 // Types — JSONL Protocol
@@ -242,7 +244,15 @@ type EnrichedToolExecutionStartEvent = Extract<AgentSessionEvent, { type: 'tool_
   toolMetadata?: ToolExecutionMetadata;
 };
 
-type OutboundAgentEvent = AgentSessionEvent | EnrichedToolExecutionStartEvent;
+/**
+ * App-level events the subprocess synthesizes alongside the SDK's own. They ride
+ * the same `event` channel so the adapter sees one ordered stream.
+ */
+type ExecutionMetricsEvent =
+  | { type: 'llm_request_started'; request: LlmRequestMetrics }
+  | { type: 'llm_request_completed'; request: LlmRequestMetrics };
+
+type OutboundAgentEvent = AgentSessionEvent | EnrichedToolExecutionStartEvent | ExecutionMetricsEvent;
 
 /** Messages to main process (stdout) */
 interface OutboundReady { type: 'ready'; sessionId: string | null; callbackPort: number }
@@ -435,6 +445,17 @@ let piSession: AgentSession | null = null;
 let piModelRegistry: PiModelRegistry | null = null;
 let moduleAuthStorage: PiAuthStorage | null = null;
 let unsubscribeEvents: (() => void) | null = null;
+
+/**
+ * Model-call timing for the chat session. Lives at module scope because there
+ * is exactly one chat session per subprocess; the ephemeral sessions behind
+ * `call_llm` and title generation build their own agents and are never sampled.
+ */
+const llmRequestTracker = new LlmRequestTracker({
+  onStarted: request => send({ type: 'event', event: { type: 'llm_request_started', request } }),
+  onCompleted: request => send({ type: 'event', event: { type: 'llm_request_completed', request } }),
+});
+
 
 // Init config (set on 'init' message)
 let initConfig: Extract<InboundMessage, { type: 'init' }> | null = null;
@@ -1141,6 +1162,18 @@ async function ensureSession(): Promise<AgentSession> {
   const { session } = await createAgentSession(sessionOptions);
   piSession = session;
 
+  // Time every model call the chat turn makes. The wrapper brackets the SDK's
+  // own `streamFn` — which still owns auth, headers, timeouts and provider
+  // retries — so the reading covers the whole SDK-call unit. Compaction runs
+  // through the same function but is the agent's own housekeeping, not the
+  // chat request, so it is excluded from the per-request samples; its wall time
+  // still lands in the Run total the main process measures.
+  session.agent.streamFn = instrumentStreamFn(
+    session.agent.streamFn,
+    llmRequestTracker,
+    () => !session.isCompacting,
+  );
+
   // MCP: the Pi SDK only emits `session_start` to extensions from
   // `bindExtensions()` — the TUI entry point. An embedded SDK session never
   // calls it, and pi-mcp-adapter relies on that event to create its runtime
@@ -1633,6 +1666,12 @@ function extractToolExecutionMetadata(args: Record<string, unknown> | undefined)
 function handleSessionEvent(event: AgentSessionEvent): void {
   let forwardedEvent: OutboundAgentEvent = event;
 
+  // TTFT is stamped from the first delta that carries real output, so this runs
+  // before anything below can filter, split or suppress the event.
+  if (event.type === 'message_update') {
+    llmRequestTracker.observeStreamEvent(event.assistantMessageEvent as never);
+  }
+
   // Log API errors for debugging and attach provider-native turn anchor for branch cutoffs.
   if (event.type === 'message_end') {
     const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string } | undefined;
@@ -1749,6 +1788,42 @@ function handleSessionEvent(event: AgentSessionEvent): void {
   // Forward all events to main process
   send({ type: 'event', event: forwardedEvent });
 
+  // Close the model call AFTER its content has been forwarded, so the main
+  // process has already created the messages this call produced and can bind
+  // their ids to it. Emitted for every assistant response, including ones that
+  // errored or produced nothing but tool calls.
+  if (event.type === 'message_end') {
+    const msg = event.message as {
+      role?: string;
+      stopReason?: string;
+      usage?: { input?: number; output?: number };
+      content?: Array<{ type?: string; id?: string }> | string;
+    } | undefined;
+    if (msg?.role === 'assistant') {
+      const toolUseIds = (Array.isArray(msg.content) ? msg.content : [])
+        .filter(part => part.type === 'toolCall' && typeof part.id === 'string')
+        .map(part => part.id as string);
+      // A completion with no content at all is the provider handing back
+      // nothing, whatever `stopReason` says. The adapter already surfaces that
+      // as an error to the user; the sample has to agree, or a turn that
+      // produced nothing would still count toward the model's measured speed.
+      const content = msg.content;
+      const returnedNothing = Array.isArray(content) ? content.length === 0 : !content;
+      const status = msg.stopReason === 'error'
+        ? 'error'
+        : msg.stopReason === 'aborted'
+          ? 'aborted'
+          : returnedNothing && !llmRequestTracker.sawOutput
+            ? 'error'
+            : 'completed';
+      llmRequestTracker.completeRequest(status, {
+        usage: msg.usage,
+        finishReason: msg.stopReason,
+        toolUseIds,
+      });
+    }
+  }
+
   // Republish the meter after anything that changes the conversation. The
   // SDK appends the message AFTER message_end fires, so read on the next
   // microtask to include the message that just settled.
@@ -1768,6 +1843,7 @@ async function handleInit(msg: Extract<InboundMessage, { type: 'init' }>): Promi
       unsubscribeEvents();
       unsubscribeEvents = null;
     }
+    llmRequestTracker.interrupt();
     piSession.dispose();
     piSession = null;
     moduleAuthStorage = null; // Reset so createAuthenticatedRegistry() creates fresh storage
@@ -1827,6 +1903,7 @@ async function waitForCompaction(session: { isCompacting: boolean }, timeoutMs =
 
 async function handlePrompt(msg: Extract<InboundMessage, { type: 'prompt' }>): Promise<void> {
   currentUserMessage = msg.message;
+  llmRequestTracker.startRun();
 
   try {
     // If proxy tools changed since last session creation, dispose and recreate.
@@ -1838,6 +1915,7 @@ async function handlePrompt(msg: Extract<InboundMessage, { type: 'prompt' }>): P
         unsubscribeEvents();
         unsubscribeEvents = null;
       }
+      llmRequestTracker.interrupt();
       piSession.dispose();
       piSession = null;
     }
@@ -1927,6 +2005,7 @@ function handlePreToolUseResponse(msg: Extract<InboundMessage, { type: 'pre_tool
 }
 
 async function handleAbort(): Promise<void> {
+  llmRequestTracker.markAborted();
   if (piSession) {
     try {
       await piSession.abort();
@@ -2324,6 +2403,7 @@ function handleShutdown(): void {
 
   // Dispose session
   if (piSession) {
+    llmRequestTracker.interrupt();
     piSession.dispose();
     piSession = null;
   }

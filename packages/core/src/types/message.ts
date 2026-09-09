@@ -2,6 +2,8 @@
  * Message types for conversations
  */
 
+import type { AgentRunMetrics, LlmRequestMetrics, MessageExecutionRef } from './execution-metrics.ts';
+
 /**
  * Message roles for display (runtime)
  */
@@ -273,6 +275,14 @@ export interface Message {
    * turn snapshots its selection; absent on messages that never drove a turn.
    */
   modelSelection?: MessageModelSelection;
+  /**
+   * Model-call statistics for the run this user message triggered. Only the
+   * message that OWNS a run carries them; re-running appends a new entry
+   * instead of overwriting the old one.
+   */
+  agentRuns?: AgentRunMetrics[];
+  /** The run (and model call) that produced this message. */
+  executionRef?: MessageExecutionRef;
   // Tool-specific fields
   toolName?: string;
   toolUseId?: string;
@@ -350,6 +360,14 @@ export interface StoredMessage {
   type: MessageRole;
   content: string;
   timestamp?: number;
+  /**
+   * Model-call statistics for the run this user message triggered. Only the
+   * message that OWNS a run carries them; re-running appends a new entry
+   * instead of overwriting the old one.
+   */
+  agentRuns?: AgentRunMetrics[];
+  /** The run (and model call) that produced this message. */
+  executionRef?: MessageExecutionRef;
   // Tool-specific fields
   toolName?: string;
   toolUseId?: string;
@@ -622,7 +640,15 @@ export type AgentEvent =
   | { type: 'shell_killed'; shellId: string; turnId?: string }
   | { type: 'usage_update'; usage: Pick<AgentEventUsage, 'inputTokens' | 'contextWindow'> }
   | { type: 'context_usage'; contextUsage: ContextUsageReading }
-  | { type: 'steer_undelivered'; message: string };
+  | { type: 'steer_undelivered'; message: string }
+  /**
+   * A model call opened. Sampled in the process that made the call, so the
+   * numbers never depend on IPC latency. `sequence` and the id arrays are
+   * placeholders here — the session owns those.
+   */
+  | { type: 'llm_request_started'; request: LlmRequestMetrics }
+  /** A model call settled. Always emitted, even when it produced no text. */
+  | { type: 'llm_request_completed'; request: LlmRequestMetrics };
 
 /**
  * Generate a unique message ID

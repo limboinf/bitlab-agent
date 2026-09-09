@@ -6,6 +6,7 @@
  */
 
 import type { Session, Message, PermissionRequest, TypedError, PermissionMode, ToolDisplayMeta, ContextUsageReading } from '../../shared/types'
+import type { AgentRunMetrics } from '@bitlab/core/types'
 import type { ThinkingLevel } from '@bitlab/shared/agent/thinking-levels'
 
 /**
@@ -438,6 +439,20 @@ export interface ContextUsageEvent {
 }
 
 /**
+ * Run metrics snapshot — the authoritative record of one execution's model-call
+ * timings. Merged by `revision`, so a late-arriving older snapshot cannot undo
+ * a newer one.
+ */
+export interface RunMetricsUpdatedEvent {
+  type: 'run_metrics_updated'
+  sessionId: string
+  ownerMessageId: string
+  /** The id this client minted for that message before the server had one. */
+  ownerOptimisticMessageId?: string
+  run: AgentRunMetrics
+}
+
+/**
  * Union of all agent events
  */
 export type AgentEvent =
@@ -476,6 +491,7 @@ export type AgentEvent =
   | MessageAnnotationsUpdatedEvent
   | UsageUpdateEvent
   | ContextUsageEvent
+  | RunMetricsUpdatedEvent
 
 /**
  * Side effects that need to be handled outside the pure processor

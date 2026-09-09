@@ -5,7 +5,7 @@
  * Converts the flat Message[] array into grouped turns for email-like display.
  */
 
-import type { Message, StoredMessage, MessageRole } from '@bitlab/core'
+import type { AgentRunMetrics, Message, StoredMessage, MessageRole } from '@bitlab/core'
 import { isParentTaskTool } from '@bitlab/shared/utils/toolNames'
 import { storedToMessage } from '@bitlab/core'
 
@@ -51,6 +51,14 @@ export interface AssistantTurn {
   timestamp: number
   /** The turn's task list, from its latest successful `todo_write` call */
   todos?: TodoItem[]
+  /**
+   * Execution metrics for the run this card belongs to.
+   *
+   * Set on every card of a run while grouping, then kept only on the run's last
+   * card: a steered run renders as several cards, and repeating one total on
+   * each of them would read as several separate turns.
+   */
+  runMetrics?: AgentRunMetrics
 }
 
 /** Represents a user message */
@@ -394,6 +402,12 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
 
   const turns: Turn[] = []
   let currentTurn: AssistantTurn | null = null
+  // The run the cards being built belong to. A user message that owns runs
+  // opens a new one; a steered message references the run already in flight, so
+  // it must not clear it; anything else (a queued message, an old transcript)
+  // leaves the following cards without metrics rather than borrowing the
+  // previous turn's.
+  let currentRunMetrics: AgentRunMetrics | undefined
 
   const flushCurrentTurn = (interrupted = false) => {
     if (currentTurn) {
@@ -454,6 +468,8 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
   for (const message of sortedMessages) {
     // User messages are their own turn
     if (message.role === 'user') {
+      if (message.agentRuns?.length) currentRunMetrics = message.agentRuns[message.agentRuns.length - 1]
+      else if (!message.executionRef) currentRunMetrics = undefined
       // If there's a current turn, it's complete (something follows it)
       if (currentTurn) currentTurn.isComplete = true
       flushCurrentTurn()
@@ -471,6 +487,7 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
         // Start a new turn for this status
         currentTurn = {
           type: 'assistant',
+          runMetrics: currentRunMetrics,
           turnId: message.id,
           activities: [],
           response: undefined,
@@ -533,6 +550,7 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
         // Edge case: plan without preceding activities
         currentTurn = {
           type: 'assistant',
+          runMetrics: currentRunMetrics,
           turnId: message.turnId || message.id,
           activities: [],
           response: undefined,
@@ -567,6 +585,7 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
         // Start a new turn
         currentTurn = {
           type: 'assistant',
+          runMetrics: currentRunMetrics,
           turnId: message.turnId || message.id,
           activities: [],
           response: undefined,
@@ -599,6 +618,7 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
           // Start a new turn for this intermediate message
           currentTurn = {
             type: 'assistant',
+            runMetrics: currentRunMetrics,
             turnId: message.turnId || message.id,
             activities: [],
             response: undefined,
@@ -645,6 +665,7 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
       if (!currentTurn) {
         currentTurn = {
           type: 'assistant',
+          runMetrics: currentRunMetrics,
           turnId: message.turnId || message.id,
           activities: [],
           response: undefined,
@@ -695,6 +716,29 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
   // Flush any remaining turn
   flushCurrentTurn()
 
+  return keepRunMetricsOnLastCard(turns)
+}
+
+/**
+ * Leave a run's metrics on the last card that shows it.
+ *
+ * A steered or interrupted run splits into several assistant cards. They share
+ * one execution, so one total time and one throughput belong to the run — shown
+ * where the run ended, not repeated on every fragment.
+ *
+ * @param turns - grouped turns, each card already carrying its run.
+ * @returns the same turns with earlier duplicates cleared.
+ */
+function keepRunMetricsOnLastCard(turns: Turn[]): Turn[] {
+  const lastIndexByRun = new Map<string, number>()
+  turns.forEach((turn, index) => {
+    if (turn.type !== 'assistant' || !turn.runMetrics) return
+    lastIndexByRun.set(turn.runMetrics.runId, index)
+  })
+  turns.forEach((turn, index) => {
+    if (turn.type !== 'assistant' || !turn.runMetrics) return
+    if (lastIndexByRun.get(turn.runMetrics.runId) !== index) turn.runMetrics = undefined
+  })
   return turns
 }
 

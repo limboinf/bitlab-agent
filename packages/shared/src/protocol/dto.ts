@@ -1,4 +1,5 @@
 import type {
+  AgentRunMetrics,
   AnnotationV1,
   ContentBadge,
   ContextUsageReading,
@@ -120,6 +121,12 @@ export type SessionEvent =
   | { type: 'usage_update'; sessionId: string; tokenUsage: { inputTokens: number; contextWindow?: number } }
   | { type: 'context_usage'; sessionId: string; contextUsage: ContextUsageReading }
   | { type: 'message_annotations_updated'; sessionId: string; messageId: string; annotations: AnnotationV1[] }
+  /**
+   * A run's execution metrics changed. One snapshot per event rather than a
+   * patch per reading: the reducer stays a plain upsert, and `revision` settles
+   * every ordering question without the client inventing one.
+   */
+  | { type: 'run_metrics_updated'; sessionId: string; ownerMessageId: string; ownerOptimisticMessageId?: string; run: AgentRunMetrics }
   | { type: 'working_directory_error'; sessionId: string; error: string };
 
 export interface SendMessageOptions {
