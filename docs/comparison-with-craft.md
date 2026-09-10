@@ -48,7 +48,7 @@ Both repositories are Bun monorepos with the same workspace layout (`apps/{elect
 | Registered `AgentBackend`s | `pi` only | `pi`, `claude-agent-sdk`, plus optional **Copilot / gateway** subscriptions |
 | Auth model | API key + custom endpoints + Ollama + **ChatGPT/Claude subscription OAuth**, all through Pi | API-key + custom + **OAuth (Anthropic, OpenAI, GitHub Copilot, Google Workspace, Slack, Microsoft)** + subscription flows + gateway |
 | Subprocess model | `packages/pi-agent-server` runs as a Bun subprocess; communicates over JSONL on stdio | Pi subprocess (same) **plus** SDK subprocess (`@anthropic-ai/claude-agent-sdk-binary`, ~217 MB native `claude` binary per platform arch) **plus** bridge/session MCP servers **plus** WhatsApp worker subprocess |
-| Built-in transports | OpenAI-compatible, Anthropic-compatible, Ollama (Pi `0.80.6`) | Same, plus Anthropic SDK direct mode and Copilot SDK mode |
+| Built-in transports | OpenAI-compatible, Anthropic-compatible, Ollama (Pi `0.85.1`) | Same, plus Anthropic SDK direct mode and Copilot SDK mode |
 | Image generation | ❌ (deleted; image attachments still supported) | ✅ (`gen_image` model + tool) |
 
 ## 4. Agent tools (what the model can actually call)

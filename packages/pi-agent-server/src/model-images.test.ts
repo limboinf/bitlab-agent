@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { getModels } from '@earendil-works/pi-ai/compat';
-import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
+import { ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { InMemoryCredentialStore } from '@earendil-works/pi-ai';
 import { stream } from '@earendil-works/pi-ai/api/openai-completions';
 import { resolvePiModel } from './model-resolution.ts';
 import { applyPiCatalogModelOverrides, getPiModelsForAuthProvider } from '../../shared/src/config/models-pi.ts';
@@ -13,7 +14,11 @@ describe('DeepSeek Flash image delivery', () => {
     'deepseek-flash',
   ]) {
     it(`preserves uploaded images in the SDK HTTP payload for ${id}`, async () => {
-      const registry = ModelRegistry.inMemory(AuthStorage.inMemory({ deepseek: { type: 'api_key', key: 'test-only' } }));
+      const credentials = new InMemoryCredentialStore();
+      await credentials.modify('deepseek', async () => ({ type: 'api_key', key: 'test-only' }));
+      const registry = new ModelRegistry(
+        await ModelRuntime.create({ credentials, refreshOnCreate: false }),
+      );
       const model = resolvePiModel(registry, id, 'deepseek')!;
       expect(await registry.getApiKeyAndHeaders(model)).toMatchObject({ ok: true, apiKey: 'test-only' });
       let payload: any;

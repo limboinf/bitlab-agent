@@ -1,7 +1,7 @@
 /**
  * Model-call timing, sampled where the call is actually made.
  *
- * The wrapper around the SDK's `streamFn` is the only place that sees the exact
+ * The wrapper around the SDK's `streamFunction` is the only place that sees the exact
  * moment a request is dispatched, so latency is measured here and travels to
  * the main process as a finished number. Nothing subtracts a monotonic clock
  * across a process boundary, and nothing infers a duration from message
@@ -132,7 +132,7 @@ export class LlmRequestTracker {
   }
 
   /**
-   * Open a call. Emitted before the SDK's own `streamFn` runs, so the reading
+   * Open a call. Emitted before the SDK's own `streamFunction` runs, so the reading
    * includes auth, header assembly and every provider-internal retry.
    *
    * @param model - the model this call is dispatched against.
@@ -232,7 +232,7 @@ export class LlmRequestTracker {
 }
 
 /**
- * Wrap a session's `streamFn` so every SDK call is timed.
+ * Wrap a session's `streamFunction` so every SDK call is timed.
  *
  * The original function keeps doing auth, headers, timeouts and provider
  * retries; the wrapper only brackets it. The returned stream object is passed

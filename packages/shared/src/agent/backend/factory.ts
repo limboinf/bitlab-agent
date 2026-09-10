@@ -105,7 +105,7 @@ export function createBackend(config: BackendConfig): AgentBackend {
   switch (config.provider) {
     case 'pi':
       // PiAgent implements AgentBackend directly
-      // Auth is API key based via Pi's AuthStorage
+      // Auth is API key based via Pi's credential store
       return new PiAgent(config);
 
     default:
