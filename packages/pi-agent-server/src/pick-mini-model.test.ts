@@ -40,11 +40,11 @@ describe('pickProviderAppropriateMiniModel', () => {
     expect(pickProviderAppropriateMiniModel('google', registry, false)).toBe('gemini-2.5-pro');
   });
 
-  it('returns the first resolvable DeepSeek preferred model', () => {
+  it('prefers the repo-supplemented current DeepSeek Flash model', () => {
     const registry = createMockRegistry({
       deepseek: [{ id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' }],
     });
-    expect(pickProviderAppropriateMiniModel('deepseek', registry, false)).toBe('deepseek-v4-flash');
+    expect(pickProviderAppropriateMiniModel('deepseek', registry, false)).toBe('deepseek-flash');
   });
 
   it('returns undefined when a known provider has no resolvable candidate', () => {

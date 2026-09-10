@@ -72,7 +72,7 @@ import { bedrockProviderModule } from '@earendil-works/pi-ai/bedrock-provider';
 setBedrockProviderModule(bedrockProviderModule);
 
 // Model resolution (extracted for testability + custom-endpoint precedence)
-import { resolvePiModel, isDeniedMiniModelId, isModelNotFoundError } from './model-resolution.ts';
+import { resolvePiModel, isDeniedMiniModelId, isModelNotFoundError, repoCatalogModelDefaults } from './model-resolution.ts';
 import { pickProviderAppropriateMiniModel } from './pick-mini-model.ts';
 import {
   buildCustomEndpointModelDef,
@@ -838,11 +838,19 @@ function resolveOrRegisterPiModel(registry: PiModelRegistry, modelId: string): R
   const bareId = stripPiPrefix(modelId);
   // What the connection saved about this model outranks the family estimate:
   // it is what the picker showed when the user chose it, and it may carry a
-  // capability the endpoint actually disclosed.
+  // capability the endpoint actually disclosed. Between the two, the repo's
+  // catalog supplements (PI_EXTRA_MODELS) outrank the family guess — without
+  // them a multimodal supplement in a text-only catalog family would be
+  // registered text-only and the SDK would drop image parts.
   const saved = initConfig?.customModels
     ?.map(normalizeCustomEndpointModelEntry)
     .find(entry => entry.id === bareId);
-  registerCustomEndpointModels(registry, endpoint.api, endpoint.baseUrl, [saved ?? { id: bareId }], endpoint.familyDefaults);
+  const entry: CustomEndpointModelEntry = {
+    ...repoCatalogModelDefaults(initConfig?.piAuth?.provider, bareId),
+    ...saved,
+    id: bareId,
+  };
+  registerCustomEndpointModels(registry, endpoint.api, endpoint.baseUrl, [entry], endpoint.familyDefaults);
   const registered = registry.find('custom-endpoint', bareId) ?? undefined;
   const shape = registered as { contextWindow?: number; maxTokens?: number; reasoning?: boolean } | undefined;
   debugLog(

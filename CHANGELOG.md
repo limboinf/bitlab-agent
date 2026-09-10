@@ -13,8 +13,16 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.11.1] - 2026-09-10
+
 ### Fixed
 
+- **DeepSeek V4.1 Flash can now see uploaded images directly.** The bundled
+  model catalog still described the legacy Flash IDs as text-only, so images
+  were removed before the request reached DeepSeek and the agent tried OCR or
+  another model instead. Both the current `deepseek-flash` ID and the supported
+  legacy Flash aliases now keep image content through model selection and the
+  final API request.
 - **Preview and private models now stay attached to the provider you selected.**
   Adding a model that is newer than Bitlab's bundled catalog no longer turns a
   DeepSeek or other named connection into Custom. Older affected connections
@@ -507,6 +515,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.11.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.11.1
 [0.11.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.11.0
 [0.10.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.10.0
 [0.9.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.9.1

@@ -31,4 +31,14 @@ describe('models-pi filtering', () => {
     expect(ids).toContain('pi/deepseek-v4-flash');
     expect(ids).toContain('pi/deepseek-v4-pro');
   });
+
+  it('supplements the catalog with repo-owned DeepSeek V4.1 Flash', () => {
+    const models = getPiModelsForAuthProvider('deepseek');
+    const flash = models.find(m => m.id === 'pi/deepseek-flash');
+    expect(flash).toBeDefined();
+    expect(flash?.name).toBe('DeepSeek V4.1 Flash');
+    expect(flash?.contextWindow).toBe(1000000);
+    expect(flash?.supportsThinking).toBe(true);
+    expect(flash?.supportsImages).toBe(true);
+  });
 });

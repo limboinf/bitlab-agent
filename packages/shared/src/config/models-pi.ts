@@ -36,6 +36,9 @@ function piModelToDefinition(m: Model<Api>): ModelDefinition {
     provider: 'pi',
     contextWindow: m.contextWindow,
     supportsThinking: m.reasoning,
+    // Kept so connection metadata records image capability — the runtime
+    // prefers it over family inference when registering unknown models.
+    ...(m.input?.includes('image') ? { supportsImages: true } : {}),
   };
 }
 
@@ -94,25 +97,106 @@ function isBareBedrockClaudeModel(modelId: string): boolean {
   return modelId.startsWith('anthropic.claude-');
 }
 
+// ============================================
+// PI CATALOG SUPPLEMENTS
+// ============================================
+
+/**
+ * Repo-owned additions to the bundled Pi SDK catalog.
+ *
+ * The SDK catalog only refreshes when the dependency is upgraded, so models
+ * released in the meantime never reach the static model lists even though the
+ * endpoint already serves them (the pi-agent-server registers unknown ids
+ * synthetically at request time). Entries mirror the generated catalog shape
+ * and are merged into every catalog read; an entry drops out automatically
+ * once an SDK upgrade ships the same id.
+ */
+const DEEPSEEK_V41_FLASH: Model<Api> = {
+  // DeepSeek V4.1 Flash (2026-09-10): native multimodal successor —
+  // deepseek-v4-flash / -vision-exp already route here, v4-pro follows on
+  // 2026-09-14. Cost is the off-peak CNY rate (1 input / 4 output / 0.02
+  // cache-read per Mtok) in USD at the catalog's usual ~7.1 rate; peak doubles.
+  id: 'deepseek-flash',
+  name: 'DeepSeek V4.1 Flash',
+  api: 'openai-completions',
+  provider: 'deepseek',
+  baseUrl: 'https://api.deepseek.com',
+  compat: {
+    supportsStore: false,
+    supportsDeveloperRole: false,
+    requiresReasoningContentOnAssistantMessages: true,
+    thinkingFormat: 'deepseek',
+  },
+  reasoning: true,
+  thinkingLevelMap: { minimal: null, low: null, medium: null, high: 'high', max: 'max' },
+  input: ['text', 'image'],
+  cost: { input: 0.14, output: 0.56, cacheRead: 0.0028, cacheWrite: 0 },
+  contextWindow: 1000000,
+  maxTokens: 384000,
+};
+
+const PI_EXTRA_MODELS: Model<Api>[] = [
+  DEEPSEEK_V41_FLASH,
+  {
+    ...DEEPSEEK_V41_FLASH,
+    id: 'deepseek-v4-flash-vision-exp',
+    name: 'DeepSeek V4 Flash Vision (legacy alias)',
+  },
+];
+
+/** Return only an explicit repo supplement, never an SDK catalog entry. */
+export function getPiCatalogSupplementModel(
+  piAuthProvider: string,
+  modelId: string,
+): Model<Api> | undefined {
+  return PI_EXTRA_MODELS.find(model =>
+    model.provider === piAuthProvider
+    && model.id === modelId
+    && !isExcludedPiModel(model.id));
+}
+
+/** Official Flash aliases changed backend on 2026-09-10. Do not apply this
+ * to Pro (not migrated yet), or to identically named third-party models.
+ * Preserve routing, auth, compat and any unrelated registry overrides. */
+export function applyPiCatalogModelOverrides<T extends Model<Api>>(model: T): T {
+  if (model.provider !== 'deepseek' || ![
+    'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp',
+  ].includes(model.id) || model.input.includes('image')) return model;
+  return { ...model, input: [...model.input, 'image'] };
+}
+
+/**
+ * Read the Pi SDK catalog for a provider, merged with repo-owned additions.
+ * Unknown providers yield an empty list, never a throw.
+ */
+export function getPiCatalogModels(piAuthProvider: string): Model<Api>[] {
+  let models: Model<Api>[] = [];
+  try {
+    models = getModels(piAuthProvider as KnownProvider);
+  } catch {
+    // Provider not recognized by SDK — extras may still apply below
+  }
+  const known = new Set(models.map(m => m.id));
+  return [
+    ...models.map(applyPiCatalogModelOverrides),
+    ...PI_EXTRA_MODELS.filter(m =>
+      m.provider === piAuthProvider
+      && !known.has(m.id)
+      && !isExcludedPiModel(m.id)),
+  ];
+}
+
 /**
  * Get Pi models for a specific auth provider directly from the Pi SDK.
  */
 export function getPiModelsForAuthProvider(piAuthProvider: string): ModelDefinition[] {
-  try {
-    const models = getModels(piAuthProvider as KnownProvider);
-    if (models.length > 0) {
-      return models
-        .filter(m => !isExcludedPiModel(m.id))
-        // Bedrock: exclude bare Claude models without region prefix — they're
-        // always rejected by Bedrock which requires inference profiles (us.*/eu.*/global.*).
-        // Regional variants from the same catalog are kept.
-        .filter(m => piAuthProvider !== 'amazon-bedrock' || !isBareBedrockClaudeModel(m.id))
-        .map(piModelToDefinition);
-    }
-  } catch {
-    // Provider not recognized by SDK — fall through
-  }
-  return [];
+  return getPiCatalogModels(piAuthProvider)
+    .filter(m => !isExcludedPiModel(m.id))
+    // Bedrock: exclude bare Claude models without region prefix — they're
+    // always rejected by Bedrock which requires inference profiles (us.*/eu.*/global.*).
+    // Regional variants from the same catalog are kept.
+    .filter(m => piAuthProvider !== 'amazon-bedrock' || !isBareBedrockClaudeModel(m.id))
+    .map(piModelToDefinition);
 }
 
 /**
@@ -121,15 +205,9 @@ export function getPiModelsForAuthProvider(piAuthProvider: string): ModelDefinit
 export function getAllPiModels(): ModelDefinition[] {
   const allModels: ModelDefinition[] = [];
   for (const provider of getProviders()) {
-    try {
-      const models = getModels(provider);
-      allModels.push(...models
-        .filter(m => !isExcludedPiModel(m.id))
-        .map(piModelToDefinition)
-      );
-    } catch {
-      // Skip providers that fail
-    }
+    allModels.push(...getPiCatalogModels(provider)
+      .filter(m => !isExcludedPiModel(m.id))
+      .map(piModelToDefinition));
   }
   return allModels;
 }

@@ -1,4 +1,6 @@
 import type { ModelRegistry as PiModelRegistry } from '@earendil-works/pi-coding-agent';
+import { applyPiCatalogModelOverrides, getPiCatalogSupplementModel } from '../../shared/src/config/models-pi.ts';
+import type { CustomEndpointModelEntry } from './custom-endpoint-models.ts';
 
 // Re-export from shared so the auth-aware mini-model denylist has a single
 // source of truth (also used by `getMiniModel()` at selection time).
@@ -43,8 +45,12 @@ export function resolvePiModel(
       if (piAuthProvider === 'minimax-cn' && exact.id.startsWith('MiniMax-')) {
         return { ...exact, id: exact.id.slice('MiniMax-'.length) };
       }
-      return exact;
+      return applyPiCatalogModelOverrides(exact);
     }
+    // Repo supplements are complete provider models, not synthetic endpoints.
+    // Keep their compat/thinking map/output cap and provider authentication.
+    const supplemented = getPiCatalogSupplementModel(piAuthProvider, bareId);
+    if (supplemented) return supplemented;
   }
 
   // Fallback: search all available models.
@@ -57,7 +63,7 @@ export function resolvePiModel(
     (m.id === bareId || m.name === bareId) &&
     (!piAuthProvider || (m as any).provider === piAuthProvider || (m as any).provider === 'custom-endpoint'),
   );
-  if (match) return match;
+  if (match) return applyPiCatalogModelOverrides(match);
 
   // Try common providers with the model ID
   const providers = ['custom-endpoint', 'anthropic', 'openai', 'google'];
@@ -65,10 +71,39 @@ export function resolvePiModel(
     // Skip providers incompatible with the authenticated provider
     if (piAuthProvider && provider !== piAuthProvider && provider !== 'custom-endpoint') continue;
     const model = modelRegistry.find(provider, bareId);
-    if (model) return model;
+    if (model) return applyPiCatalogModelOverrides(model);
   }
 
   return undefined;
+}
+
+/**
+ * Capabilities the repo-owned catalog knows for a model the bundled Pi SDK
+ * catalog doesn't have (see PI_EXTRA_MODELS in shared models-pi.ts).
+ *
+ * Synthetic registration otherwise infers from the provider's registry
+ * siblings — for deepseek-flash that means two text-only entries voting the
+ * whole family text-only, and the SDK then drops image parts with
+ * "(image omitted: model does not support images)". A hand-maintained
+ * supplement entry outranks that guess; anything the connection itself
+ * saved still outranks the supplement (see resolveOrRegisterPiModel).
+ */
+export function repoCatalogModelDefaults(
+  piAuthProvider: string | undefined,
+  bareId: string,
+): Partial<CustomEndpointModelEntry> {
+  if (!piAuthProvider) return {};
+  try {
+    const model = getPiCatalogSupplementModel(piAuthProvider, bareId);
+    if (!model) return {};
+    return {
+      contextWindow: model.contextWindow,
+      supportsImages: model.input?.includes('image'),
+      supportsThinking: model.reasoning,
+    };
+  } catch {
+    return {};
+  }
 }
 
 /**

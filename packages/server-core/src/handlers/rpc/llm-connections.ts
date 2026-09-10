@@ -10,6 +10,7 @@ import {
   getLlmConnection,
   getLlmConnections,
   getPiApiKeyProviders,
+  getPiCatalogModels,
   getPiProviderBaseUrl,
   isCompatProvider,
   parseValidationError,
@@ -216,9 +217,12 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
      *  listing probe when the form holds none (the pre-filled one is masked). */
     connectionSlug?: string
   }) => {
-    const { getModels } = await import('@earendil-works/pi-ai/compat')
     try {
-      const models = getModels(provider as Parameters<typeof getModels>[0])
+      // Bundled SDK catalog merged with repo-owned supplements (see
+      // PI_EXTRA_MODELS), so models released after the last SDK upgrade are
+      // still listed with accurate capabilities instead of waiting for the
+      // live listing probe below.
+      const models = getPiCatalogModels(provider)
       const summaries = [...models]
         .sort((a, b) => b.cost.output - a.cost.output || b.cost.input - a.cost.input)
         .map(model => ({

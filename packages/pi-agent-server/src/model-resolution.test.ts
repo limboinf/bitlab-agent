@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { resolvePiModel, isDeniedMiniModelId, isModelNotFoundError } from './model-resolution.ts';
+import { resolvePiModel, isDeniedMiniModelId, isModelNotFoundError, repoCatalogModelDefaults } from './model-resolution.ts';
 
 /**
  * Minimal mock of PiModelRegistry.
@@ -257,5 +257,22 @@ describe('isModelNotFoundError', () => {
     expect(isModelNotFoundError('rate limit exceeded')).toBe(false);
     expect(isModelNotFoundError('invalid api key')).toBe(false);
     expect(isModelNotFoundError('')).toBe(false);
+  });
+});
+
+describe('repoCatalogModelDefaults', () => {
+  it('surfaces the DeepSeek V4.1 Flash supplement for synthetic registration', () => {
+    const defaults = repoCatalogModelDefaults('deepseek', 'deepseek-flash');
+    expect(defaults.supportsImages).toBe(true);
+    expect(defaults.supportsThinking).toBe(true);
+    expect(defaults.contextWindow).toBe(1000000);
+  });
+
+  it('returns nothing for ids neither the catalog nor supplements know', () => {
+    expect(repoCatalogModelDefaults('deepseek', 'some-hand-typed-id')).toEqual({});
+  });
+
+  it('returns nothing without an auth provider', () => {
+    expect(repoCatalogModelDefaults(undefined, 'deepseek-flash')).toEqual({});
   });
 });

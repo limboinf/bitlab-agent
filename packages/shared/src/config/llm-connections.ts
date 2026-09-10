@@ -232,7 +232,7 @@ export const PI_PREFERRED_DEFAULTS: Record<string, string[]> = {
   'openai-codex': ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.2', 'gpt-5.1'],
   openai: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.2', 'gpt-5.1'],
   google: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview'],
-  deepseek: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+  deepseek: ['deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4-flash'],
 };
 
 export function getDefaultModelsForConnection(

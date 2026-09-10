@@ -312,6 +312,23 @@ async function waitForFileStable(filePath: string, timeoutMs = 10000): Promise<b
   return false;
 }
 
+// Signal completion of a watch context's first build. `context.watch()` does
+// not wait for the initial build's output to reach the disk, so anything that
+// loads the outfile (Electron reading the 34MB main.cjs) can race the write
+// and die on a truncated file. onEnd also fires on rebuilds, but the promise
+// settles only once.
+function firstBuildSignal(): { plugin: esbuild.Plugin; done: Promise<esbuild.BuildResult> } {
+  let settle!: (result: esbuild.BuildResult) => void;
+  const done = new Promise<esbuild.BuildResult>((resolve) => { settle = resolve; });
+  const plugin: esbuild.Plugin = {
+    name: "first-build-signal",
+    setup(build) {
+      build.onEnd((result) => settle(result));
+    },
+  };
+  return { plugin, done };
+}
+
 async function main(): Promise<void> {
   console.log("🚀 Starting Electron dev environment...\n");
 
@@ -345,38 +362,89 @@ async function main(): Promise<void> {
   await killProcessOnPort(vitePort);
 
   // =========================================================
-  // PHASE 1: Initial build (one-shot, wait for completion)
+  // PHASE 1: Prepare outputs (watch contexts build them next)
   // =========================================================
-  console.log("🔨 Building main process...");
-
   const mainCjsPath = join(DIST_DIR, "main.cjs");
   const preloadCjsPath = join(DIST_DIR, "bootstrap-preload.cjs");
 
-  // Remove old build files to ensure fresh build
+  // Remove old build files. The watch contexts' initial build is the single
+  // write of each artifact — a separate one-shot build here would only be
+  // immediately rewritten by the watchers, and Electron could race that
+  // rewrite and load a half-written main.cjs ("Unexpected end of input").
+  // Deleting also ensures a failed initial build can't pass verification
+  // against a stale artifact.
   if (existsSync(mainCjsPath)) rmSync(mainCjsPath);
   if (existsSync(preloadCjsPath)) rmSync(preloadCjsPath);
 
-  // Build main and preload entries in parallel
-  const [mainResult, preloadResult] = await Promise.all([
-    runEsbuild(
-      "apps/electron/src/main/index.ts",
-      "apps/electron/dist/main.cjs",
-      buildDefines,
-    ),
-    runEsbuild(
-      "apps/electron/src/preload/bootstrap.ts",
-      "apps/electron/dist/bootstrap-preload.cjs"
-    ),
-  ]);
+  // =========================================================
+  // PHASE 2: Start dev servers with watch mode
+  // =========================================================
+  console.log("📡 Starting dev servers...\n");
 
-  if (!mainResult.success) {
-    console.error("❌ Main process build failed:", mainResult.error);
-    process.exit(1);
-  }
+  const processes: Subprocess[] = [];
+  const esbuildContexts: esbuild.BuildContext[] = [];
 
-  if (!preloadResult.success) {
-    console.error("❌ Preload build failed:", preloadResult.error);
-    process.exit(1);
+  // 1. Vite dev server (strictPort ensures we don't silently switch ports)
+  const viteProc = spawn({
+    cmd: [VITE_BIN, "dev", "--config", "apps/electron/vite.config.ts", "--port", vitePort, "--strictPort"],
+    cwd: ROOT_DIR,
+    stdin: "ignore",
+    stdout: "inherit",
+    stderr: "inherit",
+    env: process.env as Record<string, string>,
+  });
+  processes.push(viteProc);
+
+  // 2. Main process watcher (using esbuild watch API). Its initial build IS
+  // the dev build — firstBuildSignal lets us wait for the output to be on
+  // disk before Electron loads it.
+  const mainFirst = firstBuildSignal();
+  const mainContext = await esbuild.context({
+    entryPoints: [join(ROOT_DIR, "apps/electron/src/main/index.ts")],
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    outfile: join(ROOT_DIR, "apps/electron/dist/main.cjs"),
+    external: MAIN_BUNDLE_EXTERNALS,
+    define: buildDefines,
+    logLevel: "info",
+    plugins: [mainFirst.plugin],
+  });
+  await mainContext.watch();
+  esbuildContexts.push(mainContext);
+  console.log("👀 Watching main process...");
+
+  // 3. Preload watcher (using esbuild watch API)
+  const preloadFirst = firstBuildSignal();
+  const preloadContext = await esbuild.context({
+    entryPoints: [join(ROOT_DIR, "apps/electron/src/preload/bootstrap.ts")],
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    outfile: join(ROOT_DIR, "apps/electron/dist/bootstrap-preload.cjs"),
+    external: ["electron"],
+    logLevel: "info",
+    plugins: [preloadFirst.plugin],
+  });
+  await preloadContext.watch();
+  esbuildContexts.push(preloadContext);
+  console.log("👀 Watching preload...");
+
+  // 4. Wait for the watchers' initial builds to complete, then verify the
+  // artifacts before Electron loads them
+  console.log("⏳ Waiting for initial watch builds...");
+  const [mainFirstResult, preloadFirstResult] = await Promise.all([mainFirst.done, preloadFirst.done]);
+
+  const initialBuilds: Array<[string, esbuild.BuildResult]> = [
+    ["Main process", mainFirstResult],
+    ["Preload", preloadFirstResult],
+  ];
+  for (const [label, result] of initialBuilds) {
+    if (result.errors.length > 0) {
+      const formatted = await esbuild.formatMessages(result.errors, { kind: "error" });
+      console.error(`❌ ${label} build failed:\n${formatted.join("")}`);
+      process.exit(1);
+    }
   }
 
   // Wait for files to stabilize (filesystem flush)
@@ -410,55 +478,7 @@ async function main(): Promise<void> {
 
   console.log("✅ Initial build complete and verified\n");
 
-  // =========================================================
-  // PHASE 2: Start dev servers with watch mode
-  // =========================================================
-  console.log("📡 Starting dev servers...\n");
-
-  const processes: Subprocess[] = [];
-  const esbuildContexts: esbuild.BuildContext[] = [];
-
-  // 1. Vite dev server (strictPort ensures we don't silently switch ports)
-  const viteProc = spawn({
-    cmd: [VITE_BIN, "dev", "--config", "apps/electron/vite.config.ts", "--port", vitePort, "--strictPort"],
-    cwd: ROOT_DIR,
-    stdin: "ignore",
-    stdout: "inherit",
-    stderr: "inherit",
-    env: process.env as Record<string, string>,
-  });
-  processes.push(viteProc);
-
-  // 2. Main process watcher (using esbuild watch API)
-  const mainContext = await esbuild.context({
-    entryPoints: [join(ROOT_DIR, "apps/electron/src/main/index.ts")],
-    bundle: true,
-    platform: "node",
-    format: "cjs",
-    outfile: join(ROOT_DIR, "apps/electron/dist/main.cjs"),
-    external: MAIN_BUNDLE_EXTERNALS,
-    define: buildDefines,
-    logLevel: "info",
-  });
-  await mainContext.watch();
-  esbuildContexts.push(mainContext);
-  console.log("👀 Watching main process...");
-
-  // 3. Preload watcher (using esbuild watch API)
-  const preloadContext = await esbuild.context({
-    entryPoints: [join(ROOT_DIR, "apps/electron/src/preload/bootstrap.ts")],
-    bundle: true,
-    platform: "node",
-    format: "cjs",
-    outfile: join(ROOT_DIR, "apps/electron/dist/bootstrap-preload.cjs"),
-    external: ["electron"],
-    logLevel: "info",
-  });
-  await preloadContext.watch();
-  esbuildContexts.push(preloadContext);
-  console.log("👀 Watching preload...");
-
-  // 4. Start Electron (build already verified)
+  // 5. Start Electron (build already verified)
   console.log("🚀 Starting Electron...\n");
 
   const electronProc = spawn({
