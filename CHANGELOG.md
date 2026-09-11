@@ -11,6 +11,10 @@ for reviewers.
 
 ## [Unreleased]
 
+Add user-visible changes here before running `bun run release:prepare <version>`.
+
+## [0.12.0] - 2026-09-11
+
 ### Added
 
 - **Claude Opus 5, GPT-6 Astra, GPT-5.6, GLM-5.3, DeepSeek V4 Pro and about
@@ -538,6 +542,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.12.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.12.0
 [0.11.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.11.1
 [0.11.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.11.0
 [0.10.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.10.0
