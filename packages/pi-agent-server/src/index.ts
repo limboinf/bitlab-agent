@@ -74,6 +74,14 @@ import { setBedrockProviderModule } from '@earendil-works/pi-ai/api/bedrock-conv
 import { bedrockProviderModule } from '@earendil-works/pi-ai/bedrock-provider';
 setBedrockProviderModule(bedrockProviderModule);
 
+// Same problem, different door: the OAuth flows (ChatGPT/Codex sign-in and
+// token refresh) are loaded through a variable-specifier `import()` that
+// bundlers deliberately cannot follow. Register the statically bundled flows
+// up front, or every OAuth request dies with "Cannot find module
+// './openai-codex.js'" once bun has collapsed the SDK into this file.
+import { registerBunOAuthFlows } from '@earendil-works/pi-ai/bun-oauth';
+registerBunOAuthFlows();
+
 // Model resolution (extracted for testability + custom-endpoint precedence)
 import { resolvePiModel, isDeniedMiniModelId, isModelNotFoundError, repoCatalogModelDefaults } from './model-resolution.ts';
 import { pickProviderAppropriateMiniModel } from './pick-mini-model.ts';
