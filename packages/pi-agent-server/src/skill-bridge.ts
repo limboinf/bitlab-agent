@@ -47,6 +47,11 @@ export interface PiSkillBridgeOptions {
   debugLog?: (message: string) => void;
 }
 
+/** The tools Pi will suggest for opening a SKILL.md, in its own preference
+ *  order. Mirrors `skillFileReadTool` in pi-coding-agent's system-prompt
+ *  builder: with none of these active the catalog is omitted entirely. */
+const SKILL_FILE_READ_TOOLS = ['read', 'bash'] as const;
+
 /** Pi's own notion of scope. The workspace tier is a Bitlab concept with no
  *  equivalent, so it presents as user-scoped — which is what it is from Pi's
  *  point of view: not part of the project checkout. */
@@ -134,17 +139,18 @@ export class PiSkillBridge {
   }
 
   /**
-   * Pi appends the catalog only when the `read` tool is active — without it the
-   * entire `<available_skills>` block vanishes from the prompt and the model
-   * simply never learns any skill exists. Nothing surfaces that failure at
-   * runtime, so assert it at wiring time instead of shipping a promptless
-   * catalog (§5.2, acceptance test 8).
+   * Pi appends the catalog only when the model has a way to open a SKILL.md —
+   * `read`, or `bash` as the fallback. With neither, the entire
+   * `<available_skills>` block vanishes from the prompt and the model simply
+   * never learns any skill exists. Nothing surfaces that failure at runtime, so
+   * assert it at wiring time instead of shipping a promptless catalog
+   * (§5.2, acceptance test 8).
    */
   assertCatalogVisible(activeToolNames: string[]): void {
-    if (activeToolNames.includes('read')) return;
+    if (SKILL_FILE_READ_TOOLS.some((tool) => activeToolNames.includes(tool))) return;
     throw new Error(
-      'Skill catalog would be dropped from the system prompt: Pi only appends <available_skills> when the `read` tool is active, ' +
-        `but the active tool set is [${activeToolNames.join(', ')}].`
+      'Skill catalog would be dropped from the system prompt: Pi only appends <available_skills> when one of ' +
+        `[${SKILL_FILE_READ_TOOLS.join(', ')}] is active, but the active tool set is [${activeToolNames.join(', ')}].`
     );
   }
 }

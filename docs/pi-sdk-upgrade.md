@@ -105,6 +105,19 @@ includes runtime-only providers such as `radius`, which `getModels()` does not a
 [models-pi.ts:178](../packages/shared/src/config/models-pi.ts) now narrows to
 `BuiltinProvider`, imported from `@earendil-works/pi-ai/compat`.
 
+### The skill-catalog gate widened to `read` *or* `bash`
+
+`pi-coding-agent`'s system-prompt builder used to append `<available_skills>` only
+when the `read` tool was active. In `0.85.1` it resolves
+`["read", "bash"].find(t => tools.includes(t))` and emits the catalog with
+bash-flavoured wording when `read` is absent. `PiSkillBridge.assertCatalogVisible()`
+mirrored the old `read`-only rule and now over-reported, so it was widened to match
+— see [skill-bridge.ts](../packages/pi-agent-server/src/skill-bridge.ts).
+
+This is an upstream improvement, not a break. It has no effect on Bitlab in
+practice: the built-in tool set always includes `read`, and `selectedTools` has no
+production caller that withholds it.
+
 ## What did not break
 
 Verified against `0.85.1`, despite the release notes:
@@ -149,11 +162,18 @@ discover. **This checklist has not been run yet.**
 
 Two third-party pins were left alone. Recorded as facts, not decisions.
 
-**`pi-mcp-adapter`** is pinned `^2.25.0`. Every published version up to `2.32.1`
-declares `peerDependencies: { "@earendil-works/pi-ai": "^0.84.1" }`, which excludes
-`0.85.x`. Bun treats it as an optional peer, so the install succeeds and nothing
-warns — but no adapter version formally claims `0.85` support. Upstream:
+**`pi-mcp-adapter`** stays pinned `^2.25.0`. Its `peerDependencies` declare
+`"@earendil-works/pi-ai": "^0.84.1"`, which formally excludes `0.85.x` — but that
+range is **stale metadata, not a real incompatibility**, and it was verified
+empirically rather than assumed (see Verification status). `2.32.1` declares the
+identical range, so bumping buys nothing. The adapter's only runtime import from
+pi-ai is `complete` from `pi-ai/compat`, which `0.85.1` still exports; everything
+else it takes from pi-ai is type-only. Upstream:
 <https://github.com/nicobailon/pi-mcp-adapter>
+
+Three MCP paths were *not* exercised and remain unproven: **sampling** (the one
+file with a real pi-ai value dependency), **HTTP transport + OAuth**
+(`mcp_auth` / `mcp_logout`), and the **approval handshake**.
 
 **`@tintinweb/pi-subagents`** is pinned `0.17.1`. Its peer range is `>=0.80.0`, so
 `0.85.1` is formally satisfied and the pin can stay. `0.19.0` declares `>=0.84.0`,
@@ -172,6 +192,16 @@ left out of this upgrade.
 
 - `bun run validate:dev` passes — typecheck across all 9 packages, 52 shared tests,
   19 doc-tool tests.
+- `bun run test` passes: **3784 pass / 11 skip / 0 fail** across 331 files, plus
+  all 11 isolated/serial files green individually. One genuine upgrade regression
+  surfaced and was fixed — the skill-catalog gate above.
+- **Pi session integration** (`pi-conversation-flow.integration.test.ts`) passes
+  against the local SSE fixture: two completions, `tool_start` / `tool_result`
+  emitted, `text_complete` before `complete`, per-request timing ordered after the
+  answer, no SDK-internal payload leakage. This is the real-subprocess regression
+  signal and it is clean.
+- `bun run lint` — 0 errors (50 pre-existing warnings, none from this change).
+  i18n parity / usage / sorted all OK.
 - `bun run build` in `packages/pi-agent-server` succeeds.
 - Subprocess smoke run against the bundled server: `init` with an injected
   `api_key` credential, then `ensure_session_ready`. The server emits `ready`,
@@ -179,5 +209,28 @@ left out of this upgrade.
   provider=anthropic`), and creates a session with 9 tools and the sub-agent
   extension installed — so the rewritten credential chain works at runtime, not
   just at the type level.
-- The manual checklist above has **not** been run. It covers the OAuth paths the
-  smoke run does not reach.
+- **MCP proven end to end on `0.85.1`** against a real stdio MCP server: the
+  adapter installs, `mcp_status` reports `connected` with `toolCount: 2`, the
+  `initialize` / `tools/list` handshake round-trips, and a `tools/call` returns a
+  live result. Both the `mcp` proxy tool and the prefixed direct tools register.
+- **WebUI end to end.** Server on `:9100` with an isolated `BITLAB_CONFIG_DIR`,
+  Vite on `:5175`. The app connects, renders the workspace/session shell, the
+  settings and connector pages load, and a seeded connection is correctly reported
+  as unauthenticated. The model catalog carries through the whole chain: the
+  default-model picker lists `Claude Opus 5` ("anthropic model via Pi"), selecting
+  it persists `defaultModel: "pi/claude-opus-5"` and 13 synced models into
+  `config.json`. `claude-opus-5` does **not** exist in the `0.80.6` catalog — this
+  is the upgrade's user-visible payoff, confirmed in the UI rather than inferred.
+- The manual checklist above has **not** been run. It covers the OAuth
+  subscription paths that none of the above reach.
+
+## Follow-up candidate (not part of this upgrade)
+
+`PI_EXTRA_MODELS` in [models-pi.ts](../packages/shared/src/config/models-pi.ts)
+carries a `deepseek-v4-flash-vision-exp` alias whose stated exit condition is
+"once an SDK upgrade ships the same id". `0.85.1` ships it, with `input`
+already `["text", "image"]`, so `getPiCatalogModels()`'s `!known.has(m.id)` filter
+now skips the alias entirely — it is dead code. The sibling `deepseek-flash`
+(V4.1 Flash) entry is **still required**; the SDK catalog does not carry that id.
+Left alone deliberately: it touches vision-model routing and is unrelated to the
+SDK bump.

@@ -153,9 +153,9 @@ describe('acceptance 3: identical catalog with MCP on and off', () => {
   });
 });
 
-describe('acceptance 8: the read-tool gate', () => {
-  it('fails loudly when `read` is absent', () => {
-    expect(() => makeBridge().assertCatalogVisible(['bash', 'edit'])).toThrow(
+describe('acceptance 8: the skill-file-read-tool gate', () => {
+  it('fails loudly when neither `read` nor `bash` is active', () => {
+    expect(() => makeBridge().assertCatalogVisible(['edit', 'grep'])).toThrow(
       /Skill catalog would be dropped/
     );
   });
@@ -164,7 +164,27 @@ describe('acceptance 8: the read-tool gate', () => {
     expect(() => makeBridge().assertCatalogVisible(['read', 'bash'])).not.toThrow();
   });
 
-  it('is guarding something real: Pi drops the catalog silently without `read`', async () => {
+  it('passes when only `bash` is active — Pi falls back to it', () => {
+    expect(() => makeBridge().assertCatalogVisible(['bash', 'edit'])).not.toThrow();
+  });
+
+  it('is guarding something real: Pi drops the catalog silently with neither tool', async () => {
+    writeSkill(join(workspaceRoot, 'skills'), 'alpha', 'workspace alpha');
+    const loader = await makeLoader(makeBridge());
+
+    const prompt = buildSystemPrompt({
+      customPrompt: loader.getSystemPrompt(),
+      selectedTools: ['edit'],
+      cwd: projectRoot,
+      skills: loader.getSkills().skills,
+    });
+
+    // No error, no warning — the block simply is not there.
+    expect(prompt).not.toContain('<available_skills>');
+    expect(prompt).toContain(BASE_PROMPT);
+  });
+
+  it('keeps the catalog when only `bash` is active', async () => {
     writeSkill(join(workspaceRoot, 'skills'), 'alpha', 'workspace alpha');
     const loader = await makeLoader(makeBridge());
 
@@ -175,9 +195,8 @@ describe('acceptance 8: the read-tool gate', () => {
       skills: loader.getSkills().skills,
     });
 
-    // No error, no warning — the block simply is not there.
-    expect(prompt).not.toContain('<available_skills>');
-    expect(prompt).toContain(BASE_PROMPT);
+    expect(prompt).toContain('<available_skills>');
+    expect(prompt).toContain('workspace alpha');
   });
 });
 
