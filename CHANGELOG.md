@@ -11,7 +11,30 @@ for reviewers.
 
 ## [Unreleased]
 
-Add user-visible changes here before running `bun run release:prepare <version>`.
+### Added
+
+- **Claude Opus 5, GPT-6 Astra, GPT-5.6, GLM-5.3, DeepSeek V4 Pro and about
+  300 other models are now selectable.** The bundled Pi SDK moved from 0.80.6
+  to 0.85.1, which brings its model catalog up to date (1057 → 1354 entries)
+  and adds four providers, including Baseten and the Qwen token plans. Models
+  appear under the connection you already have; no reconfiguration needed.
+
+### Fixed
+
+- **ChatGPT Plus sign-in and token refresh work again in packaged builds.**
+  Every request through a ChatGPT subscription could fail with
+  `Cannot find module './openai-codex.js'` because the SDK's OAuth flows are
+  loaded lazily and the packaged agent could not find them. They are now
+  registered up front.
+
+### Changed
+
+- The agent's credential layer now runs on the Pi SDK's `ModelRuntime` API.
+  Subscription tokens refreshed by the SDK are still mirrored back to the
+  desktop app, so sessions keep working past token expiry without a new
+  sign-in.
+- Documentation no longer advertises a Claude Pro/Max subscription flow. That
+  option was never implemented; ChatGPT Plus is the only subscription sign-in.
 
 ## [0.11.1] - 2026-09-10
 
