@@ -14,7 +14,10 @@
  */
 
 import { getProviders, getModels } from '@earendil-works/pi-ai/compat';
-import type { KnownProvider, Model, Api } from '@earendil-works/pi-ai';
+// `BuiltinProvider` is the catalog's own provider union — narrower than the
+// package-root `KnownProvider`, which also covers runtime-only providers.
+import type { BuiltinProvider } from '@earendil-works/pi-ai/compat';
+import type { Model, Api } from '@earendil-works/pi-ai';
 import type { ModelDefinition } from './models.ts';
 
 // ============================================
@@ -172,7 +175,7 @@ export function applyPiCatalogModelOverrides<T extends Model<Api>>(model: T): T 
 export function getPiCatalogModels(piAuthProvider: string): Model<Api>[] {
   let models: Model<Api>[] = [];
   try {
-    models = getModels(piAuthProvider as KnownProvider);
+    models = getModels(piAuthProvider as BuiltinProvider);
   } catch {
     // Provider not recognized by SDK — extras may still apply below
   }

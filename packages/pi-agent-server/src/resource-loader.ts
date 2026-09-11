@@ -122,8 +122,17 @@ export class BitlabResourceLoader implements ResourceLoader {
     return this.skillSeams.systemPromptOverride(this.delegate.getSystemPrompt());
   }
 
+  /** Source path of the delegate-discovered prompt file, for diagnostics only. */
+  getSystemPromptSource(): { path: string } | undefined {
+    return this.delegate.getSystemPromptSource();
+  }
+
   getAppendSystemPrompt(): string[] {
     return this.delegate.getAppendSystemPrompt();
+  }
+
+  getAppendSystemPromptSources(): Array<{ path: string }> {
+    return this.delegate.getAppendSystemPromptSources();
   }
 
   extendResources(paths: ExtendResourcesPaths): void {

@@ -1,6 +1,6 @@
 # Bitlab documentation (English)
 
-Bitlab is a cross-platform, local-first AI agent workspace derived from [Craft Agents OSS](https://github.com/craft-ai-agents/craft-agents-oss) `v0.11.2`. The current runtime is Pi-only: `@earendil-works/pi-coding-agent` runs in a dedicated Bun subprocess and serves the Electron app, WebUI, CLI, and headless server through one RPC contract. Bitlab supports API-key connections, custom OpenAI/Anthropic-compatible endpoints, Ollama, and the retained ChatGPT Plus / Claude Pro/Max subscription flows. It does not include the Claude Agent SDK, GitHub Copilot, external messaging, product automations, Projects/Kanban, Sources/MCP, Viewer/public sharing, or image generation.
+Bitlab is a cross-platform, local-first AI agent workspace derived from [Craft Agents OSS](https://github.com/craft-ai-agents/craft-agents-oss) `v0.11.2`. The current runtime is Pi-only: `@earendil-works/pi-coding-agent` runs in a dedicated Bun subprocess and serves the Electron app, WebUI, CLI, and headless server through one RPC contract. Bitlab supports API-key connections, custom OpenAI/Anthropic-compatible endpoints, Ollama, and the retained ChatGPT Plus subscription flow. It does not include the Claude Agent SDK, GitHub Copilot, external messaging, product automations, Projects/Kanban, Sources/MCP, Viewer/public sharing, or image generation.
 
 This directory is the English-language user documentation. A Chinese translation lives under [`zh/`](./zh/README.md) and is kept in sync with the English source.
 

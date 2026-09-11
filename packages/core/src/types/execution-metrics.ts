@@ -2,7 +2,7 @@
  * Execution metrics — per-model-call latency facts for one agent run.
  *
  * A Run is one backend execution of a user request; a Request is one SDK
- * `streamFn` call inside it (provider-internal HTTP retries live inside a
+ * `streamFunction` call inside it (provider-internal HTTP retries live inside a
  * single Request). Messages point back at the Request that produced them, so a
  * thinking block and the answer that followed it never double-count usage.
  *

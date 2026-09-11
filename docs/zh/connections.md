@@ -7,8 +7,7 @@
 | 形式 | Provider 预设 | 备注 |
 |---|---|---|
 | ChatGPT Plus | `openai-codex` | 复用 Craft ChatGPT OAuth，由 Pi 执行 |
-| Claude Pro/Max | `anthropic` | 复用 Craft Claude OAuth，由 Pi 执行 |
-| Pi provider 预设 | `@earendil-works/pi-ai` 0.80.6 自带的全部 preset(anthropic、openai、google、deepseek、xai、mistral、groq、openrouter 等) | 通过 API key 鉴权 |
+| Pi provider 预设 | `@earendil-works/pi-ai` 0.85.1 自带的全部 preset(anthropic、openai、google、deepseek、xai、mistral、groq、openrouter 等) | 通过 API key 鉴权 |
 | 自定义 `openai-completions` | 用户自行提供 base URL | API key 可选(Ollama 留空) |
 | 自定义 `anthropic-messages` | 用户自行提供 base URL | API key 可选 |
 | 本地 Ollama | `http://127.0.0.1:11434/v1` | 无鉴权,使用 OpenAI-completions 协议 |
@@ -31,7 +30,6 @@ GitHub Copilot、Craft gateway、Sources OAuth 与通用 OAuth 连接仍不支�
 | 形式 | `providerType` | `authType` | `customEndpoint.api` |
 |---|---|---|---|
 | ChatGPT Plus | `pi` | `oauth` | — |
-| Claude Pro/Max | `pi` | `oauth` | — |
 | Pi provider 预设 | `pi` | `api_key` | — |
 | 自定义 `openai-completions` | `pi_compat` | `api_key_with_endpoint` | `openai-completions` |
 | 自定义 `anthropic-messages` | `pi_compat` | `api_key_with_endpoint` | `anthropic-messages` |
@@ -60,8 +58,6 @@ ChatGPT Plus 通过 Pi OAuth 运行:
   "piAuthProvider": "openai-codex"
 }
 ```
-
-Claude Pro/Max 使用相同结构，`slug` 为 `claude-max`，`piAuthProvider` 为 `anthropic`。
 
 通过自定义端点访问 DeepSeek:
 
@@ -175,7 +171,7 @@ headless 运行时自行完成 MCP 授权,token 存进 `credentials.enc`。
 
 ## 刻意不实现的部分
 
-OAuth 仅限 ChatGPT Plus 与 Claude Pro/Max。GitHub Copilot、Craft gateway、Sources OAuth、通用 OAuth provider 与 Claude Agent SDK 仍物理删除。Desktop 负责 ChatGPT localhost callback；WebUI 可以使用已经存储的 ChatGPT 订阅，但不能发起新的 ChatGPT 登录。
+OAuth 仅限 ChatGPT Plus。GitHub Copilot、Craft gateway、Sources OAuth、通用 OAuth provider 与 Claude Agent SDK 仍物理删除。Desktop 负责 ChatGPT localhost callback；WebUI 可以使用已经存储的 ChatGPT 订阅，但不能发起新的 ChatGPT 登录。
 
 ## 验证连接
 
