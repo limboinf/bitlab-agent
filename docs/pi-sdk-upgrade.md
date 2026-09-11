@@ -145,8 +145,9 @@ Verified against `0.85.1`, despite the release notes:
 The credential rewrite is the kind of change type checking signs off on and users
 discover. **This checklist has not been run yet.**
 
-- Sign in with a **ChatGPT Plus** subscription and with a **Claude Pro/Max**
-  subscription, and confirm the OAuth callback completes.
+- Sign in with a **ChatGPT Plus** subscription and confirm the OAuth callback
+  completes. (ChatGPT is the only subscription flow Bitlab implements; the
+  Claude Pro/Max flow that older docs mentioned never existed in code.)
 - Leave a session idle past token expiry and confirm the **refreshed token is
   persisted** and synced back to the main process, rather than forcing a re-login.
   This is the single highest-risk path: it now depends on the SDK routing its

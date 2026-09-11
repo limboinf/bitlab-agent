@@ -7,13 +7,12 @@ Connections are configured in Settings and stored without plaintext credentials 
 | Form | Provider preset | Notes |
 |---|---|---|
 | ChatGPT Plus | `openai-codex` | Craft ChatGPT OAuth; executed by Pi |
-| Claude Pro/Max | `anthropic` | Craft Claude OAuth; executed by Pi |
 | Pi provider preset | any preset bundled with `@earendil-works/pi-ai` 0.85.1 (anthropic, openai, google, deepseek, xai, mistral, groq, openrouter, …) | Auth via API key |
 | Custom `openai-completions` | user-supplied base URL | API key optional (Ollama uses empty key) |
 | Custom `anthropic-messages` | user-supplied base URL | API key optional |
 | Local Ollama | `http://127.0.0.1:11434/v1` | No auth, OpenAI-completions protocol |
 
-GitHub Copilot, Craft gateway, Sources OAuth, and generic OAuth connections are not supported. The two retained subscription flows use Craft's OAuth implementation; no Claude Agent SDK or Copilot SDK is installed.
+GitHub Copilot, Craft gateway, Sources OAuth, and generic OAuth connections are not supported. The retained ChatGPT Plus subscription flow uses Craft's OAuth implementation; no Claude Agent SDK or Copilot SDK is installed.
 
 ## Connection type vs authentication type
 
@@ -31,7 +30,6 @@ These two fields come from `LlmConnection` in `packages/shared/src/config/llm-co
 | Form | `providerType` | `authType` | `customEndpoint.api` |
 |---|---|---|---|
 | ChatGPT Plus | `pi` | `oauth` | — |
-| Claude Pro/Max | `pi` | `oauth` | — |
 | Pi provider preset | `pi` | `api_key` | — |
 | Custom `openai-completions` | `pi_compat` | `api_key_with_endpoint` | `openai-completions` |
 | Custom `anthropic-messages` | `pi_compat` | `api_key_with_endpoint` | `anthropic-messages` |
@@ -60,8 +58,6 @@ ChatGPT Plus through Pi OAuth:
   "piAuthProvider": "openai-codex"
 }
 ```
-
-Claude Pro/Max through Pi OAuth uses the same shape with `slug: "claude-max"` and `piAuthProvider: "anthropic"`.
 
 DeepSeek through a custom endpoint:
 

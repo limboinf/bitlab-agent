@@ -225,7 +225,7 @@ Craft 注册的第二个 backend 是 `claude-agent-sdk`，自带的 Claude Code 
 | Tool icons、默认权限 | ✅ | ✅ |
 | "What's New" 公告 | ❌ | ✅ |
 | Claude Agent SDK backend | ❌ | ✅ |
-| Claude Pro/Max OAuth 订阅 | ✅（Pi） | ✅（默认 Claude SDK） |
+| Claude Pro/Max OAuth 订阅 | ❌ | ✅（默认 Claude SDK） |
 | ChatGPT Plus OAuth 订阅 | ✅（Pi） | ✅（Pi） |
 | GitHub Copilot SDK + OAuth 订阅 | ❌ | ✅ |
 | 外部 messaging gateway + WhatsApp / Slack / Lark worker | ❌ | ✅ |

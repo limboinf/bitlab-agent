@@ -223,7 +223,7 @@ The matrix below extends [`docs/featues.md`](./featues.md) with explicit numbers
 | Tool icons and default permissions | ✅ | ✅ |
 | "What's New" notes | ❌ | ✅ |
 | Claude Agent SDK backend | ❌ | ✅ |
-| Claude Pro/Max OAuth subscription | ✅ (Pi) | ✅ (Claude SDK by default) |
+| Claude Pro/Max OAuth subscription | ❌ | ✅ (Claude SDK by default) |
 | ChatGPT Plus OAuth subscription | ✅ (Pi) | ✅ (Pi) |
 | GitHub Copilot SDK + OAuth subscription | ❌ | ✅ |
 | External messaging gateway + WhatsApp / Slack / Lark workers | ❌ | ✅ |
