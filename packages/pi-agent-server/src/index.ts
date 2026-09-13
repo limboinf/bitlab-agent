@@ -733,6 +733,32 @@ function isLocalhostUrl(url: string): boolean {
   }
 }
 
+/** Pi SDK default for `httpIdleTimeoutMs` (not re-exported by the SDK). */
+const PI_DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
+/** Max int32: the SDKs treat 0 as "time out immediately", so 0 in Pi settings means this. */
+const HTTP_IDLE_TIMEOUT_DISABLED = 0;
+
+/**
+ * Apply the Pi settings Bitlab decides per session. Called on every settings
+ * manager Bitlab creates and again after anything that re-reads settings from
+ * disk (reload) or changes the endpoint (runtime config update), since both
+ * drop in-memory overrides or make them stale.
+ *
+ * Local model servers (Ollama, LM Studio) may spend minutes loading a model
+ * and prefilling a large prompt before the first byte arrives, which the SDK's
+ * 5-minute idle timeout would cut off as "Request timed out." — so loopback
+ * endpoints run without it.
+ */
+function applyBitlabSettingsOverrides(settingsManager: PiSettingsManager): void {
+  const shellPath = process.env.BITLAB_GIT_BASH_PATH?.trim();
+  const baseUrl = initConfig?.baseUrl?.trim();
+  const isLocalEndpoint = !!baseUrl && isLocalhostUrl(baseUrl);
+  settingsManager.applyOverrides({
+    ...(shellPath ? { shellPath } : {}),
+    httpIdleTimeoutMs: isLocalEndpoint ? HTTP_IDLE_TIMEOUT_DISABLED : PI_DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+  });
+}
+
 /** Model IDs currently registered under the custom-endpoint provider */
 let customEndpointModelIds: Set<string> = new Set();
 
@@ -1027,8 +1053,7 @@ async function ensureSession(): Promise<AgentSession> {
     mkdirSync(agentDir, { recursive: true });
     sessionOptions.agentDir = agentDir;
     settingsManager = PiSettingsManager.create(cwd, agentDir);
-    const shellPath = process.env.BITLAB_GIT_BASH_PATH?.trim();
-    if (shellPath) settingsManager.applyOverrides({ shellPath });
+    applyBitlabSettingsOverrides(settingsManager);
     sessionOptions.settingsManager = settingsManager;
 
     // Session resume: use a per-Bitlab-session directory so the Pi SDK can
@@ -1083,10 +1108,7 @@ async function ensureSession(): Promise<AgentSession> {
   mkdirSync(loaderAgentDir, { recursive: true });
   process.env.PI_CODING_AGENT_DIR = loaderAgentDir;
   const loaderSettingsManager = settingsManager ?? PiSettingsManager.create(cwd, loaderAgentDir);
-  if (!settingsManager) {
-    const shellPath = process.env.BITLAB_GIT_BASH_PATH?.trim();
-    if (shellPath) loaderSettingsManager.applyOverrides({ shellPath });
-  }
+  if (!settingsManager) applyBitlabSettingsOverrides(loaderSettingsManager);
 
   skillCatalog = new SkillCatalog({
     workspaceRoot: initConfig.workspaceRootPath,
@@ -2191,6 +2213,8 @@ async function handleUpdateRuntimeConfig(msg: RuntimeConfigUpdateMessage): Promi
 
       await piSession.setModel(piModel);
       setInterceptorApiHints(piModel as { api?: string; provider?: string; baseUrl?: string });
+      // The endpoint may have moved between local and remote.
+      applyBitlabSettingsOverrides(piSession.settingsManager);
       debugLog(`[runtime_config] Updated runtime config and active model: ${piModel.provider}/${piModel.id}`);
     } else {
       debugLog('[runtime_config] Stored update; no active session/model registry yet');
@@ -2266,7 +2290,7 @@ async function handleSetThinkingLevel(msg: Extract<InboundMessage, { type: 'set_
  * PRESERVING conversation state (agent, messages, model, active tool names
  * are untouched). Verified limitations, documented for posterity:
  *   - reload() re-reads settings from disk and drops applyOverrides()
- *     values (shellPath) — re-applied right after.
+ *     values (shellPath, httpIdleTimeoutMs) — re-applied right after.
  *   - headless SDK sessions never emit session_start (only the TUI modes
  *     call bindExtensions), so after reload the fresh adapter initializes
  *     via its own load-time path: eager/keep-alive servers reconnect
@@ -2312,7 +2336,6 @@ async function handleUpdateMcpConfig(msg: Extract<InboundMessage, { type: 'updat
     return;
   }
 
-  const shellPath = process.env.BITLAB_GIT_BASH_PATH?.trim();
   setCurrentMcpConfig(msg.mcpConfig);
   try {
     await piSession.reload();
@@ -2321,7 +2344,7 @@ async function handleUpdateMcpConfig(msg: Extract<InboundMessage, { type: 'updat
     // reload re-emits `session_start` itself and the adapter re-initializes
     // from the fresh config.
     // reload() re-reads settings from disk, dropping in-memory overrides.
-    if (shellPath) piSession.settingsManager.applyOverrides({ shellPath });
+    applyBitlabSettingsOverrides(piSession.settingsManager);
     refreshActiveToolWireShapesFromSession();
     sendContextUsage();
     debugLog('[update_mcp_config] Session reloaded with new MCP config');

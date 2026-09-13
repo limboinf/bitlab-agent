@@ -139,7 +139,12 @@ describe('Pi runtime settings', () => {
   it('bridges the persisted Windows shell path into Pi settings', () => {
     const source = readFileSync(join(import.meta.dir, 'index.ts'), 'utf8');
     expect(source).toContain('process.env.BITLAB_GIT_BASH_PATH');
-    expect(source).toContain('settingsManager.applyOverrides({ shellPath })');
+    expect(source).toContain('...(shellPath ? { shellPath } : {})');
     expect(source).toContain('sessionOptions.settingsManager = settingsManager');
+  });
+
+  it('disables the HTTP idle timeout for local model endpoints', () => {
+    const source = readFileSync(join(import.meta.dir, 'index.ts'), 'utf8');
+    expect(source).toContain('httpIdleTimeoutMs: isLocalEndpoint ? HTTP_IDLE_TIMEOUT_DISABLED');
   });
 });
