@@ -11,7 +11,32 @@ for reviewers.
 
 ## [Unreleased]
 
-Add user-visible changes here before running `bun run release:prepare <version>`.
+### Added
+
+- **Ollama Cloud is now a first-class provider.** It appears in the API key
+  presets with `https://ollama.com/v1` pre-filled and recommended cloud models
+  ready to go. A keyless localhost endpoint is now named "Ollama" instead of
+  the generic "Local Model", and connections pointing at ollama.com show a
+  dedicated Ollama Cloud icon.
+
+### Fixed
+
+- **Pasting the bare Ollama address now works.** Ollama only serves its
+  OpenAI-compatible API under `/v1`, so entering `http://localhost:11434`
+  as-is produced 404s. Bitlab now pins the `/v1` prefix for Ollama endpoints,
+  and the onboarding placeholder shows the full address up front.
+- **Local model servers no longer cut long requests off.** Loading a large
+  model and prefilling a big prompt can take minutes before the first byte
+  arrives, which the agent's 5-minute idle timeout reported as "Request timed
+  out." Requests to loopback endpoints (Ollama, LM Studio, …) now run without
+  that timeout.
+
+### Changed
+
+- **The model picker now shows each connection's provider icon** next to the
+  group name, matching the icons used elsewhere in the app.
+- Cerebras was removed from the provider presets, and the separate OpenAI
+  EU/US regional presets were folded into the main OpenAI entry.
 
 ## [0.12.0] - 2026-09-11
 
