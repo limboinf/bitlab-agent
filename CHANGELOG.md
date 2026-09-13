@@ -11,6 +11,10 @@ for reviewers.
 
 ## [Unreleased]
 
+Add user-visible changes here before running `bun run release:prepare <version>`.
+
+## [0.13.0] - 2026-09-13
+
 ### Added
 
 - **Ollama Cloud is now a first-class provider.** It appears in the API key
@@ -567,6 +571,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.13.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.13.0
 [0.12.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.12.0
 [0.11.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.11.1
 [0.11.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.11.0
