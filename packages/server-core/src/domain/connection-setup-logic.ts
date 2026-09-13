@@ -13,6 +13,7 @@ import {
   getDefaultModelsForConnection,
   getDefaultModelForConnection,
   defaultMidStreamBehavior,
+  detectOllamaKind,
 } from '@bitlab/shared/config'
 
 // ============================================================
@@ -95,6 +96,25 @@ export function setupTestRequiresApiKey(baseUrl?: string): boolean {
 }
 
 /**
+ * Ollama serves its OpenAI-compatible API under `/v1` only; the bare origin
+ * (`http://localhost:11434`) answers `/chat/completions` with a 404. Users
+ * routinely paste the bare origin, so pin the prefix for them.
+ */
+export function normalizeOllamaBaseUrl(baseUrl: string): string {
+  if (!detectOllamaKind(baseUrl)) return baseUrl
+  try {
+    const url = new URL(baseUrl.trim())
+    if (url.pathname === '' || url.pathname === '/') {
+      url.pathname = '/v1'
+      return url.toString().replace(/\/$/, '')
+    }
+  } catch {
+    // Not a parseable URL — leave it for the request layer to reject.
+  }
+  return baseUrl
+}
+
+/**
  * Decide how a custom OpenAI/Anthropic-compatible endpoint should be persisted.
  *
  * - Loopback URL with no credential → keyless local model (Ollama, LM Studio).
@@ -111,12 +131,13 @@ export function resolveCustomEndpointSetup(input: {
   customEndpointApi: CustomEndpointApi
 }): {
   authType: Extract<LlmConnection['authType'], 'none' | 'api_key_with_endpoint'>
-  name: 'Local Model' | 'OpenAI' | 'Anthropic'
+  name: 'Ollama' | 'Local Model' | 'OpenAI' | 'Anthropic'
   piAuthProvider?: 'openai' | 'anthropic'
 } {
   const isKeylessLoopback = isLoopbackBaseUrl(input.baseUrl) && !input.credential
   if (isKeylessLoopback) {
-    return { authType: 'none', name: 'Local Model' }
+    const name = detectOllamaKind(input.baseUrl) === 'local' ? 'Ollama' : 'Local Model'
+    return { authType: 'none', name }
   }
   return {
     authType: 'api_key_with_endpoint',
@@ -167,7 +188,6 @@ const PI_AUTH_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   groq: 'Groq',
   mistral: 'Mistral',
   xai: 'xAI',
-  cerebras: 'Cerebras',
   zai: 'z.ai',
   huggingface: 'Hugging Face',
   minimax: 'Minimax',

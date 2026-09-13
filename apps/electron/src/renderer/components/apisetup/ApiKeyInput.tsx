@@ -88,16 +88,15 @@ interface Preset {
 const PI_PROVIDER_PRESETS: Preset[] = [
   { key: 'anthropic', label: 'Anthropic', url: 'https://api.anthropic.com', placeholder: 'sk-ant-...' },
   { key: 'openai', label: 'OpenAI', url: 'https://api.openai.com/v1', placeholder: 'sk-...' },
-  { key: 'openai-eu', label: 'OpenAI EU', url: 'https://eu.api.openai.com/v1', placeholder: 'sk-...' },
-  { key: 'openai-us', label: 'OpenAI US', url: 'https://us.api.openai.com/v1', placeholder: 'sk-...' },
   { key: 'google', label: 'Google AI Studio', url: 'https://generativelanguage.googleapis.com/v1beta', placeholder: 'AIza...' },
   { key: 'openrouter', label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', placeholder: 'sk-or-...' },
+  { key: 'ollama', label: 'Ollama (Local)', url: 'http://localhost:11434/v1', placeholder: 'Not required for local Ollama' },
+  { key: 'ollama-cloud', label: 'Ollama Cloud', url: 'https://ollama.com/v1', placeholder: 'Paste your Ollama API key...' },
   { key: 'azure-openai-responses', label: 'Azure OpenAI', url: '', placeholder: 'Paste your key here...' },
   { key: 'groq', label: 'Groq', url: 'https://api.groq.com/openai/v1', placeholder: 'gsk_...' },
   { key: 'mistral', label: 'Mistral', url: 'https://api.mistral.ai/v1', placeholder: 'Paste your key here...' },
   { key: 'deepseek', label: 'DeepSeek', url: 'https://api.deepseek.com', placeholder: 'sk-...' },
   { key: 'xai', label: 'xAI (Grok)', url: 'https://api.x.ai/v1', placeholder: 'xai-...' },
-  { key: 'cerebras', label: 'Cerebras', url: 'https://api.cerebras.ai/v1', placeholder: 'csk-...' },
   { key: 'zai', label: 'z.ai (GLM)', url: 'https://api.z.ai/api/coding/paas/v4', placeholder: 'Paste your key here...' },
   { key: 'huggingface', label: 'Hugging Face', url: 'https://router.huggingface.co/v1', placeholder: 'hf_...' },
   { key: 'minimax-global', label: 'Minimax Global', url: 'https://api.minimax.io/anthropic', placeholder: 'Paste your key here...' },
@@ -113,12 +112,14 @@ const PI_PROVIDER_PRESETS: Preset[] = [
  * OpenAI-compatible protocol. They behave like 'custom' on submit (customEndpoint
  * gets pinned to openai-completions) but stay branded in the dropdown.
  */
-const OPENAI_COMPAT_CUSTOM_URL_PRESETS: ReadonlySet<string> = new Set(['manifest'])
+const OPENAI_COMPAT_CUSTOM_URL_PRESETS: ReadonlySet<string> = new Set(['manifest', 'ollama', 'ollama-cloud'])
 const DEFAULT_ENDPOINT_PROVIDERS: ReadonlySet<string> = new Set(['anthropic', 'openai', 'pi', 'google'])
 
 const COMPAT_CUSTOM_DEFAULTS = 'claude-opus-4-8, claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5'
 const COMPAT_MINIMAX_DEFAULTS = 'MiniMax-M2.5, MiniMax-M2.5-highspeed'
 const COMPAT_KIMI_DEFAULTS = 'k2p5, kimi-k2-thinking'
+const OLLAMA_LOCAL_DEFAULT_MODEL = 'qwen3-coder'
+const OLLAMA_CLOUD_DEFAULTS = 'qwen3-coder:480b-cloud, gpt-oss:120b-cloud'
 
 function parseModelList(value: string): string[] {
   return value
@@ -306,7 +307,9 @@ export function ApiKeyInput({
     // Pre-fill recommended model for Ollama; clear for all others
     // (Default provider presets hide the field entirely, others default to provider model IDs when empty)
     if (preset.key === 'ollama') {
-      setConnectionDefaultModel('qwen3-coder')
+      setConnectionDefaultModel(OLLAMA_LOCAL_DEFAULT_MODEL)
+    } else if (preset.key === 'ollama-cloud') {
+      setConnectionDefaultModel(OLLAMA_CLOUD_DEFAULTS)
     } else if (preset.key === 'openrouter' || preset.key === 'vercel-ai-gateway') {
       setConnectionDefaultModel(COMPAT_CUSTOM_DEFAULTS)
     } else if (preset.key === 'minimax-global' || preset.key === 'minimax-cn') {
@@ -341,7 +344,9 @@ export function ApiKeyInput({
     setModelError(null)
     if (!connectionDefaultModel.trim()) {
       if (presetKey === 'ollama') {
-        setConnectionDefaultModel('qwen3-coder')
+        setConnectionDefaultModel(OLLAMA_LOCAL_DEFAULT_MODEL)
+      } else if (presetKey === 'ollama-cloud') {
+        setConnectionDefaultModel(OLLAMA_CLOUD_DEFAULTS)
       } else if (presetKey === 'manifest') {
         setConnectionDefaultModel('auto')
       } else if (presetKey === 'minimax-global' || presetKey === 'minimax-cn') {

@@ -7,6 +7,7 @@ import {
   createBuiltInConnection,
   BUILT_IN_CONNECTION_TEMPLATES,
   toStoredModels,
+  normalizeOllamaBaseUrl,
 } from './connection-setup-logic'
 
 describe('validateSetupTestInput', () => {
@@ -51,15 +52,25 @@ describe('setup test API key requirements', () => {
 })
 
 describe('resolveCustomEndpointSetup', () => {
-  it('treats loopback URL with no credential as keyless local model', () => {
+  it('names a keyless Ollama endpoint after the provider', () => {
     const result = resolveCustomEndpointSetup({
       baseUrl: 'http://localhost:11434/v1',
       credential: undefined,
       customEndpointApi: 'openai-completions',
     })
 
-    expect(result).toEqual({ authType: 'none', name: 'Local Model' })
+    expect(result).toEqual({ authType: 'none', name: 'Ollama' })
     expect(result.piAuthProvider).toBeUndefined()
+  })
+
+  it('treats other loopback URLs with no credential as keyless local model', () => {
+    const result = resolveCustomEndpointSetup({
+      baseUrl: 'http://localhost:1234/v1',
+      credential: undefined,
+      customEndpointApi: 'openai-completions',
+    })
+
+    expect(result).toEqual({ authType: 'none', name: 'Local Model' })
   })
 
   it('treats loopback URL *with* a credential as a keyed custom endpoint (#636)', () => {
@@ -174,5 +185,19 @@ describe('toStoredModels', () => {
     const stored = toStoredModels([{ id: 'pi/vendor/model', contextWindow: 8192 }])[0] as unknown as Record<string, unknown>
     expect(stored.id).toBe('pi/vendor/model')
     expect(stored.name).toBe('vendor/model')
+  })
+})
+
+describe('normalizeOllamaBaseUrl', () => {
+  it('pins /v1 onto a bare Ollama origin', () => {
+    expect(normalizeOllamaBaseUrl('http://localhost:11434')).toBe('http://localhost:11434/v1')
+    expect(normalizeOllamaBaseUrl('http://localhost:11434/')).toBe('http://localhost:11434/v1')
+    expect(normalizeOllamaBaseUrl('https://ollama.com')).toBe('https://ollama.com/v1')
+  })
+
+  it('leaves explicit paths and non-Ollama endpoints alone', () => {
+    expect(normalizeOllamaBaseUrl('http://localhost:11434/v1')).toBe('http://localhost:11434/v1')
+    expect(normalizeOllamaBaseUrl('http://localhost:1234')).toBe('http://localhost:1234')
+    expect(normalizeOllamaBaseUrl('https://api.openai.com/v1')).toBe('https://api.openai.com/v1')
   })
 })

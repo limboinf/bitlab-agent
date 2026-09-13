@@ -14,12 +14,13 @@ import kimiIcon from '@/assets/provider-icons/kimi.svg'
 import minimaxIcon from '@/assets/provider-icons/minimax.svg'
 import mistralIcon from '@/assets/provider-icons/mistral.svg'
 import ollamaIcon from '@/assets/provider-icons/ollama.svg'
+import ollamaCloudIcon from '@/assets/provider-icons/ollama-cloud.svg'
 import openaiIcon from '@/assets/provider-icons/openai.svg'
 import openrouterIcon from '@/assets/provider-icons/openrouter.svg'
 import piIcon from '@/assets/provider-icons/pi.svg'
 import vercelIcon from '@/assets/provider-icons/vercel.svg'
 
-import type { LlmProviderType } from '@bitlab/shared/config/llm-connections'
+import { detectOllamaKind, ollamaDisplayName, type LlmProviderType } from '@config/llm-connections'
 
 /**
  * Icon URLs for each provider
@@ -34,6 +35,7 @@ export const providerIcons = {
   minimax: minimaxIcon,
   mistral: mistralIcon,
   ollama: ollamaIcon,
+  'ollama-cloud': ollamaCloudIcon,
   openai: openaiIcon,
   openrouter: openrouterIcon,
   pi: piIcon,
@@ -51,6 +53,7 @@ const providerDisplayNames: Record<string, string> = {
   kimi: 'Kimi',
   minimax: 'Minimax',
   ollama: 'Ollama',
+  'ollama-cloud': 'Ollama Cloud',
   openrouter: 'OpenRouter',
   pi: 'Pi Backend',
   pi_compat: 'Pi Backend',
@@ -61,9 +64,10 @@ const providerDisplayNames: Record<string, string> = {
 export function getProviderDisplayName(providerType: string, baseUrl?: string | null): string {
   // Try URL detection first for compat providers
   if (baseUrl) {
+    const ollamaName = ollamaDisplayName(baseUrl)
+    if (ollamaName) return ollamaName
     const url = baseUrl.toLowerCase()
     if (url.includes('openrouter.ai')) return 'OpenRouter'
-    if (url.includes('ollama')) return 'Ollama'
     if (url.includes('kimi.com')) return 'Kimi'
     if (url.includes('minimax.io') || url.includes('minimaxi.com')) return 'Minimax'
     if (url.includes('v0.dev') || url.includes('vercel')) return 'Vercel'
@@ -76,10 +80,12 @@ export function getProviderDisplayName(providerType: string, baseUrl?: string | 
  * Detect provider from base URL
  */
 function detectProviderFromUrl(baseUrl: string): ProviderIconKey | null {
+  const ollamaKind = detectOllamaKind(baseUrl)
+  if (ollamaKind) return ollamaKind === 'cloud' ? 'ollama-cloud' : 'ollama'
+
   const url = baseUrl.toLowerCase()
 
   if (url.includes('openrouter.ai')) return 'openrouter'
-  if (url.includes('ollama')) return 'ollama'
   if (url.includes('api.anthropic.com')) return 'anthropic'
   if (url.includes('api.openai.com')) return 'openai'
   if (url.includes('v0.dev') || url.includes('vercel')) return 'vercel'
@@ -135,7 +141,6 @@ function piAuthProviderToIcon(piAuthProvider: string): ProviderIconKey | null {
 const PI_AUTH_PROVIDER_DOMAINS: Record<string, string> = {
   groq: 'groq.com',
   xai: 'x.ai',
-  cerebras: 'cerebras.ai',
   deepseek: 'deepseek.com',
   zai: 'z.ai',
 }
@@ -155,8 +160,9 @@ export function getProviderIcon(
   baseUrl?: string | null,
   piAuthProvider?: string | null
 ): string | null {
-  // For compatible providers, try to detect from URL first
-  if (baseUrl && (providerType === 'openai_compat' || providerType === 'pi_compat')) {
+  // A custom endpoint (compat providers, or a Pi connection with its own base URL)
+  // identifies the upstream better than the auth provider hint does.
+  if (baseUrl && (providerType === 'openai_compat' || providerType === 'pi_compat' || providerType === 'pi')) {
     const detectedProvider = detectProviderFromUrl(baseUrl)
     if (detectedProvider) {
       return providerIcons[detectedProvider]

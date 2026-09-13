@@ -40,6 +40,7 @@ import {
   createBuiltInConnection,
   piAuthProviderDisplayName,
   resolveCustomEndpointSetup,
+  normalizeOllamaBaseUrl,
   setupTestRequiresApiKey,
   toStoredModels,
   validateModelList,
@@ -74,7 +75,8 @@ export const HANDLED_CHANNELS = [
 ] as const
 
 function createConnection(setup: LlmConnectionSetup): LlmConnection {
-  const baseUrl = setup.baseUrl?.trim() || undefined
+  const rawBaseUrl = setup.baseUrl?.trim()
+  const baseUrl = rawBaseUrl ? normalizeOllamaBaseUrl(rawBaseUrl) : undefined
   const baseSlug = setup.slug.replace(/-\d+$/, '')
   if (!baseUrl && baseSlug === 'chatgpt-plus') return createBuiltInConnection(setup.slug)
   const customEndpoint = baseUrl ? setup.customEndpoint : undefined
@@ -172,6 +174,7 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
   }) => {
     const validation = validateSetupTestInput(params)
     if (!validation.valid) return { success: false, error: validation.error }
+    if (params.baseUrl) params = { ...params, baseUrl: normalizeOllamaBaseUrl(params.baseUrl) }
     if (setupTestRequiresApiKey(params.baseUrl) && !params.apiKey.trim()) {
       return { success: false, error: 'API key is required' }
     }

@@ -18,8 +18,15 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@bitlab/ui'
 import type { LlmConnectionWithStatus } from '../../../shared/types'
 
 interface ConnectionIconProps {
-  /** The connection to display an icon for */
-  connection: Pick<LlmConnectionWithStatus, 'name' | 'providerType' | 'baseUrl' | 'piAuthProvider'> & { type?: string; defaultModel?: string }
+  /** The connection to display an icon for — a full connection or a model-picker group. */
+  connection: {
+    name: string
+    providerType?: LlmConnectionWithStatus['providerType'] | string
+    baseUrl?: string | null
+    piAuthProvider?: string | null
+    type?: string
+    defaultModel?: string
+  }
   /** Size in pixels (default: 16) */
   size?: number
   /** Additional CSS classes */

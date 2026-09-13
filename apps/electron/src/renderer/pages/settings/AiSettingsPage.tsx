@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/styled-dropdown'
 import { cn } from '@/lib/utils'
 import { ConnectionIcon } from '@/components/icons/ConnectionIcon'
+import { ollamaDisplayName } from '@config/llm-connections'
 
 import {
   SettingsSection,
@@ -168,7 +169,6 @@ const PI_AUTH_PROVIDER_LABELS: Record<string, string> = {
   mistral: 'Mistral',
   deepseek: 'DeepSeek',
   xai: 'xAI',
-  cerebras: 'Cerebras',
   zai: 'z.ai',
   huggingface: 'Hugging Face',
   'vercel-ai-gateway': 'Vercel AI Gateway',
@@ -235,6 +235,27 @@ function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, 
     }
   }, [connection.providerType, connection.piAuthProvider, connection.baseUrl])
 
+  // Upstream provider name: Ollama is recognised by endpoint, everything else by type.
+  const getProviderLabel = (): string => {
+    const ollamaLabel = ollamaDisplayName(connection.baseUrl)
+    if (ollamaLabel) return ollamaLabel
+    switch (connection.providerType) {
+      case 'pi': {
+        // Show upstream provider name for API key connections (e.g. "Google AI Studio")
+        const piLabel = connection.piAuthProvider
+          ? PI_AUTH_PROVIDER_LABELS[connection.piAuthProvider]
+          : null
+        return piLabel ?? 'Pi Backend'
+      }
+      case 'pi_compat':
+        return connection.baseUrl?.toLowerCase().includes('manifest.build')
+          ? 'Manifest'
+          : 'Pi Backend Compatible'
+      default:
+        return connection.providerType || 'Unknown'
+    }
+  }
+
   // Build description with provider, default indicator, auth status, and validation state
   const getDescription = () => {
     // Show validation state if not idle
@@ -246,22 +267,7 @@ function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, 
 
     // Provider type
     const provider = connection.providerType
-    switch (provider) {
-      case 'pi': {
-        // Show upstream provider name for API key connections (e.g. "Google AI Studio")
-        const piLabel = connection.piAuthProvider
-          ? PI_AUTH_PROVIDER_LABELS[connection.piAuthProvider]
-          : null
-        parts.push(piLabel ?? 'Pi Backend')
-        break
-      }
-      case 'pi_compat':
-        parts.push(connection.baseUrl?.toLowerCase().includes('manifest.build')
-          ? 'Manifest'
-          : 'Pi Backend Compatible')
-        break
-      default: parts.push(provider || 'Unknown')
-    }
+    parts.push(getProviderLabel())
 
     // Base URL for API key connections (show custom endpoint or provider default)
     let endpoint = connection.baseUrl

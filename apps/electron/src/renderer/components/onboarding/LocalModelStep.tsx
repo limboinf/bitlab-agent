@@ -39,7 +39,7 @@ export function LocalModelStep({
   errorMessage,
 }: LocalModelStepProps) {
   const { t } = useTranslation()
-  const [baseUrl, setBaseUrl] = useState('http://localhost:11434')
+  const [baseUrl, setBaseUrl] = useState('http://localhost:11434/v1')
   const [model, setModel] = useState('qwen3-coder')
   const [modelError, setModelError] = useState<string | null>(null)
 

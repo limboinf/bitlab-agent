@@ -235,7 +235,6 @@ const PI_PROVIDER_DISPLAY: Partial<Record<string, { label: string; placeholder: 
   'mistral':                { label: 'Mistral',            placeholder: 'Paste your key here...' },
   'deepseek':               { label: 'DeepSeek',           placeholder: 'sk-...' },
   'xai':                    { label: 'xAI (Grok)',         placeholder: 'xai-...' },
-  'cerebras':               { label: 'Cerebras',           placeholder: 'csk-...' },
   'azure-openai-responses': { label: 'Azure OpenAI',       placeholder: 'Paste your key here...' },
   'vercel-ai-gateway':      { label: 'Vercel AI Gateway',  placeholder: 'Paste your key here...' },
   'huggingface':            { label: 'Hugging Face',       placeholder: 'hf_...' },

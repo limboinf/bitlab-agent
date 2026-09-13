@@ -459,7 +459,7 @@
   "onboarding.localModel.description": "连接到 Ollama 或任何 OpenAI 兼容的本地服务器。",
   "onboarding.localModel.endpoint": "端点",
   "onboarding.localModel.endpointHelper": "默认 Ollama 端口为 11434。如使用自定义设置请更改。",
-  "onboarding.localModel.endpointPlaceholder": "http://localhost:11434",
+  "onboarding.localModel.endpointPlaceholder": "http://localhost:11434/v1",
   "onboarding.localModel.endpointRequired": "需要端点 URL。",
   "onboarding.localModel.model": "模型",
   "onboarding.localModel.modelHelper": "使用通过 <code>ollama pull</code> 拉取的任何模型。多个模型用逗号分隔。",

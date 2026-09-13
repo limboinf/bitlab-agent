@@ -130,6 +130,36 @@ export function isLocalConnection(connection: Pick<LlmConnection, 'baseUrl'>): b
   }
 }
 
+export type OllamaKind = 'local' | 'cloud';
+
+/** Default port of a local Ollama server. */
+const OLLAMA_LOCAL_PORT = '11434';
+
+/**
+ * Tell a local Ollama server apart from Ollama Cloud by base URL.
+ * Local: the default 11434 port or an "ollama" hostname (e.g. a LAN box).
+ * Cloud: anything under ollama.com.
+ */
+export function detectOllamaKind(baseUrl?: string | null): OllamaKind | null {
+  if (!baseUrl?.trim()) return null;
+  try {
+    const { hostname, port } = new URL(baseUrl.trim());
+    const host = hostname.toLowerCase();
+    if (host === 'ollama.com' || host.endsWith('.ollama.com')) return 'cloud';
+    if (port === OLLAMA_LOCAL_PORT || host.includes('ollama')) return 'local';
+    return null;
+  } catch {
+    return baseUrl.toLowerCase().includes('ollama') ? 'local' : null;
+  }
+}
+
+/** Provider label for an Ollama endpoint, or null when it is not Ollama. */
+export function ollamaDisplayName(baseUrl?: string | null): string | null {
+  const kind = detectOllamaKind(baseUrl);
+  if (!kind) return null;
+  return kind === 'cloud' ? 'Ollama Cloud' : 'Ollama (Local)';
+}
+
 export function isPiProvider(providerType: LlmProviderType): boolean {
   return providerType === 'pi' || providerType === 'pi_compat';
 }

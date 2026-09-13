@@ -162,6 +162,9 @@ export interface ModelConnectionGroup {
   slug: string;
   name: string;
   providerType: string;
+  /** Endpoint + upstream hint so the picker can show the provider's icon. */
+  baseUrl?: string;
+  piAuthProvider?: string;
   models: ModelCatalogModel[];
 }
 

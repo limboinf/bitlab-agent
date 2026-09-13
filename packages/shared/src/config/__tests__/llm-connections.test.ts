@@ -14,6 +14,7 @@ import {
   isCompatProvider,
   isDeniedMiniModelId,
   isLocalConnection,
+  detectOllamaKind,
   isPiProvider,
   isSessionConnectionUnavailable,
   isValidProviderAuthCombination,
@@ -102,5 +103,24 @@ describe('Pi-only LLM connections', () => {
     expect(isSessionConnectionUnavailable('missing', [{ slug: 'present' }])).toBe(true)
     expect(isSessionConnectionUnavailable('present', [{ slug: 'present' }])).toBe(false)
     expect(isSessionConnectionUnavailable(undefined, [])).toBe(false)
+  })
+})
+
+describe('detectOllamaKind', () => {
+  it('recognises a local Ollama server by port or hostname', () => {
+    expect(detectOllamaKind('http://localhost:11434')).toBe('local')
+    expect(detectOllamaKind('http://127.0.0.1:11434/v1')).toBe('local')
+    expect(detectOllamaKind('http://ollama.lan:8080/v1')).toBe('local')
+  })
+
+  it('recognises Ollama Cloud by domain', () => {
+    expect(detectOllamaKind('https://ollama.com/v1')).toBe('cloud')
+    expect(detectOllamaKind('https://api.ollama.com/v1')).toBe('cloud')
+  })
+
+  it('returns null for everything else', () => {
+    expect(detectOllamaKind('http://localhost:1234/v1')).toBeNull()
+    expect(detectOllamaKind('https://api.openai.com/v1')).toBeNull()
+    expect(detectOllamaKind(undefined)).toBeNull()
   })
 })

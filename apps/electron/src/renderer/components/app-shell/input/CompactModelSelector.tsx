@@ -21,6 +21,7 @@ import {
   DrawerTitle,
 } from '@/components/ui/drawer'
 import { cn } from '@/lib/utils'
+import { ConnectionIcon } from '@/components/icons/ConnectionIcon'
 import { navigate, routes } from '@/lib/navigate'
 import type { SessionModelSelectionDto } from '@bitlab/shared/protocol'
 import { THINKING_LEVELS, type ThinkingLevel } from '@bitlab/shared/agent/thinking-levels'
@@ -220,8 +221,9 @@ export function CompactModelSelector({
               )}
               {state.groups.map(group => (
                 <React.Fragment key={group.slug}>
-                  <div className="px-3 pt-3 pb-1 text-xs font-medium text-foreground/60 select-none">
-                    {group.name}
+                  <div className="flex items-center gap-1.5 px-3 pt-3 pb-1 text-xs font-medium text-foreground/60 select-none">
+                    <ConnectionIcon connection={group} size={12} />
+                    <span className="truncate">{group.name}</span>
                   </div>
                   {group.models.map(model => {
                     const selected = state.current?.connection === group.slug

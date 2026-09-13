@@ -2198,6 +2198,8 @@ export class SessionManager implements ISessionManager {
         slug: connection.slug,
         name: connection.name,
         providerType: connection.providerType,
+        ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
+        ...(connection.piAuthProvider ? { piAuthProvider: connection.piAuthProvider } : {}),
         models,
       })
     }
