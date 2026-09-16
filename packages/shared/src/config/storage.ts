@@ -93,9 +93,8 @@ export interface StoredConfig {
   /** Whether skills may pre-approve tools for their turn. Absent means enabled. */
   skillToolApproval?: boolean;
   mcpSettings?: BitlabMcpSettings;
-  // Prompt caching & context
+  // Prompt caching
   extendedPromptCache?: boolean;  // Use 1h prompt cache TTL instead of 5m (default: false)
-  enable1MContext?: boolean;  // Enable 1M context window for supported models (default: false — opt-in; requires Anthropic Tier 4+)
   // Token optimization
   rtkEnabled?: boolean;  // Route Bash commands through rtk to compress tool output (default: false). https://github.com/rtk-ai/rtk
   // Network proxy
@@ -585,28 +584,6 @@ export function setMcpSettings(settings: BitlabMcpSettings): void {
   const config = loadStoredConfig();
   if (!config) return;
   config.mcpSettings = normalizeMcpSettings(settings);
-  saveConfig(config);
-}
-
-/**
- * Get whether 1M context window is enabled.
- * When disabled, models use 200K context and the interceptor strips the context-1m beta header.
- * Defaults to false — the 1M beta requires Anthropic Tier 4+, and enabling it by default
- * causes 400 "Invalid Request" for lower-tier API keys on large contexts (issue #567).
- * Users opt in via AI Settings → Performance → Extended Context (1M).
- */
-export function getEnable1MContext(): boolean {
-  const config = loadStoredConfig();
-  return config?.enable1MContext === true;
-}
-
-/**
- * Set whether 1M context window is enabled.
- */
-export function setEnable1MContext(enabled: boolean): void {
-  const config = loadStoredConfig();
-  if (!config) return;
-  config.enable1MContext = enabled;
   saveConfig(config);
 }
 
