@@ -203,8 +203,6 @@ export const CHANNEL_MAP = {
   setRichToolDescriptions: invoke(RPC_CHANNELS.appearance.SET_RICH_TOOL_DESCRIPTIONS),
   getExtendedPromptCache: invoke(RPC_CHANNELS.caching.GET_EXTENDED_PROMPT_CACHE),
   setExtendedPromptCache: invoke(RPC_CHANNELS.caching.SET_EXTENDED_PROMPT_CACHE),
-  getEnable1MContext: invoke(RPC_CHANNELS.caching.GET_ENABLE_1M_CONTEXT),
-  setEnable1MContext: invoke(RPC_CHANNELS.caching.SET_ENABLE_1M_CONTEXT),
   getRtkEnabled: invoke(RPC_CHANNELS.rtk.GET_ENABLED),
   setRtkEnabled: invoke(RPC_CHANNELS.rtk.SET_ENABLED),
   getRtkStatus: invoke(RPC_CHANNELS.rtk.GET_STATUS),

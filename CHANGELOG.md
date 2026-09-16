@@ -13,6 +13,13 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+### Removed
+
+- **The "Extended Context (1M)" toggle is gone.** It opted Anthropic requests
+  into the 1M-token context beta, which bills over-200K requests at higher
+  rates and fails outright on lower-tier API keys. Models now always run with
+  the standard 200K context window.
+
 ## [0.13.0] - 2026-09-13
 
 ### Added

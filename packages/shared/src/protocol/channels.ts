@@ -284,8 +284,6 @@ export const RPC_CHANNELS = {
   caching: {
     GET_EXTENDED_PROMPT_CACHE: 'caching:getExtendedPromptCache',
     SET_EXTENDED_PROMPT_CACHE: 'caching:setExtendedPromptCache',
-    GET_ENABLE_1M_CONTEXT: 'caching:getEnable1MContext',
-    SET_ENABLE_1M_CONTEXT: 'caching:setEnable1MContext',
   },
   rtk: {
     GET_ENABLED: 'rtk:getEnabled',

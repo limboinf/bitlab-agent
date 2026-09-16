@@ -544,11 +544,9 @@ export interface ElectronAPI {
   getRichToolDescriptions(): Promise<boolean>
   setRichToolDescriptions(enabled: boolean): Promise<void>
 
-  // Prompt caching & context
+  // Prompt caching
   getExtendedPromptCache(): Promise<boolean>
   setExtendedPromptCache(enabled: boolean): Promise<void>
-  getEnable1MContext(): Promise<boolean>
-  setEnable1MContext(enabled: boolean): Promise<void>
 
   // RTK token optimization
   getRtkEnabled(): Promise<boolean>
