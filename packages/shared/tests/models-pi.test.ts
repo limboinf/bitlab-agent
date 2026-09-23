@@ -28,7 +28,7 @@ describe('models-pi filtering', () => {
   it('returns current DeepSeek models from the Pi SDK catalog', () => {
     const models = getPiModelsForAuthProvider('deepseek');
     const ids = models.map(m => m.id);
-    expect(ids).toContain('pi/deepseek-v4-flash');
+    expect(ids).toContain('pi/deepseek-flash');
     expect(ids).toContain('pi/deepseek-v4-pro');
   });
 

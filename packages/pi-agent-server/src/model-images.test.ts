@@ -44,12 +44,13 @@ describe('DeepSeek Flash image delivery', () => {
     expect(getPiModelsForAuthProvider('deepseek').find(m => m.id === 'pi/deepseek-v4-flash')?.supportsImages).toBe(true);
   });
 
-  it('does not mutate the SDK catalog, Pro, or custom gateway metadata', () => {
-    const flash = getModels('deepseek').find(m => m.id === 'deepseek-v4-flash')!;
+  it('does not mutate registry models, Pro, or custom gateway metadata', () => {
+    const pro = getModels('deepseek').find(m => m.id === 'deepseek-v4-pro')!;
+    // A text-only legacy Flash entry, as older catalogs or a user models.json register it.
+    const flash = { ...pro, id: 'deepseek-v4-flash', input: ['text'] as ['text'] };
     const originalInput = [...flash.input];
     expect(applyPiCatalogModelOverrides(flash).input).toContain('image');
     expect(flash.input).toEqual(originalInput);
-    const pro = getModels('deepseek').find(m => m.id === 'deepseek-v4-pro')!;
     expect(applyPiCatalogModelOverrides(pro)).toBe(pro);
     const custom = { ...flash, provider: 'custom-endpoint', input: ['text'] as ['text'] };
     expect(applyPiCatalogModelOverrides(custom)).toBe(custom);

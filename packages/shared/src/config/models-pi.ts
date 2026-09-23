@@ -141,6 +141,13 @@ const DEEPSEEK_V41_FLASH: Model<Api> = {
 const PI_EXTRA_MODELS: Model<Api>[] = [
   DEEPSEEK_V41_FLASH,
   {
+    // Dropped from the SDK catalog in 0.87; still served and still saved on
+    // existing connections, so keep it resolvable with image input.
+    ...DEEPSEEK_V41_FLASH,
+    id: 'deepseek-v4-flash',
+    name: 'DeepSeek V4 Flash (legacy alias)',
+  },
+  {
     ...DEEPSEEK_V41_FLASH,
     id: 'deepseek-v4-flash-vision-exp',
     name: 'DeepSeek V4 Flash Vision (legacy alias)',
