@@ -30,8 +30,7 @@ import { getBackendRuntime } from './backend/internal/driver-types.ts';
 import type { PermissionMode } from './mode-manager.ts';
 import type { ThinkingLevel } from './thinking-levels.ts';
 
-// Import models from centralized registry
-import { getModelById } from '../config/models.ts';
+import { resolveModelContextWindow } from '../config/llm-connections.ts';
 
 // BaseAgent provides common functionality
 import { BaseAgent } from './base-agent.ts';
@@ -88,7 +87,7 @@ import { parseError, type AgentError } from './errors.ts';
 // Centralized PreToolUse pipeline
 import { runPreToolUseChecks, type PreToolUseCheckResult } from './core/pre-tool-use.ts';
 import { getRtkPath } from './core/rtk-detector.ts';
-import { getRtkEnabled, getBrowserToolEnabled } from '../config/storage.ts';
+import { getRtkEnabled, getBrowserToolEnabled, getLlmConnection } from '../config/storage.ts';
 import type { RtkContext } from './core/rtk-rewrite.ts';
 
 // Workspace slug extraction for skill qualification
@@ -299,15 +298,16 @@ export class PiAgent extends BaseAgent {
 
   constructor(config: BackendConfig) {
     const resolvedModel = config.model || '';
-    const modelDef = getModelById(resolvedModel);
+    const connection = config.connectionSlug ? getLlmConnection(config.connectionSlug) ?? undefined : undefined;
+    const contextWindow = resolveModelContextWindow(connection, resolvedModel);
     super(config, resolvedModel);
 
     this._supportsBranching = true;
 
     this.piSessionId = config.session?.sdkSessionId || null;
     this.adapter = new PiEventAdapter();
-    if (modelDef?.contextWindow) {
-      this.adapter.setContextWindow(modelDef.contextWindow);
+    if (contextWindow) {
+      this.adapter.setContextWindow(contextWindow);
     }
     if (config.miniModel) {
       this.adapter.setMiniModel(config.miniModel);

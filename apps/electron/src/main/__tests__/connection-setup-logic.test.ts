@@ -20,8 +20,8 @@ describe('validateModelList', () => {
 
   it('accepts ModelDefinition[] with a matching default', () => {
     const models: ModelDefinition[] = [
-      { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', shortName: 'Sonnet', description: '', provider: 'anthropic', contextWindow: 200000 },
-      { id: 'claude-haiku-4-5', name: 'Haiku 4.5', shortName: 'Haiku', description: '', provider: 'anthropic', contextWindow: 200000 },
+      { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', shortName: 'Sonnet', description: '', provider: 'pi', contextWindow: 200000 },
+      { id: 'claude-haiku-4-5', name: 'Haiku 4.5', shortName: 'Haiku', description: '', provider: 'pi', contextWindow: 200000 },
     ]
     const result = validateModelList(models, 'claude-haiku-4-5')
     expect(result.valid).toBe(true)
@@ -53,7 +53,7 @@ describe('validateModelList', () => {
 
   it('auto-selects first ModelDefinition.id when default is undefined', () => {
     const models: ModelDefinition[] = [
-      { id: 'def-first', name: 'First', shortName: 'F', description: '', provider: 'anthropic', contextWindow: 200000 },
+      { id: 'def-first', name: 'First', shortName: 'F', description: '', provider: 'pi', contextWindow: 200000 },
     ]
     const result = validateModelList(models, undefined)
     expect(result.valid).toBe(true)

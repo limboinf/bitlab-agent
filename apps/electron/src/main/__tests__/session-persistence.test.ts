@@ -5,7 +5,6 @@
  * 3. Orphaned llmConnection references must be detected
  */
 import { describe, it, expect } from 'bun:test'
-import { DEFAULT_MODEL } from '@bitlab/shared/config'
 
 // ============================================================================
 // createdAt preservation during persistence
@@ -37,44 +36,6 @@ describe('createdAt preservation', () => {
     expect(createdAt).not.toBe(lastMessageAt)
     expect(createdAt).toBeLessThan(lastMessageAt)
   })
-})
-
-// ============================================================================
-// Safe model resolution when connection is null
-// Mirrors: sessions.ts sendMessage() model resolution (~line 3345)
-// ============================================================================
-
-describe('model resolution with null connection', () => {
-  describe('Pi backend', () => {
-    it('falls back to DEFAULT_MODEL when connection is null and session has no model', () => {
-      const managed = { model: undefined as string | undefined }
-      const connection = null as { defaultModel: string } | null
-
-      const resolvedModel = managed.model || connection?.defaultModel || DEFAULT_MODEL
-
-      expect(resolvedModel).toBe(DEFAULT_MODEL)
-      expect(resolvedModel).toBeTruthy()
-    })
-
-    it('uses session model when available regardless of connection', () => {
-      const managed = { model: 'claude-sonnet-4-20250514' }
-      const connection = null as { defaultModel: string } | null
-
-      const resolvedModel = managed.model || connection?.defaultModel || DEFAULT_MODEL
-
-      expect(resolvedModel).toBe('claude-sonnet-4-20250514')
-    })
-
-    it('uses connection defaultModel when session has no model', () => {
-      const managed = { model: undefined }
-      const connection = { defaultModel: 'claude-opus-4-20250514' }
-
-      const resolvedModel = managed.model || connection?.defaultModel || DEFAULT_MODEL
-
-      expect(resolvedModel).toBe('claude-opus-4-20250514')
-    })
-  })
-
 })
 
 // ============================================================================

@@ -6,11 +6,6 @@ import {
   isClaudeModel,
   getModelShortName,
   getModelDisplayName,
-  getModelContextWindow,
-  getModelById,
-  ANTHROPIC_MODELS,
-  getModelIdByShortName,
-  normalizeDeprecatedModelId,
 } from '../src/config/models.ts';
 
 describe('isClaudeModel', () => {
@@ -64,10 +59,10 @@ describe('isClaudeModel', () => {
 });
 
 describe('getModelShortName', () => {
-  it('returns registry shortName for known models', () => {
-    expect(getModelShortName('claude-opus-4-8')).toBe('Opus');
-    expect(getModelShortName('claude-sonnet-4-6')).toBe('Sonnet');
-    expect(getModelShortName('claude-haiku-4-5-20251001')).toBe('Haiku');
+  it('humanizes Claude model IDs with their version', () => {
+    expect(getModelShortName('claude-opus-5-5')).toBe('Opus 5.5');
+    expect(getModelShortName('claude-sonnet-4-6')).toBe('Sonnet 4.6');
+    expect(getModelShortName('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
   });
 
   it('strips provider prefix for slash-separated IDs', () => {
@@ -96,45 +91,10 @@ describe('getModelShortName', () => {
   });
 });
 
-describe('Opus registry', () => {
-  it('includes Opus 4.8 and keeps Opus 4.7, but excludes deprecated Opus 4.6', () => {
-    const ids = ANTHROPIC_MODELS.map(m => m.id);
-    expect(ids).toContain('claude-opus-4-8');
-    expect(ids).toContain('claude-opus-4-7');
-    expect(ids).not.toContain('claude-opus-4-6');
-  });
-
-  it('resolves "Opus" shortName to 4.8', () => {
-    expect(getModelIdByShortName('Opus')).toBe('claude-opus-4-8');
-  });
-
-  it('normalizes deprecated Opus IDs to Opus 4.8 without migrating Opus 4.7', () => {
-    expect(normalizeDeprecatedModelId('claude-opus-4-6')).toBe('claude-opus-4-8');
-    expect(normalizeDeprecatedModelId('pi/claude-opus-4-6')).toBe('pi/claude-opus-4-8');
-    expect(normalizeDeprecatedModelId('us.anthropic.claude-opus-4-6-v1')).toBe('us.anthropic.claude-opus-4-8');
-    expect(normalizeDeprecatedModelId('claude-opus-4-7')).toBe('claude-opus-4-7');
-  });
-});
-
-describe('Sonnet registry', () => {
-  it('includes Sonnet 5 and keeps Sonnet 4.6', () => {
-    const ids = ANTHROPIC_MODELS.map(m => m.id);
-    expect(ids).toContain('claude-sonnet-5');
-    expect(ids).toContain('claude-sonnet-4-6');
-  });
-
-  it('resolves "Sonnet" shortName to Sonnet 5', () => {
-    expect(getModelIdByShortName('Sonnet')).toBe('claude-sonnet-5');
-  });
-
-  it('exposes Sonnet 5 metadata', () => {
-    expect(getModelDisplayName('claude-sonnet-5')).toBe('Sonnet 5');
-    expect(getModelShortName('claude-sonnet-5')).toBe('Sonnet');
-    expect(getModelContextWindow('claude-sonnet-5')).toBe(1_000_000);
-  });
-
-  it('maps Bedrock Sonnet 5 IDs back to the bare ID', () => {
-    expect(getModelById('us.anthropic.claude-sonnet-5')?.id).toBe('claude-sonnet-5');
-    expect(getModelById('anthropic.claude-sonnet-5')?.id).toBe('claude-sonnet-5');
+describe('getModelDisplayName', () => {
+  it('reads Bedrock inference-profile IDs as their bare model', () => {
+    expect(getModelDisplayName('us.anthropic.claude-sonnet-5')).toBe('Sonnet 5');
+    expect(getModelDisplayName('anthropic.claude-sonnet-5')).toBe('Sonnet 5');
+    expect(getModelDisplayName('us.anthropic.claude-haiku-4-5-20251001-v1:0')).toBe('Haiku 4.5');
   });
 });

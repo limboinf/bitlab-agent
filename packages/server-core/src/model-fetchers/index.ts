@@ -7,7 +7,7 @@
  * Fallback chain (same for every provider):
  * 1. Provider runtime discovery via backend driver dispatch
  * 2. Persisted connection.models — previously fetched, survives offline/restart
- * 3. MODEL_REGISTRY — hardcoded offline seed data, last resort
+ * 3. Pi SDK catalog — bundled offline seed data, last resort
  */
 
 import type { ModelFetcherMap, ModelFetcherCredentials, FetchableProvider } from '@bitlab/shared/config'
@@ -104,12 +104,12 @@ class ModelRefreshService {
       return // Nothing to update
     }
 
-    // Layer 3: MODEL_REGISTRY hardcoded fallback
+    // Layer 3: Pi SDK catalog fallback
     if (!newModels) {
       const registryModels = getModelsForProviderType(providerType, connection.piAuthProvider)
       if (registryModels.length > 0) {
         newModels = registryModels
-        handlerLog.info(`Model refresh [${slug}]: using ${newModels.length} models from MODEL_REGISTRY`)
+        handlerLog.info(`Model refresh [${slug}]: using ${newModels.length} models from the SDK catalog`)
       }
     }
 

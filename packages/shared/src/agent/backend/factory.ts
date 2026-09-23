@@ -35,7 +35,6 @@ import {
 import { parseValidationError, type LlmValidationResult } from '../../config/llm-validation.ts';
 import type { ModelFetchResult } from '../../config/model-fetcher.ts';
 // Model resolution utilities
-import { getModelProvider, normalizeDeprecatedModelId } from '../../config/models.ts';
 import { homedir } from 'node:os';
 import { getCredentialManager } from '../../credentials/index.ts';
 import type {
@@ -576,19 +575,7 @@ export function resolveModelForProvider(
   managedModel: string | undefined,
   connection: LlmConnection | null
 ): string {
-  // Cross-provider guard: if the model belongs to a different provider, fall back
-  // to the connection's default so a model from another preset is not sent to Pi.
-  if (managedModel) {
-    managedModel = normalizeDeprecatedModelId(managedModel);
-    const modelProvider = getModelProvider(managedModel);
-    if (modelProvider && modelProvider !== provider) {
-      managedModel = undefined; // Clear — will fall through to connection default
-    }
-  }
-
-  let connectionDefault = connection?.defaultModel
-    ? normalizeDeprecatedModelId(connection.defaultModel)
-    : undefined;
+  let connectionDefault = connection?.defaultModel;
 
   if (provider === 'pi' && connection?.models?.length) {
     const connectionModelIds = connection.models.map(m => typeof m === 'string' ? m : m.id);

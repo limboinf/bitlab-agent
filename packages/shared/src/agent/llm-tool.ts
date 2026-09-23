@@ -25,7 +25,7 @@ type ToolResult = {
 import { readFile } from 'fs/promises';
 import { existsSync, statSync } from 'fs';
 import path from 'node:path';
-import { getModelById, getDefaultSummarizationModel, MODEL_REGISTRY } from '../config/models.ts';
+import { getDefaultSummarizationModel } from '../config/models.ts';
 
 // ============================================================================
 // QUERY INTERFACES (used by agent backends to implement queryFn)
@@ -207,20 +207,10 @@ export async function buildCallLlmRequest(
 
   textParts.push(prompt);
 
-  // Resolve model against registry, with optional backend-specific validation
+  // Backend-specific model validation (e.g., Codex rejects non-OpenAI models)
   let model = input.model as string | undefined;
-  if (model) {
-    const modelDef = getModelById(model)
-      || MODEL_REGISTRY.find(m => m.shortName.toLowerCase() === model!.toLowerCase())
-      || MODEL_REGISTRY.find(m => m.name.toLowerCase() === model!.toLowerCase());
-    if (modelDef) {
-      model = modelDef.id;
-    }
-
-    // Backend-specific model validation (e.g., Codex rejects non-OpenAI models)
-    if (options.validateModel) {
-      model = options.validateModel(model) ?? undefined;
-    }
+  if (model && options.validateModel) {
+    model = options.validateModel(model) ?? undefined;
   }
 
   // Build system prompt with structured output injection if needed
@@ -612,24 +602,6 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
           '1. Use outputFormat for predefined schemas (summary, classification, etc.)\n' +
           '2. Use outputSchema for custom JSON Schema'
         );
-      }
-
-      // --- Validate and resolve model against registry ---
-      if (args.model) {
-        let modelDef = getModelById(args.model);
-        if (!modelDef) {
-          modelDef = MODEL_REGISTRY.find(m => m.shortName.toLowerCase() === args.model!.toLowerCase())
-            || MODEL_REGISTRY.find(m => m.name.toLowerCase() === args.model!.toLowerCase());
-          if (modelDef) {
-            args.model = modelDef.id;
-          } else {
-            const available = MODEL_REGISTRY.map(m => `  - ${m.id} (${m.shortName})`).join('\n');
-            return errorResponse(
-              `Unknown model: "${args.model}"\n\n` +
-              `Available models:\n${available}`
-            );
-          }
-        }
       }
 
       // ========================================

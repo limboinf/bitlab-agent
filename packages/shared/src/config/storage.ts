@@ -54,13 +54,7 @@ import type { StoredWorkspace, Workspace } from '@bitlab/core/types';
 // Import LLM connection types and constants
 import type { LlmConnection, CustomEndpointConfig } from './llm-connections.ts';
 import { isValidProviderAuthCombination, getDefaultModelsForConnection, getDefaultModelForConnection, isPiProvider, type LlmProviderType } from './llm-connections.ts';
-import {
-  getModelProvider,
-  getModelById,
-  getModelDisplayName,
-  normalizeDeprecatedModelId,
-  type ModelDefinition,
-} from './models.ts';
+import type { ModelDefinition } from './models.ts';
 
 export interface StoredConfig {
   // LLM Connections (authoritative source for auth and model config)

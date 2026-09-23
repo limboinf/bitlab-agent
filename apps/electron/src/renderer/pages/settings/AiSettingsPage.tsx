@@ -71,11 +71,11 @@ function formatTokenCount(n: number): string {
 
 /**
  * Derive model dropdown options from a connection's models array,
- * falling back to registry models for the connection's provider type.
+ * falling back to the SDK catalog for the connection's provider type.
  */
 function getModelOptionsForConnection(
   connection: LlmConnectionWithStatus | undefined,
-): Array<{ value: string; label: string; description: string; descriptionKey?: string }> {
+): Array<{ value: string; label: string; description: string }> {
   if (!connection) return []
 
   // If connection has explicit models, use those. Dedupe first: a saved model
@@ -88,17 +88,16 @@ function getModelOptionsForConnection(
       }
       // ModelDefinition object
       const def = m as ModelDefinition
-      return { value: def.id, label: def.name, description: def.description, descriptionKey: def.descriptionKey }
+      return { value: def.id, label: def.name, description: def.description }
     })
   }
 
-  // Fall back to registry models for this provider type
-  const registryModels = getModelsForProviderType(connection.providerType, connection.piAuthProvider)
-  return registryModels.map((m) => ({
+  // Fall back to the SDK catalog for this provider type
+  const catalogModels = getModelsForProviderType(connection.providerType, connection.piAuthProvider)
+  return catalogModels.map((m) => ({
     value: m.id,
     label: m.name,
     description: m.description,
-    descriptionKey: m.descriptionKey,
   }))
 }
 
@@ -571,9 +570,7 @@ function WorkspaceOverrideCard({ workspace, llmConnections, onSettingsChange }: 
                 onValueChange={handleModelChange}
                 options={[
                   { value: 'global', label: t("settings.ai.useDefault"), description: t("settings.ai.inheritFromApp") },
-                  ...getModelOptionsForConnection(workspaceEffectiveConnection).map(o => ({
-                    ...o, description: o.descriptionKey ? t(o.descriptionKey) : o.description,
-                  })),
+                  ...getModelOptionsForConnection(workspaceEffectiveConnection),
                 ]}
               />
               <SettingsMenuSelectRow
@@ -1036,9 +1033,7 @@ export default function AiSettingsPage() {
                     description={t("settings.ai.modelDesc")}
                     value={defaultModel}
                     onValueChange={handleDefaultModelChange}
-                    options={getModelOptionsForConnection(defaultConnection).map(o => ({
-                      ...o, description: o.descriptionKey ? t(o.descriptionKey) : o.description,
-                    }))}
+                    options={getModelOptionsForConnection(defaultConnection)}
                   />
                   <SettingsMenuSelectRow
                     label={t("settings.ai.thinking")}

@@ -1,7 +1,6 @@
 /** Named Pi provider and custom endpoint configurations. */
 
 import type { ModelDefinition } from './models.ts';
-import { getModelContextWindow } from './models.ts';
 
 type PiModelResolver = (piAuthProvider?: string) => ModelDefinition[];
 let piModelResolver: PiModelResolver = () => [];
@@ -239,9 +238,6 @@ export function resolveModelContextWindow(
     connection?.providerType ?? 'pi',
     connection?.piAuthProvider,
   ).find(model => model.id === modelId)?.contextWindow;
-  if (fromProvider) return fromProvider;
-
-  return getModelContextWindow(modelId);
 }
 
 export function getModelsForProviderType(
