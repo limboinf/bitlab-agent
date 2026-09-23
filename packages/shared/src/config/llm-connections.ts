@@ -247,33 +247,99 @@ export function getModelsForProviderType(
   return providerType === 'pi' ? piModelResolver(piAuthProvider) : [];
 }
 
-export const PI_PREFERRED_DEFAULTS: Record<string, string[]> = {
-  anthropic: [
-    'claude-opus-4-8',
-    'claude-opus-4-7',
-    'claude-sonnet-5',
-    'claude-sonnet-4-6',
-    'claude-haiku-4-5',
-  ],
-  'openai-codex': ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.2', 'gpt-5.1'],
-  openai: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.2', 'gpt-5.1'],
-  google: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview'],
-  deepseek: ['deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4-flash'],
+/**
+ * Which models make a good default, per Pi auth provider. Expressed as rules,
+ * not model IDs, so a newly released model ranks first as soon as an SDK
+ * upgrade ships it.
+ *
+ * - `families`: ID prefixes in preference order ("claude-opus" before "claude-sonnet").
+ * - `variants`: suffixes after the version, in preference order; '' is the bare ID.
+ *   Anything else (-pro, -mini, -preview, …) is not preferred.
+ *
+ * Within a family, the newest version wins; the variant only breaks ties.
+ */
+interface ModelPreference {
+  families: string[];
+  variants: string[];
+}
+
+const GPT_PREFERENCE: ModelPreference = {
+  families: ['gpt'],
+  variants: ['astra', 'sol', 'terra', 'luna', ''],
 };
+
+const PI_MODEL_PREFERENCES: Record<string, ModelPreference> = {
+  anthropic: { families: ['claude-opus', 'claude-sonnet', 'claude-haiku'], variants: [''] },
+  'openai-codex': GPT_PREFERENCE,
+  openai: GPT_PREFERENCE,
+  google: { families: ['gemini'], variants: ['flash', 'pro'] },
+  deepseek: { families: ['deepseek'], variants: ['flash', 'pro'] },
+};
+
+interface PreferenceRank {
+  family: number;
+  version: number[];
+  variant: number;
+}
+
+/**
+ * Rank a model ID against a provider's preference, or undefined when it is not
+ * a preferred model. "claude-opus-5-5" → family opus, version [5, 5], variant ''.
+ */
+function rankModel(modelId: string, preference: ModelPreference): PreferenceRank | undefined {
+  const bare = modelId
+    .replace(/^pi\//, '')
+    .replace(/-(?:\d{8}|\d{4}-\d{2}-\d{2})$/, ''); // snapshot date suffix
+  const family = preference.families.findIndex(prefix => bare.startsWith(`${prefix}-`));
+  if (family < 0) return undefined;
+
+  const rest = bare.slice(preference.families[family]!.length + 1);
+  const match = /^v?(\d+(?:[.-]\d+)*)(?:-(.+))?$/.exec(rest);
+  // An unversioned ID ("deepseek-flash") is a rolling alias for the newest release.
+  const version = match ? match[1]!.split(/[.-]/).map(Number) : [Infinity];
+  const variant = preference.variants.indexOf(match ? match[2] ?? '' : rest);
+  if (variant < 0) return undefined;
+
+  return { family, version, variant };
+}
+
+function compareVersionsDesc(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (b[i] ?? -1) - (a[i] ?? -1);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * The preferred models for a Pi auth provider, best first. Models the
+ * preference does not cover are left out.
+ */
+export function pickPreferredModels<T extends { id: string }>(
+  models: T[],
+  piAuthProvider: string | undefined,
+): T[] {
+  const preference = piAuthProvider ? PI_MODEL_PREFERENCES[piAuthProvider] : undefined;
+  if (!preference) return [];
+
+  return models
+    .map(model => ({ model, rank: rankModel(model.id, preference) }))
+    .filter((entry): entry is { model: T; rank: PreferenceRank } => entry.rank !== undefined)
+    .sort((a, b) =>
+      a.rank.family - b.rank.family
+      || compareVersionsDesc(a.rank.version, b.rank.version)
+      || a.rank.variant - b.rank.variant)
+    .map(entry => entry.model);
+}
 
 export function getDefaultModelsForConnection(
   providerType: LlmProviderType,
   piAuthProvider?: string,
 ): Array<ModelDefinition | string> {
   if (providerType === 'pi_compat') return [];
-  const models = [...piModelResolver(piAuthProvider)];
-  const preferred = piAuthProvider ? PI_PREFERRED_DEFAULTS[piAuthProvider] ?? [] : [];
-  const priority = (id: string): number => {
-    const bare = id.startsWith('pi/') ? id.slice(3) : id;
-    const index = preferred.findIndex(value => bare === value || bare.startsWith(`${value}-`));
-    return index < 0 ? preferred.length : index;
-  };
-  return models.sort((a, b) => priority(a.id) - priority(b.id));
+  const models = piModelResolver(piAuthProvider);
+  const preferred = pickPreferredModels(models, piAuthProvider);
+  return [...preferred, ...models.filter(model => !preferred.includes(model))];
 }
 
 export function getDefaultModelForConnection(

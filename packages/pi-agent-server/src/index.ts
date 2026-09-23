@@ -1500,7 +1500,7 @@ async function queryLlm(request: LLMQueryRequest): Promise<LLMQueryResult> {
     const isCompatible = resolvedProvider === authProvider || resolvedProvider === 'custom-endpoint';
     if (!resolved || !isCompatible || isDeniedMiniModelId(model, piAuthProvider)) {
       // Anthropic: keep Haiku (the cheap/fast mini). For every other provider
-      // Haiku is unresolvable, so walk PI_PREFERRED_DEFAULTS for a model that
+      // Haiku is unresolvable, so walk the provider's preferred models for one that
       // actually works under the user's auth.
       const providerDefault = authProvider === 'anthropic'
         ? undefined
