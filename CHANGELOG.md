@@ -11,6 +11,10 @@ for reviewers.
 
 ## [Unreleased]
 
+Add user-visible changes here before running `bun run release:prepare <version>`.
+
+## [0.14.0] - 2026-09-23
+
 ### Added
 
 - **Claude Opus 5.5, GPT-6 Sol and GPT-6 Luna are available.** The bundled
@@ -592,6 +596,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.14.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.14.0
 [0.13.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.13.0
 [0.12.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.12.0
 [0.11.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.11.1
