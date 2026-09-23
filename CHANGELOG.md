@@ -11,7 +11,21 @@ for reviewers.
 
 ## [Unreleased]
 
-Add user-visible changes here before running `bun run release:prepare <version>`.
+### Added
+
+- **Claude Opus 5.5, GPT-6 Sol and GPT-6 Luna are available.** The bundled
+  model catalog now includes the models released on 2026-09-22.
+
+### Changed
+
+- **New connections default to the newest flagship model.** Defaults are now
+  picked by model family and version instead of a fixed list, so Anthropic
+  connections start on Claude Opus 5.5 and OpenAI connections on GPT-6 Astra,
+  and future releases take over automatically after an update.
+- **Model names show their version** in settings and on connection cards
+  ("Opus 4.8" instead of "Opus").
+- Sessions saved with a model that has since been retired now fall back to
+  their connection's default model.
 
 ### Removed
 
