@@ -81,7 +81,7 @@ jobs:
       - name: Get PR context
         id: pr-context
         if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             // issue_comment events have no top-level pull_request fields, so
@@ -96,7 +96,7 @@ jobs:
             core.setOutput('head_sha', pullRequest.head.sha);
 
       - name: Run OpenCodeReview
-        uses: alibaba/open-code-review@v1.9.9
+        uses: alibaba/open-code-review@v1.12.10
         with:
           llm_url: ${{ secrets.OCR_LLM_URL }}
           llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
