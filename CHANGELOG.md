@@ -13,6 +13,8 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+## [0.14.1] - 2026-10-02
+
 ### Added
 
 - **Claude Sonnet 5.5 and GPT-6.1 Sol are available.** The bundled model
@@ -622,6 +624,7 @@ desktop application, a browser WebUI served by a headless server, and a CLI.
   for what differs.
 
 [Unreleased]: https://github.com/limboinf/bitlab-agent/releases
+[0.14.1]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.14.1
 [0.14.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.14.0
 [0.13.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.13.0
 [0.12.0]: https://github.com/limboinf/bitlab-agent/releases/tag/v0.12.0
