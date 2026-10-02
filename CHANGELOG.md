@@ -13,6 +13,32 @@ for reviewers.
 
 Add user-visible changes here before running `bun run release:prepare <version>`.
 
+### Added
+
+- **Claude Sonnet 5.5 and GPT-6.1 Sol are available.** The bundled model
+  catalog now includes the models released since the previous update.
+
+### Fixed
+
+- **Context-limit errors on z.ai and BigModel endpoints are recognized.**
+  Requests rejected with "Prompt exceeds max length" are now treated as
+  context overflow instead of unknown errors, so compaction and the context
+  indicator react to them correctly.
+- **Anthropic tool schemas with range keywords no longer fail.** Tools whose
+  JSON schema uses `minimum` or `maximum` are now sent in a mode Anthropic
+  accepts instead of returning HTTP 400.
+- **Local OpenAI-compatible servers can no longer run half-finished tool
+  calls.** Streams that end mid-tool-call, as llama.cpp-based servers
+  sometimes do, now fail with an error instead of executing a mixed-up
+  command.
+- **Rate-limit retries back off properly** when a provider sends an
+  unparseable `Retry-After` date, instead of retrying immediately.
+
+### Changed
+
+- **The OpenAI Codex provider is labeled "(legacy)"**, matching upstream
+  naming; it still works as before.
+
 ## [0.14.0] - 2026-09-23
 
 ### Added

@@ -15,7 +15,9 @@
  * density so all three parts stay in one vocabulary.
  */
 
-import { estimateTokens } from '@earendil-works/pi-agent-core';
+// estimateTokens moved from pi-agent-core to pi-coding-agent when the
+// experimental harness was dropped from pi-agent-core in SDK 1.0.
+import { estimateTokens } from '@earendil-works/pi-coding-agent';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 /** Fixed text density, matching the SDK's message estimator. */
